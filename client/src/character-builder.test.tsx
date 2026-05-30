@@ -55,18 +55,23 @@ describe('CharacterBuilder', () => {
 
     render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={onChanged} setError={setError} />);
 
-    expect(await screen.findByText('角色创建向导')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: '创建角色' }));
+    expect(await screen.findByRole('dialog', { name: '角色创建向导' })).toBeInTheDocument();
 
     await user.clear(screen.getByLabelText('角色姓名'));
     await user.type(screen.getByLabelText('角色姓名'), '洛林');
+    await user.click(screen.getByRole('button', { name: '下一步' }));
     await user.selectOptions(screen.getByLabelText('种族'), '人类');
+    await user.click(screen.getByRole('button', { name: '下一步' }));
     await user.selectOptions(screen.getByLabelText('职业'), '战士');
     await user.selectOptions(screen.getByLabelText('背景'), '士兵');
+    await user.click(screen.getByRole('button', { name: /技能 \/ 熟练/ }));
     await user.click(screen.getByLabelText('Athletics'));
-    await user.click(screen.getByLabelText('长剑'));
-    await user.click(screen.getByLabelText('光亮术'));
     await user.click(screen.getByLabelText('通用语'));
     await user.click(screen.getByLabelText('盾牌熟练'));
+    await user.click(screen.getByRole('button', { name: /装备/ }));
+    await user.click(screen.getByLabelText('长剑'));
+    await user.click(screen.getByLabelText('光亮术'));
     await user.click(screen.getByRole('button', { name: '保存草稿' }));
 
     await waitFor(() => expect(api.saveCharacterBuilderDraft).toHaveBeenCalled());
@@ -86,19 +91,24 @@ describe('CharacterBuilder', () => {
 
     render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={onChanged} setError={vi.fn()} />);
 
-    expect(await screen.findByText('角色创建向导')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: '创建角色' }));
+    expect(await screen.findByRole('dialog', { name: '角色创建向导' })).toBeInTheDocument();
 
     await user.clear(screen.getByLabelText('角色姓名'));
     await user.type(screen.getByLabelText('角色姓名'), '米拉');
+    await user.click(screen.getByRole('button', { name: /种族/ }));
     await user.type(screen.getByLabelText('自定义种族'), '自定义族群');
+    await user.click(screen.getByRole('button', { name: /职业/ }));
     await user.type(screen.getByLabelText('自定义职业'), '星图师');
     await user.type(screen.getByLabelText('自定义背景'), '失落学徒');
+    await user.click(screen.getByRole('button', { name: /技能 \/ 熟练/ }));
     await user.type(screen.getByLabelText('自定义技能'), '调查');
     await user.click(screen.getAllByRole('button', { name: '添加' })[0]);
-    await user.type(screen.getByLabelText('自定义装备'), '黄铜罗盘');
-    await user.click(screen.getAllByRole('button', { name: '添加' })[1]);
     await user.type(screen.getByLabelText('自定义语言'), '星界语');
-    await user.click(screen.getAllByRole('button', { name: '添加' })[3]);
+    await user.click(screen.getAllByRole('button', { name: '添加' })[1]);
+    await user.click(screen.getByRole('button', { name: /装备/ }));
+    await user.type(screen.getByLabelText('自定义装备'), '黄铜罗盘');
+    await user.click(screen.getAllByRole('button', { name: '添加' })[0]);
     await user.click(screen.getByRole('button', { name: '保存草稿' }));
 
     await waitFor(() => expect(api.saveCharacterBuilderDraft).toHaveBeenCalledWith('token-1', expect.objectContaining({
@@ -118,8 +128,10 @@ describe('CharacterBuilder', () => {
 
     render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={onChanged} setError={vi.fn()} />);
 
-    expect(await screen.findByText('角色创建向导')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: '创建角色' }));
+    expect(await screen.findByRole('dialog', { name: '角色创建向导' })).toBeInTheDocument();
 
+    await user.click(screen.getByRole('button', { name: /复核确认/ }));
     await user.click(screen.getByRole('button', { name: '审核角色' }));
 
     expect(await screen.findByText('审核通过，可以确认角色。')).toBeInTheDocument();
@@ -127,6 +139,21 @@ describe('CharacterBuilder', () => {
     await user.click(screen.getByRole('button', { name: '确认角色' }));
 
     await waitFor(() => expect(api.confirmCharacterBuilderDraft).toHaveBeenCalledWith('token-1'));
+    expect(api.saveCharacterBuilderDraft).toHaveBeenCalledWith('token-1', expect.any(Object));
     expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('warns before closing when the modal has unsaved changes', async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValueOnce(false);
+
+    render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={vi.fn()} setError={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: '创建角色' }));
+    await user.type(screen.getByLabelText('角色姓名'), '未保存');
+    await user.click(screen.getByRole('button', { name: '关闭' }));
+
+    expect(confirmSpy).toHaveBeenCalled();
+    expect(screen.getByRole('dialog', { name: '角色创建向导' })).toBeInTheDocument();
   });
 });

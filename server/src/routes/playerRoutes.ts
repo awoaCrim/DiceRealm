@@ -14,6 +14,7 @@ import {
 import { getCharacterResources } from '../services/characterResourceService.js';
 import { listCharacterResourceChanges } from '../services/characterAuditService.js';
 import { listSessionSummaries, listCampaignQuests, listCampaignNpcs } from '../services/campaignMemoryService.js';
+import { getTurnReadiness } from '../services/turnReadinessService.js';
 
 const actionSchema = z.object({
   text: z.string().min(1),
@@ -217,6 +218,8 @@ export function createPlayerRouter(db: AppDatabase): Router {
 
     db.prepare('INSERT OR REPLACE INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status, action_type, is_hidden_roll) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(nanoid(), player.roomId, turn.id, player.id, input.text, now, 'submitted', input.actionType ?? null, input.isHiddenRoll ? 1 : 0);
+    const fullRoom = db.prepare('SELECT id, current_turn as currentTurn FROM rooms WHERE id = ?').get(player.roomId) as { id: string; currentTurn: number };
+    getTurnReadiness(db, fullRoom);
     publishRoomUpdate(player.roomId);
     res.json({ ok: true });
   });

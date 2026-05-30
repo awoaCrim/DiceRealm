@@ -2,7 +2,7 @@ export type JsonValue = null | boolean | number | string | JsonValue[] | { [key:
 export type JsonObject = { [key: string]: JsonValue };
 
 export type RoomStatus = 'setup' | 'waiting_for_actions' | 'processing' | 'waiting_for_interaction' | 'needs_admin_attention';
-export type TurnStatus = 'open' | 'locked' | 'processing' | 'waiting_for_interaction' | 'complete' | 'needs_admin_attention';
+export type TurnStatus = 'open' | 'waiting_for_actions' | 'ready_to_resolve' | 'locked' | 'processing' | 'resolving' | 'waiting_for_interaction' | 'complete' | 'resolved' | 'needs_admin_attention';
 export type ActionStatus = 'submitted' | 'processing' | 'complete';
 export type VisibilityScope = 'public' | 'private' | 'admin';
 export type InteractionStatus = 'pending_target' | 'ready_for_ai' | 'resolved';
@@ -171,6 +171,18 @@ export interface Turn {
   status: TurnStatus;
   startedAt: string;
   endedAt: string | null;
+}
+
+export interface TurnReadiness {
+  turnId: string | null;
+  status: TurnStatus | null;
+  requiredActorIds: string[];
+  submittedActorIds: string[];
+  skippedActorIds: string[];
+  excludedActorIds: string[];
+  completedActorIds: string[];
+  missingActorIds: string[];
+  ready: boolean;
 }
 
 export interface PlayerAction {
@@ -594,6 +606,27 @@ export interface PromptPreviewResponse {
   warnings: string[];
 }
 
+export interface AiTurnPromptContextSection {
+  title: string;
+  content: string;
+}
+
+export interface AiTurnPromptPreviewResponse {
+  previewId: string;
+  roomId: string;
+  turnId: string | null;
+  flatPrompt: string;
+  messages: PromptPreviewMessage[];
+  contextSections: AiTurnPromptContextSection[];
+  warnings: string[];
+}
+
+export interface AiTurnPromptSendResponse {
+  responseText: string;
+  suggestedStateChanges: JsonValue[];
+  raw: JsonValue;
+}
+
 export interface CharacterResourceChange {
   id: string;
   characterId: string;
@@ -774,6 +807,7 @@ export interface AdminState {
   interactions: InteractionRequest[];
   logs: LogEntry[];
   aiGenerations: AiGeneration[];
+  turnReadiness: TurnReadiness;
   globalConfig: GlobalConfigSnapshot;
   presets: PromptPreset[];
   worldBooks: WorldBook[];

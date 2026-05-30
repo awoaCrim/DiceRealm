@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { activatePreset, addPlayer, adminDiceRoll, applyPresetTemplate, checkDbSourceUpdates, combatAttack, combatNextTurn, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getCombatState, getDiceLogs, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, importFromUrl, importJsDatabase, listCharacterResourceChanges, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listSessionSummaries, previewAiPrompt, processTurn, reindexRuleEmbeddings, rollbackCharacterResourceChange, rollCombatInitiative, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, startCombat, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updateQuest } from '../api';
+import { activatePreset, addPlayer, adminDiceRoll, applyPresetTemplate, checkDbSourceUpdates, combatAttack, combatNextTurn, createAiTurnPreview, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getCombatState, getDiceLogs, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, importFromUrl, importJsDatabase, listCharacterResourceChanges, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listSessionSummaries, previewAiPrompt, reindexRuleEmbeddings, rollbackCharacterResourceChange, rollCombatInitiative, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, sendAiTurnPreview, startCombat, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updateQuest } from '../api';
 import { LogList } from '../components/LogList';
 import { PromptPreviewPanel } from '../components/PromptPreviewPanel';
 import { ResourceImportPanel } from '../components/ResourceImportPanel';
 import { GlobalResourceConfigPanel } from '../components/RoomResourceBindingsPanel';
-import type { AdminState, AiProviderConfig, CampaignLocation, CampaignNpc, CampaignQuest, CharacterResourceChange, CombatState, DieType, DiceRollResult, EmbeddingProviderConfig, PresetTemplateMeta, PresetType, PromptBlock, PromptPreset, PromptPreviewResponse, RemoteDbSource, SessionSummary, WorldBookEntry } from '../types';
+import type { AdminState, AiProviderConfig, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, CampaignLocation, CampaignNpc, CampaignQuest, CharacterResourceChange, CombatState, DieType, DiceRollResult, EmbeddingProviderConfig, PresetTemplateMeta, PresetType, PromptBlock, PromptPreset, PromptPreviewResponse, RemoteDbSource, SessionSummary, WorldBookEntry } from '../types';
 
 type AdminTab = 'overview' | 'aiProvider' | 'diceCombat' | 'characterResources' | 'campaignMemory' | 'resources' | 'database' | 'presets' | 'worldBooks';
 
@@ -35,6 +35,11 @@ export function AdminPage({ roomId }: { roomId: string }) {
   const [embeddingMessage, setEmbeddingMessage] = useState('');
   const [embeddingTesting, setEmbeddingTesting] = useState(false);
   const [promptPreview, setPromptPreview] = useState<PromptPreviewResponse | null>(null);
+  const [aiTurnPreview, setAiTurnPreview] = useState<AiTurnPromptPreviewResponse | null>(null);
+  const [aiTurnPromptDraft, setAiTurnPromptDraft] = useState('');
+  const [aiTurnResult, setAiTurnResult] = useState<AiTurnPromptSendResponse | null>(null);
+  const [aiTurnBusy, setAiTurnBusy] = useState(false);
+  const [aiTurnMessage, setAiTurnMessage] = useState('');
   const [presetDraft, setPresetDraft] = useState<PromptPreset | null>(null);
   const [expandedPresetBlockKey, setExpandedPresetBlockKey] = useState<string | null>(null);
   const [presetTemplates, setPresetTemplates] = useState<PresetTemplateMeta[]>([]);
@@ -113,6 +118,11 @@ export function AdminPage({ roomId }: { roomId: string }) {
     refreshSeqRef.current += 1;
     aiProviderConfigDirtyRef.current = false;
     setPromptPreview(null);
+    setAiTurnPreview(null);
+    setAiTurnPromptDraft('');
+    setAiTurnResult(null);
+    setAiTurnBusy(false);
+    setAiTurnMessage('');
     setError('');
     setAiProviderMessage('');
     setAiProviderTesting(false);
@@ -150,11 +160,36 @@ export function AdminPage({ roomId }: { roomId: string }) {
 
   async function advance() {
     setError('');
+    setAiTurnBusy(true);
+    setAiTurnMessage('正在生成 AI 回合提示词...');
+    setAiTurnResult(null);
     try {
-      await processTurn(roomId);
-      await refresh();
+      const preview = await createAiTurnPreview(roomId);
+      setAiTurnPreview(preview);
+      setAiTurnPromptDraft(preview.flatPrompt);
+      setAiTurnMessage('提示词已生成，可检查后发送给 AI。');
     } catch (err) {
+      setAiTurnMessage('');
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiTurnBusy(false);
+    }
+  }
+
+  async function sendCurrentAiTurnPrompt() {
+    if (!aiTurnPreview || !aiTurnPromptDraft.trim()) return;
+    setError('');
+    setAiTurnBusy(true);
+    setAiTurnMessage('正在发送给 AI...');
+    try {
+      const result = await sendAiTurnPreview(roomId, aiTurnPreview.previewId, aiTurnPromptDraft);
+      setAiTurnResult(result);
+      setAiTurnMessage('AI 已返回结果；建议变更仅展示，不会自动写入角色卡或战局。');
+    } catch (err) {
+      setAiTurnMessage('');
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiTurnBusy(false);
     }
   }
 
@@ -711,6 +746,12 @@ export function AdminPage({ roomId }: { roomId: string }) {
   }
 
   if (!state) return <main className="shell"><p>加载中...</p></main>;
+  const playerNameById = new Map(state.players.map((player) => [player.id, player.name]));
+  const readiness = state.turnReadiness;
+  const missingActorNames = readiness.missingActorIds.map((id) => playerNameById.get(id) ?? id);
+  const readinessLabel = readiness.requiredActorIds.length > 0
+    ? `${readiness.completedActorIds.length} / ${readiness.requiredActorIds.length} 已完成`
+    : '暂无必需行动者';
 
   return (
     <main className="shell">
@@ -744,14 +785,56 @@ export function AdminPage({ roomId }: { roomId: string }) {
             {lastLink ? <p><a href={lastLink}>{lastLink}</a></p> : null}
             <h2>行动</h2>
             {state.actions.map((action) => <p key={action.id}>{action.playerId}: {action.text}</p>)}
+            <p className="muted">等待玩家行动：{readinessLabel}</p>
+            {missingActorNames.length > 0 ? <p className="muted">未提交：{missingActorNames.join(', ')}</p> : null}
             <div className="button-row">
-              <button onClick={advance}>处理本回合</button>
+              <button onClick={advance} disabled={aiTurnBusy || !readiness.ready}>{aiTurnBusy ? '处理中...' : '生成 AI 回合提示词'}</button>
             </div>
+            {!readiness.ready ? <p className="muted">提示：所有必需玩家提交、跳过或被管理员排除后，才能生成提示词。</p> : null}
+            {aiTurnMessage ? <p>{aiTurnMessage}</p> : null}
             <h2>AI 错误</h2>
             {state.aiGenerations.filter((gen) => gen.error).map((gen) => <p key={gen.id}>{gen.error}</p>)}
           </aside>
           <LogList title="全部日志" logs={state.logs} />
         </div>
+        {aiTurnPreview ? (
+          <div className="card ai-turn-debug-panel">
+            <h2>AI-DM 回合调试</h2>
+            <p className="muted">先检查上下文和提示词，再发送给模型；返回的状态变更只作为建议展示。</p>
+            <div className="context-section-list">
+              {aiTurnPreview.contextSections.map((section) => (
+                <details key={section.title}>
+                  <summary>{section.title}</summary>
+                  <pre>{section.content}</pre>
+                </details>
+              ))}
+            </div>
+            <label>可编辑提示词
+              <textarea
+                value={aiTurnPromptDraft}
+                onChange={(event) => setAiTurnPromptDraft(event.target.value)}
+                rows={16}
+              />
+            </label>
+            <div className="button-row">
+              <button onClick={sendCurrentAiTurnPrompt} disabled={aiTurnBusy || !aiTurnPromptDraft.trim()}>
+                {aiTurnBusy ? '发送中...' : '发送给 AI'}
+              </button>
+            </div>
+            {aiTurnResult ? (
+              <div className="subcard">
+                <h3>AI 回复</h3>
+                <p>{aiTurnResult.responseText}</p>
+                <h3>建议状态变更</h3>
+                {aiTurnResult.suggestedStateChanges.length > 0 ? (
+                  <pre>{JSON.stringify(aiTurnResult.suggestedStateChanges, null, 2)}</pre>
+                ) : (
+                  <p className="muted">本次没有建议状态变更。</p>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="card" role="tabpanel" hidden={activeTab !== 'aiProvider'}>

@@ -1,5 +1,7 @@
 import type {
   AdminState,
+  AiTurnPromptPreviewResponse,
+  AiTurnPromptSendResponse,
   AiConfig,
   AiProviderConfig,
   AuditListResponse,
@@ -150,6 +152,20 @@ export function saveAiConfig(roomId: string, aiConfig: AiConfig) {
 
 export function previewAiPrompt(roomId: string) {
   return jsonRequest<PromptPreviewResponse>(`/api/admin/rooms/${roomId}/ai-prompt-preview`);
+}
+
+export function createAiTurnPreview(roomId: string) {
+  return jsonRequest<AiTurnPromptPreviewResponse>('/api/admin/ai/turn-preview', {
+    method: 'POST',
+    body: JSON.stringify({ roomId })
+  });
+}
+
+export function sendAiTurnPreview(roomId: string, previewId: string, flatPrompt: string) {
+  return jsonRequest<AiTurnPromptSendResponse>('/api/admin/ai/send-preview', {
+    method: 'POST',
+    body: JSON.stringify({ roomId, previewId, flatPrompt })
+  });
 }
 
 type PresetSaveInput = Omit<PromptPreset, 'id' | 'roomId' | 'createdAt' | 'updatedAt'> & { id?: string };

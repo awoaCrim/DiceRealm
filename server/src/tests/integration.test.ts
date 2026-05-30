@@ -2881,6 +2881,261 @@ describe('DND AI-DM integration', () => {
     }
   });
 
+  it('rejects AI-DM turn preview while required actors are missing', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Blocked Prompt Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+      const ariRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Ari' })
+      });
+      const boRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Bo' })
+      });
+      const ari = await ariRes.json() as { playerId: string };
+      const bo = await boRes.json() as { playerId: string };
+      const turn = db.prepare('SELECT id FROM turns WHERE room_id = ? AND number = ?').get(room.roomId, 1) as { id: string };
+      db.prepare('INSERT INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run('ari-only-action', room.roomId, turn.id, ari.playerId, 'I wait by the door.', new Date().toISOString(), 'submitted');
+
+      const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(previewRes.status).toBe(409);
+      const error = await previewRes.json() as { error: string; requiredActorIds: string[]; completedActorIds: string[]; missingActorIds: string[] };
+      expect(error.error).toBe('TURN_NOT_READY');
+      expect(error.requiredActorIds).toEqual([ari.playerId, bo.playerId]);
+      expect(error.completedActorIds).toEqual([ari.playerId]);
+      expect(error.missingActorIds).toEqual([bo.playerId]);
+      const previewCount = db.prepare('SELECT COUNT(*) as count FROM ai_turn_previews').get() as { count: number };
+      expect(previewCount.count).toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      db.close();
+    }
+  });
+
+  it('rejects sending a stale AI-DM preview after the current turn changes', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Stale Preview Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+      const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Ari' })
+      });
+      const player = await playerRes.json() as { playerId: string };
+      const turn1 = db.prepare('SELECT id FROM turns WHERE room_id = ? AND number = ?').get(room.roomId, 1) as { id: string };
+      db.prepare('INSERT INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run('turn-1-action', room.roomId, turn1.id, player.playerId, 'I open the door.', new Date().toISOString(), 'submitted');
+      const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(previewRes.status).toBe(200);
+      const preview = await previewRes.json() as { previewId: string; flatPrompt: string };
+
+      const turn2Id = 'turn-two-stale-test';
+      db.prepare('INSERT INTO turns (id, room_id, number, status, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?)')
+        .run(turn2Id, room.roomId, 2, 'open', new Date().toISOString(), null);
+      db.prepare('UPDATE rooms SET current_turn = ? WHERE id = ?').run(2, room.roomId);
+      db.prepare('INSERT INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run('turn-2-action', room.roomId, turn2Id, player.playerId, 'I listen.', new Date().toISOString(), 'submitted');
+
+      const sendRes = await fetch(`${base}/api/admin/ai/send-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId, flatPrompt: preview.flatPrompt })
+      });
+      expect(sendRes.status).toBe(409);
+      const error = await sendRes.json() as { error: string; currentTurnId: string };
+      expect(error.error).toBe('STALE_PROMPT_PREVIEW');
+      expect(error.currentTurnId).toBe(turn2Id);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      db.close();
+    }
+  });
+
+  it('previews editable AI-DM turn prompts and sends them without applying state changes', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    let capturedPrompt = '';
+    const stub = await createOpenAiStub((body) => {
+      capturedPrompt = body.messages?.find((message: { role?: string; content?: string }) => message.role === 'user')?.content ?? '';
+      return {
+        body: {
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                publicLog: 'The edited prompt was accepted.',
+                privateUpdatesByPlayer: {},
+                ruleResults: ['No conflict.'],
+                interactionRequests: [],
+                characterResourceChanges: [{
+                  characterId: 'char-1',
+                  path: 'hitPoints.current',
+                  before: 12,
+                  after: 10,
+                  reason: 'test suggestion',
+                  ruleRefs: []
+                }]
+              })
+            }
+          }]
+        }
+      };
+    });
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Prompt Loop Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+      const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Ari' })
+      });
+      const player = await playerRes.json() as { playerId: string };
+      const turn = db.prepare('SELECT id, status FROM turns WHERE room_id = ? AND number = ?').get(room.roomId, 1) as { id: string; status: string };
+      db.prepare('INSERT INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run('preview-action', room.roomId, turn.id, player.playerId, 'I check the old door.', new Date().toISOString(), 'submitted');
+
+      const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(previewRes.status).toBe(200);
+      const preview = await previewRes.json() as { previewId: string; flatPrompt: string; contextSections: Array<{ title: string; content: string }> };
+      expect(preview.flatPrompt).toContain('## Character Status');
+      expect(preview.flatPrompt).toContain('HP/AC/Proficiency');
+      expect(preview.flatPrompt).toContain('I check the old door.');
+      expect(preview.contextSections.some((section) => section.title === 'Character Status')).toBe(true);
+      expect(stub.requests).toHaveLength(0);
+      const turnReady = db.prepare('SELECT status FROM turns WHERE id = ?').get(turn.id) as { status: string };
+      expect(turnReady.status).toBe('ready_to_resolve');
+
+      const logsBefore = db.prepare('SELECT COUNT(*) as count FROM log_entries WHERE room_id = ?').get(room.roomId) as { count: number };
+      await fetch(`${base}/api/admin/config/ai-provider`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai-compatible', baseUrl: stub.baseUrl, apiKey: 'preview-key', model: 'preview-model' })
+      });
+      const editedPrompt = `${preview.flatPrompt}\n\nDM edit: make the door ominous.`;
+      const sendRes = await fetch(`${base}/api/admin/ai/send-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId, flatPrompt: editedPrompt })
+      });
+      expect(sendRes.status).toBe(200);
+      const sent = await sendRes.json() as { responseText: string; suggestedStateChanges: Array<{ type: string }> };
+      expect(sent.responseText).toBe('The edited prompt was accepted.');
+      expect(sent.suggestedStateChanges).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'character_resource_change' })]));
+      expect(capturedPrompt).toContain('DM edit: make the door ominous.');
+
+      const previewAudit = db.prepare('SELECT original_prompt as originalPrompt, edited_prompt as editedPrompt, response_text as responseText, status FROM ai_turn_previews WHERE id = ?')
+        .get(preview.previewId) as { originalPrompt: string; editedPrompt: string; responseText: string; status: string };
+      expect(previewAudit.originalPrompt).toContain('## Character Status');
+      expect(previewAudit.editedPrompt).toContain('DM edit: make the door ominous.');
+      expect(previewAudit.responseText).toBe('The edited prompt was accepted.');
+      expect(previewAudit.status).toBe('sent');
+
+      const logsAfter = db.prepare('SELECT COUNT(*) as count FROM log_entries WHERE room_id = ?').get(room.roomId) as { count: number };
+      const turnAfter = db.prepare('SELECT status FROM turns WHERE id = ?').get(turn.id) as { status: string };
+      const generationsAfter = db.prepare('SELECT COUNT(*) as count FROM ai_generations WHERE room_id = ?').get(room.roomId) as { count: number };
+      expect(logsAfter.count).toBe(logsBefore.count);
+      expect(turnAfter.status).toBe(turnReady.status);
+      expect(generationsAfter.count).toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await stub.close();
+      db.close();
+    }
+  });
+
+  it('shows an empty character placeholder in AI-DM turn preview', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Empty Character Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+      const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Draft Hero' })
+      });
+      const player = await playerRes.json() as { playerId: string };
+      const turn = db.prepare('SELECT id FROM turns WHERE room_id = ? AND number = ?').get(room.roomId, 1) as { id: string };
+      db.prepare('INSERT INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run('draft-action', room.roomId, turn.id, player.playerId, 'I look around.', new Date().toISOString(), 'submitted');
+      const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(previewRes.status).toBe(200);
+      const preview = await previewRes.json() as { flatPrompt: string };
+      expect(preview.flatPrompt).toContain('No confirmed character sheets yet');
+      expect(preview.flatPrompt).toContain('Draft Characters');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      db.close();
+    }
+  });
+
   it('imports world book from remote URL and creates source record', async () => {
     const db = createMemoryDb();
     migrate(db);

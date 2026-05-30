@@ -41,6 +41,17 @@ vi.mock('./api', () => ({
     interactions: [],
     logs: [],
     aiGenerations: [],
+    turnReadiness: {
+      turnId: 'turn-1',
+      status: 'ready_to_resolve',
+      requiredActorIds: [],
+      submittedActorIds: [],
+      skippedActorIds: [],
+      excludedActorIds: [],
+      completedActorIds: [],
+      missingActorIds: [],
+      ready: true
+    },
     globalConfig: {
       aiConfig: {
         coreRules: '核心约束',
@@ -149,6 +160,20 @@ vi.mock('./api', () => ({
   })),
   addPlayer: vi.fn(),
   processTurn: vi.fn(),
+  createAiTurnPreview: vi.fn(async () => ({
+    previewId: 'preview-1',
+    roomId: 'room-1',
+    turnId: 'turn-1',
+    flatPrompt: '## Character Status\nFighter HP 12/12\n\nOriginal prompt',
+    messages: [{ role: 'user', content: '## Character Status\nFighter HP 12/12\n\nOriginal prompt' }],
+    contextSections: [{ title: 'Character Status', content: 'Fighter HP 12/12' }],
+    warnings: []
+  })),
+  sendAiTurnPreview: vi.fn(async () => ({
+    responseText: 'AI narration result',
+    suggestedStateChanges: [{ type: 'dice_request', reason: 'attack roll' }],
+    raw: { publicLog: 'AI narration result', privateUpdatesByPlayer: {}, ruleResults: [], interactionRequests: [] }
+  })),
   getGlobalAiProviderConfig: vi.fn(async () => ({
     provider: 'mock',
     baseUrl: 'https://api.openai.com/v1',
@@ -485,7 +510,8 @@ describe('中文界面文案', () => {
 
     render(<PlayerPage token="token-1" />);
 
-    expect(await screen.findByText('角色创建向导')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '创建角色' })).toBeInTheDocument();
+    expect(screen.getByText('尚未确认角色。使用分步向导创建角色，草稿可随时保存。')).toBeInTheDocument();
     expect(screen.queryByText('暂无角色。')).not.toBeInTheDocument();
   });
 
@@ -534,6 +560,62 @@ describe('中文界面文案', () => {
     expect(screen.getByRole('button', { name: '创建世界书' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '添加世界书条目' })).toBeInTheDocument();
   });
+
+  it('总览页先生成可编辑 AI 回合提示词，再发送给 AI', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.createAiTurnPreview).mockClear();
+    vi.mocked(api.sendAiTurnPreview).mockClear();
+    render(<AdminPage roomId="room-1" />);
+
+    await user.click(await screen.findByRole('button', { name: '生成 AI 回合提示词' }));
+
+    expect(await screen.findByText('AI-DM 回合调试')).toBeInTheDocument();
+    expect(api.createAiTurnPreview).toHaveBeenCalledWith('room-1');
+    const promptBox = screen.getByLabelText('可编辑提示词');
+    expect((promptBox as HTMLTextAreaElement).value).toContain('Fighter HP 12/12');
+
+    await user.type(promptBox, '\nDM extra note');
+    await user.click(screen.getByRole('button', { name: '发送给 AI' }));
+
+    await waitFor(() => expect(api.sendAiTurnPreview).toHaveBeenCalledWith(
+      'room-1',
+      'preview-1',
+      expect.stringContaining('DM extra note')
+    ));
+    expect(await screen.findByText('AI narration result')).toBeInTheDocument();
+    expect(screen.getByText(/attack roll/)).toBeInTheDocument();
+    expect(screen.getByText('AI 已返回结果；建议变更仅展示，不会自动写入角色卡或战局。')).toBeInTheDocument();
+  });
+
+  it('总览页在回合未就绪时禁用生成提示词并显示缺席玩家', async () => {
+    const baseState = await api.getAdminState('room-1');
+    vi.mocked(api.getAdminState).mockResolvedValueOnce({
+      ...baseState,
+      players: [
+        { id: 'player-1', roomId: 'room-1', name: '阿瑞', token: 't1', isConnected: true, createdAt: '2026-05-27T00:00:00.000Z' },
+        { id: 'player-2', roomId: 'room-1', name: '波', token: 't2', isConnected: true, createdAt: '2026-05-27T00:01:00.000Z' }
+      ],
+      turnReadiness: {
+        turnId: 'turn-1',
+        status: 'open',
+        requiredActorIds: ['player-1', 'player-2'],
+        submittedActorIds: ['player-1'],
+        skippedActorIds: [],
+        excludedActorIds: [],
+        completedActorIds: ['player-1'],
+        missingActorIds: ['player-2'],
+        ready: false
+      }
+    });
+
+    render(<AdminPage roomId="room-1" />);
+
+    expect(await screen.findByText('等待玩家行动：1 / 2 已完成')).toBeInTheDocument();
+    expect(screen.getByText('未提交：波')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '生成 AI 回合提示词' })).toBeDisabled();
+    expect(screen.getByText('提示：所有必需玩家提交、跳过或被管理员排除后，才能生成提示词。')).toBeInTheDocument();
+  });
+
   it('资源配置标签页展示资源导入与审核入口', async () => {
     const user = userEvent.setup();
     render(<AdminPage roomId="room-1" />);

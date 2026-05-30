@@ -156,6 +156,10 @@ export function migrate(db: AppDatabase): void {
       room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
       number INTEGER NOT NULL,
       status TEXT NOT NULL,
+      required_actor_ids_json TEXT NOT NULL DEFAULT '[]',
+      submitted_actor_ids_json TEXT NOT NULL DEFAULT '[]',
+      skipped_actor_ids_json TEXT NOT NULL DEFAULT '[]',
+      excluded_actor_ids_json TEXT NOT NULL DEFAULT '[]',
       started_at TEXT NOT NULL,
       ended_at TEXT,
       UNIQUE(room_id, number)
@@ -205,6 +209,22 @@ export function migrate(db: AppDatabase): void {
       output TEXT NOT NULL,
       error TEXT,
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_turn_previews (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      turn_id TEXT REFERENCES turns(id) ON DELETE SET NULL,
+      original_prompt TEXT NOT NULL,
+      edited_prompt TEXT,
+      response_text TEXT,
+      suggested_state_changes_json TEXT NOT NULL DEFAULT '[]',
+      raw_json TEXT,
+      status TEXT NOT NULL,
+      error_message TEXT,
+      created_at TEXT NOT NULL,
+      sent_at TEXT,
+      CHECK (status IN ('previewed', 'sent', 'failed'))
     );
 
     CREATE TABLE IF NOT EXISTS prompt_presets (
@@ -531,6 +551,7 @@ export function migrate(db: AppDatabase): void {
   db.prepare('CREATE INDEX IF NOT EXISTS rule_world_book_entries_category_idx ON rule_world_book_entries(category)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS resource_rules_category_idx ON resource_rules(category)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS character_resource_changes_room_char_idx ON character_resource_changes(room_id, character_id, created_at)').run();
+  db.prepare('CREATE INDEX IF NOT EXISTS ai_turn_previews_room_idx ON ai_turn_previews(room_id, created_at)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS session_summaries_room_idx ON session_summaries(room_id, created_at)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS campaign_quests_room_idx ON campaign_quests(room_id, title)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS campaign_npcs_room_idx ON campaign_npcs(room_id, name)').run();
@@ -577,6 +598,10 @@ export function migrate(db: AppDatabase): void {
   // --- Exploration & Social ---
   addColumnIfMissing(db, 'actions', 'action_type', 'TEXT');
   addColumnIfMissing(db, 'actions', 'is_hidden_roll', 'INTEGER DEFAULT 0');
+  addColumnIfMissing(db, 'turns', 'required_actor_ids_json', "TEXT NOT NULL DEFAULT '[]'");
+  addColumnIfMissing(db, 'turns', 'submitted_actor_ids_json', "TEXT NOT NULL DEFAULT '[]'");
+  addColumnIfMissing(db, 'turns', 'skipped_actor_ids_json', "TEXT NOT NULL DEFAULT '[]'");
+  addColumnIfMissing(db, 'turns', 'excluded_actor_ids_json', "TEXT NOT NULL DEFAULT '[]'");
 }
 
 function addColumnIfMissing(db: AppDatabase, table: string, column: string, colDef: string): void {

@@ -9,7 +9,7 @@ import { createStarterCharacter, createEmptyCharacterBuilderSheet } from '../ser
 import { getCharacterResources, applyResourcePatch, shortRest, longRest } from '../services/characterResourceService.js';
 import { listCharacterResourceChanges, rollbackResourceChange } from '../services/characterAuditService.js';
 import { importRuleSource, listRuleSources } from '../services/rulesService.js';
-import { allPlayersSubmitted, processTurnActions } from '../services/turnEngine.js';
+import { processTurnActions } from '../services/turnEngine.js';
 import { publishRoomUpdate } from '../services/eventBus.js';
 import { buildTurnPrompt, defaultAiConfig, normalizeAiConfig, parseAiConfigJson, renderDndOutputContract } from '../services/aiContextBuilder.js';
 import { buildWorldBookScanText, matchWorldBookEntries } from '../services/worldBookService.js';
@@ -48,7 +48,8 @@ import { registerAdminResourceRoutes } from './adminResourceRoutes.js';
 import { registerAdminDbRoutes } from './adminDbRoutes.js';
 import { abilityCheck, abilityModifier, attackRoll, damageRoll, rollDice } from '../services/diceService.js';
 import { createCombat, rollInitiative, nextTurn, processAttack } from '../services/combatService.js';
-import type { AiConfig, DiceLog, InteractionRequest, LogEntry, Player, PlayerAction, PromptBlock, PromptBlockPosition, PromptPreviewResponse, PromptPreset, Room, RuleRetrievalMatch, ScriptCard, Turn, WorldBook, WorldBookEntry, WorldBookMatch, WorldBookPosition } from '../domain/types.js';
+import { assertPreviewMatchesCurrentReadyTurn, assertTurnReadyForAi, getTurnReadiness, playerNamesById, StaleTurnPreviewError, TurnNotReadyError, turnNotReadyPayload } from '../services/turnReadinessService.js';
+import type { AiConfig, AiTurnPromptContextSection, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, AiTurnResult, CharacterSheet, DiceLog, InteractionRequest, LogEntry, Player, PlayerAction, PromptBlock, PromptBlockPosition, PromptPreviewResponse, PromptPreset, Room, RuleRetrievalMatch, ScriptCard, Turn, WorldBook, WorldBookEntry, WorldBookMatch, WorldBookPosition } from '../domain/types.js';
 
 const createRoomSchema = z.object({
   name: z.string().min(1)
@@ -80,6 +81,14 @@ const embeddingProviderConfigSchema = z.object({
 const ruleRetrievalPreviewSchema = z.object({
   query: z.string().min(1),
   limit: z.number().int().positive().max(10).default(5)
+}).strict();
+const aiTurnPreviewSchema = z.object({
+  roomId: z.string().min(1)
+}).strict();
+const aiTurnSendPreviewSchema = z.object({
+  roomId: z.string().min(1),
+  previewId: z.string().min(1),
+  flatPrompt: z.string().min(1)
 }).strict();
 
 const diceRollSchema = z.object({
@@ -391,12 +400,181 @@ async function buildRoomPromptPreview(db: AppDatabase, room: Room): Promise<{ pr
   };
 }
 
+function formatStringList(values: unknown, empty = '无'): string {
+  return Array.isArray(values) && values.length > 0
+    ? values.map((item) => String(item)).join(', ')
+    : empty;
+}
+
+function formatAbilityScores(sheet: CharacterSheet): string {
+  const scores = sheet.abilityScores;
+  return `STR ${scores.str}, DEX ${scores.dex}, CON ${scores.con}, INT ${scores.int}, WIS ${scores.wis}, CHA ${scores.cha}`;
+}
+
+function loadCharacterStatusSection(db: AppDatabase, roomId: string): AiTurnPromptContextSection {
+  const rows = db.prepare(`
+    SELECT c.id as characterId, c.sheet_json as sheetJson, c.confirmed, p.id as playerId, p.name as playerName
+    FROM characters c
+    JOIN players p ON p.id = c.player_id
+    WHERE p.room_id = ?
+    ORDER BY p.created_at ASC
+  `).all(roomId) as Array<{ characterId: string; sheetJson: string; confirmed: number; playerId: string; playerName: string }>;
+
+  if (rows.length === 0) {
+    return {
+      title: 'Character Status',
+      content: 'No character sheets are confirmed yet. Ask for missing basics before resolving dangerous or resource-sensitive actions.'
+    };
+  }
+
+  const formatRow = (row: { characterId: string; sheetJson: string; confirmed: number; playerId: string; playerName: string }) => {
+    let sheet: CharacterSheet;
+    try {
+      sheet = JSON.parse(row.sheetJson) as CharacterSheet;
+    } catch {
+      return `- ${row.playerName}: character sheet is unreadable; avoid changing resources for characterId=${row.characterId}.`;
+    }
+    return [
+      `- ${sheet.name || row.playerName} (${row.playerName}, characterId=${row.characterId}, confirmed=${Boolean(row.confirmed)})`,
+      `  Species/Class/Level: ${sheet.species || 'unknown'} / ${sheet.className || 'unknown'} / ${sheet.level ?? 1}`,
+      `  Background/Concept: ${sheet.background || 'unknown'} / ${sheet.concept || 'unknown'}`,
+      `  HP/AC/Proficiency: ${sheet.hitPoints?.current ?? '?'} / ${sheet.hitPoints?.max ?? '?'} HP, AC ${sheet.armorClass ?? '?'}, PB +${sheet.proficiencyBonus ?? '?'}`,
+      `  Abilities: ${formatAbilityScores(sheet)}`,
+      `  Skills: ${formatStringList(sheet.skills)}`,
+      `  Equipment: ${formatStringList(sheet.equipment)}`,
+      `  Spells: ${formatStringList(sheet.spells)}`,
+      `  Languages/Proficiencies: ${formatStringList(sheet.languages)} / ${formatStringList(sheet.proficiencies)}`
+    ].join('\n');
+  };
+
+  const confirmed = rows.filter((row) => Boolean(row.confirmed));
+  const drafts = rows.filter((row) => !Boolean(row.confirmed));
+  const content = [
+    confirmed.length > 0
+      ? `Confirmed Characters:\n${confirmed.map(formatRow).join('\n')}`
+      : 'Confirmed Characters:\nNo confirmed character sheets yet.',
+    drafts.length > 0
+      ? `Draft Characters (do not resolve checks, damage, spell slots, or combat resources for these unless the admin explicitly says so):\n${drafts.map(formatRow).join('\n')}`
+      : ''
+  ].filter(Boolean).join('\n\n');
+
+  return { title: 'Character Status', content };
+}
+
+function buildRecentActionsSection(context: RoomPromptPreviewContext): AiTurnPromptContextSection {
+  if (context.actions.length === 0) {
+    return { title: 'Current Turn Actions', content: 'No player actions have been submitted for the current turn.' };
+  }
+  const playerNames = new Map(context.players.map((player) => [player.id, player.name]));
+  return {
+    title: 'Current Turn Actions',
+    content: context.actions.map((action) => {
+      const playerName = playerNames.get(action.playerId) ?? action.playerId;
+      const tags = [action.actionType, action.isHiddenRoll ? 'hidden-roll' : 'public'].filter(Boolean).join(', ');
+      return `- ${playerName}: ${action.text}${tags ? ` (${tags})` : ''}`;
+    }).join('\n')
+  };
+}
+
+function buildRecentPublicLogSection(context: RoomPromptPreviewContext): AiTurnPromptContextSection {
+  const recentLogs = context.publicLogs.slice(-8);
+  if (recentLogs.length === 0) {
+    return { title: 'Recent Public Logs', content: 'No public logs yet.' };
+  }
+  return {
+    title: 'Recent Public Logs',
+    content: recentLogs.map((log) => `- ${log.title}: ${log.content}`).join('\n')
+  };
+}
+
+function buildWorldAndRulesSection(preview: PromptPreviewResponse): AiTurnPromptContextSection {
+  const worldLines = preview.worldBookMatches.length > 0
+    ? preview.worldBookMatches.map((match) => `- ${match.keys.join(', ') || match.entryId}: ${match.content}`)
+    : ['- No matched worldbook entries.'];
+  const ruleLines = preview.ruleMatches.length > 0
+    ? preview.ruleMatches.map((match) => `- ${match.title} [${match.category}]: ${match.summary}`)
+    : ['- No approved rule matches.'];
+  return {
+    title: 'Relevant Worldbook And Approved Rules',
+    content: [...worldLines, ...ruleLines].join('\n')
+  };
+}
+
+function buildAiTurnDebugPrompt(room: Room, preview: PromptPreviewResponse, context: RoomPromptPreviewContext, characterStatus: AiTurnPromptContextSection): { flatPrompt: string; contextSections: AiTurnPromptContextSection[] } {
+  const contextSections: AiTurnPromptContextSection[] = [
+    {
+      title: 'AI-DM Operating Boundary',
+      content: [
+        'Resolve the next playable beat for this DND 5e scene.',
+        'Resolve only submitted actions. Do not invent missing player actions.',
+        'Do not directly mutate campaign, character, inventory, HP, spell slots, conditions, or database state.',
+        'Return narrative plus explicit suggested changes only; the admin will review and apply changes separately.',
+        'Do not invent dice results. Use diceRequests when a real roll is needed.',
+        'Preserve information isolation between public and private player knowledge.',
+        'Respect player agency: ask for clarification or a roll when an action needs player input.'
+      ].join('\n')
+    },
+    {
+      title: 'Campaign State',
+      content: [
+        `Room: ${room.name}`,
+        `Turn: ${room.currentTurn}`,
+        `Room status: ${room.status}`,
+        `World info: ${room.worldInfo || 'None'}`
+      ].join('\n')
+    },
+    characterStatus,
+    buildRecentActionsSection(context),
+    buildRecentPublicLogSection(context),
+    buildWorldAndRulesSection(preview)
+  ];
+
+  const flatPrompt = [
+    ...contextSections.map((section) => `## ${section.title}\n${section.content}`),
+    '## Existing System Prompt And Output Contract',
+    preview.prompt
+  ].join('\n\n');
+
+  return { flatPrompt, contextSections };
+}
+
+function normalizeSuggestedStateChanges(result: AiTurnResult): unknown[] {
+  return [
+    ...(result.suggestedStateChanges ?? []).map((change) => ({ type: 'suggested_state_change', ...change })),
+    ...(result.characterResourceChanges ?? []).map((change) => ({ type: 'character_resource_change', ...change })),
+    ...(result.diceRequests ?? []).map((request) => {
+      const { type, ...rest } = request;
+      return { type: 'dice_request', requestType: type, ...rest };
+    }),
+    ...(result.interactionRequests ?? []).map((request) => {
+      const { type, ...rest } = request;
+      return { type: 'interaction_request', interactionType: type, ...rest };
+    })
+  ];
+}
+
+function handleTurnReadinessError(error: unknown, res: import('express').Response): boolean {
+  if (error instanceof TurnNotReadyError) {
+    res.status(409).json(turnNotReadyPayload(error.readiness));
+    return true;
+  }
+  if (error instanceof StaleTurnPreviewError) {
+    res.status(409).json({
+      error: 'STALE_PROMPT_PREVIEW',
+      message: '当前回合已变化，请重新生成 AI 提示词。',
+      currentTurnId: error.currentTurnId
+    });
+    return true;
+  }
+  return false;
+}
+
 function claimRoomTurnForProcessing(db: AppDatabase, roomId: string, turnId: string): boolean {
   return db.transaction(() => {
     const roomClaim = db.prepare('UPDATE rooms SET status = ? WHERE id = ? AND status = ?').run('processing', roomId, 'waiting_for_actions');
     if (roomClaim.changes !== 1) return false;
 
-    const turnClaim = db.prepare('UPDATE turns SET status = ? WHERE id = ? AND status = ?').run('processing', turnId, 'open');
+    const turnClaim = db.prepare('UPDATE turns SET status = ? WHERE id = ? AND status = ?').run('processing', turnId, 'ready_to_resolve');
     if (turnClaim.changes !== 1) {
       db.prepare('UPDATE rooms SET status = ? WHERE id = ? AND status = ?').run('waiting_for_actions', roomId, 'processing');
       return false;
@@ -915,6 +1093,8 @@ export function createAdminRouter(db: AppDatabase): Router {
         .run(characterId, playerId, JSON.stringify(sheet), 'manual', 0, now);
     });
     tx();
+    const fullRoom = getRoom(db, req.params.roomId);
+    if (fullRoom) getTurnReadiness(db, fullRoom);
     publishRoomUpdate(req.params.roomId);
 
     res.json({ playerId, token, playerUrl: `/player/${token}` });
@@ -930,6 +1110,7 @@ export function createAdminRouter(db: AppDatabase): Router {
     const logs = db.prepare('SELECT id, room_id as roomId, turn_id as turnId, visibility_scope as visibilityScope, player_id as playerId, title, content, created_at as createdAt FROM log_entries WHERE room_id = ? ORDER BY created_at ASC').all(req.params.roomId);
     const aiGenerations = db.prepare('SELECT id, room_id as roomId, turn_id as turnId, provider, input_summary as inputSummary, output, error, created_at as createdAt FROM ai_generations WHERE room_id = ? ORDER BY created_at ASC').all(req.params.roomId);
     const globalConfig = getGlobalConfigSnapshot(db);
+    const turnReadiness = getTurnReadiness(db, room);
     res.json({
       room: { ...room, aiConfig: globalConfig.aiConfig },
       players,
@@ -938,6 +1119,7 @@ export function createAdminRouter(db: AppDatabase): Router {
       interactions,
       logs,
       aiGenerations,
+      turnReadiness,
       globalConfig,
       presets: globalConfig.presets,
       worldBooks: globalConfig.worldBooks,
@@ -975,6 +1157,94 @@ export function createAdminRouter(db: AppDatabase): Router {
     if (!room) return res.status(404).json({ error: 'Room not found' });
     const { preview } = await buildRoomPromptPreview(db, room);
     res.json(preview);
+  });
+
+  router.post('/ai/turn-preview', async (req, res) => {
+    const input = aiTurnPreviewSchema.parse(req.body);
+    const room = getRoom(db, input.roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    try {
+      assertTurnReadyForAi(db, room);
+    } catch (error) {
+      if (handleTurnReadinessError(error, res)) return;
+      throw error;
+    }
+
+    const { preview, context } = await buildRoomPromptPreview(db, room);
+    const characterStatus = loadCharacterStatusSection(db, room.id);
+    const { flatPrompt, contextSections } = buildAiTurnDebugPrompt(room, preview, context, characterStatus);
+    const previewId = nanoid();
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO ai_turn_previews (
+        id, room_id, turn_id, original_prompt, suggested_state_changes_json, status, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(previewId, room.id, context.turn?.id ?? null, flatPrompt, '[]', 'previewed', now);
+
+    const response: AiTurnPromptPreviewResponse = {
+      previewId,
+      roomId: room.id,
+      turnId: context.turn?.id ?? null,
+      flatPrompt,
+      messages: [{ role: 'user', content: flatPrompt }],
+      contextSections,
+      warnings: preview.warnings
+    };
+    res.json(response);
+  });
+
+  router.post('/ai/send-preview', async (req, res) => {
+    const input = aiTurnSendPreviewSchema.parse(req.body);
+    const previewRow = db.prepare('SELECT id, room_id as roomId, turn_id as turnId FROM ai_turn_previews WHERE id = ? AND room_id = ?')
+      .get(input.previewId, input.roomId) as { id: string; roomId: string; turnId: string | null } | undefined;
+    if (!previewRow) return res.status(404).json({ error: 'Prompt preview not found' });
+
+    const room = getRoom(db, input.roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    try {
+      assertPreviewMatchesCurrentReadyTurn(db, room, previewRow.turnId);
+    } catch (error) {
+      if (handleTurnReadinessError(error, res)) return;
+      throw error;
+    }
+
+    const providerConfig = getGlobalAiProviderConfig(db);
+    const sentAt = new Date().toISOString();
+    try {
+      const aiProvider = createAiProviderFromConfig(providerConfig);
+      const result = await aiProvider.generateTurnResult(input.flatPrompt);
+      const suggestedStateChanges = normalizeSuggestedStateChanges(result);
+      db.prepare(`
+        UPDATE ai_turn_previews
+        SET edited_prompt = ?, response_text = ?, suggested_state_changes_json = ?, raw_json = ?, status = ?, error_message = NULL, sent_at = ?
+        WHERE id = ?
+      `).run(
+        input.flatPrompt,
+        result.publicLog,
+        JSON.stringify(suggestedStateChanges),
+        JSON.stringify(result),
+        'sent',
+        sentAt,
+        input.previewId
+      );
+
+      const response: AiTurnPromptSendResponse = {
+        responseText: result.publicLog,
+        suggestedStateChanges,
+        raw: result
+      };
+      res.json(response);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      db.prepare(`
+        UPDATE ai_turn_previews
+        SET edited_prompt = ?, status = ?, error_message = ?, sent_at = ?
+        WHERE id = ?
+      `).run(input.flatPrompt, 'failed', message, sentAt, input.previewId);
+      res.status(502).json({ error: message });
+    }
   });
 
   router.get('/rooms/:roomId/presets', (req, res) => {
@@ -1086,11 +1356,17 @@ export function createAdminRouter(db: AppDatabase): Router {
   router.post('/rooms/:roomId/process-turn', async (req, res) => {
     const room = getRoom(db, req.params.roomId);
     if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    try {
+      assertTurnReadyForAi(db, room);
+    } catch (error) {
+      if (handleTurnReadinessError(error, res)) return;
+      throw error;
+    }
+
     const { preview, context } = await buildRoomPromptPreview(db, room);
     const { turn, players, actions, publicLogs, interactions, promptBlocks, worldBookMatches, ruleMatches } = context;
     if (!turn) return res.status(409).json({ error: 'Current turn not found' });
-
-    if (!allPlayersSubmitted(players, actions)) return res.status(409).json({ error: 'Waiting for all players to submit actions' });
 
     if (!claimRoomTurnForProcessing(db, req.params.roomId, turn.id)) {
       return res.status(409).json({ error: 'Turn is already processing or no longer open' });

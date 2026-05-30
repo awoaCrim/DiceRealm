@@ -3,6 +3,7 @@ import {
   clearGlobalPresetPackage,
   clearGlobalScriptCard,
   confirmCharacterBuilderDraft,
+  createAiTurnPreview,
   createRoom,
   createWorldBook,
   createWorldBookEntry,
@@ -38,6 +39,7 @@ import {
   saveGlobalAiProviderConfig,
   saveGlobalEmbeddingProviderConfig,
   savePreset,
+  sendAiTurnPreview,
   testGlobalAiProviderConfig,
   testGlobalEmbeddingProviderConfig,
   previewRuleRetrieval,
@@ -369,6 +371,46 @@ describe('resource API helpers', () => {
     expect(result).toEqual(response);
     expect(result.messages[0].role).toBe('system');
     expect(result.worldBookMatches[0].position).toBe('before');
+  });
+
+  it('calls AI turn preview and send-preview APIs', async () => {
+    const previewResponse = {
+      previewId: 'preview-1',
+      roomId: 'room-1',
+      turnId: 'turn-1',
+      flatPrompt: 'editable prompt',
+      messages: [{ role: 'user', content: 'editable prompt' }],
+      contextSections: [{ title: 'Character Status', content: 'Fighter HP 12/12' }],
+      warnings: []
+    };
+    const sendResponse = {
+      responseText: 'AI narration',
+      suggestedStateChanges: [{ type: 'dice_request', reason: 'attack' }],
+      raw: { publicLog: 'AI narration', privateUpdatesByPlayer: {}, ruleResults: [], interactionRequests: [] }
+    };
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => previewResponse,
+        text: async () => JSON.stringify(previewResponse)
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => sendResponse,
+        text: async () => JSON.stringify(sendResponse)
+      } as Response);
+
+    await expect(createAiTurnPreview('room-1')).resolves.toEqual(previewResponse);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/admin/ai/turn-preview', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ roomId: 'room-1' })
+    }));
+
+    await expect(sendAiTurnPreview('room-1', 'preview-1', 'edited prompt')).resolves.toEqual(sendResponse);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/admin/ai/send-preview', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ roomId: 'room-1', previewId: 'preview-1', flatPrompt: 'edited prompt' })
+    }));
   });
 
   it('calls character resource rest and audit APIs', async () => {

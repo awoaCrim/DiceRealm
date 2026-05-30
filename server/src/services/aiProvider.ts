@@ -78,6 +78,7 @@ function validateAiTurnResult(value: unknown): AiTurnResult {
     privateUpdatesByPlayer: value.privateUpdatesByPlayer as Record<string, string>,
     ruleResults: value.ruleResults,
     interactionRequests: value.interactionRequests as AiTurnResult['interactionRequests'],
+    suggestedStateChanges: Array.isArray(value.suggestedStateChanges) ? value.suggestedStateChanges as AiTurnResult['suggestedStateChanges'] : undefined,
     characterResourceChanges: value.characterResourceChanges as AiTurnResult['characterResourceChanges'],
     diceRequests: value.diceRequests as AiTurnResult['diceRequests'],
     diceResults: value.diceResults as AiTurnResult['diceResults']
