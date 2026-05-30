@@ -72,6 +72,26 @@ describe('ResourceReviewPanel', () => {
     expect(setError).toHaveBeenCalledWith('');
   });
 
+  it('批准后刷新已批准目录计数', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getApprovedCatalogs)
+      .mockResolvedValueOnce({ ruleEntries: [], characterOptions: [], resourceRules: [] })
+      .mockResolvedValueOnce({
+        ruleEntries: [{ id: 'rule-1' }],
+        characterOptions: [{ id: 'option-1' }],
+        resourceRules: [{ id: 'resource-1' }]
+      } as Awaited<ReturnType<typeof api.getApprovedCatalogs>>);
+
+    render(<ResourceReviewPanel setError={vi.fn()} />);
+
+    expect(await screen.findByText('已批准规则条目：0')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '批准' }));
+
+    expect(await screen.findByText('已批准规则条目：1')).toBeInTheDocument();
+    expect(screen.getByText('已批准角色选项：1')).toBeInTheDocument();
+    expect(screen.getByText('已批准资源规则：1')).toBeInTheDocument();
+  });
+
   it('显示待审核资源草稿并允许拒绝', async () => {
     const user = userEvent.setup();
 
@@ -119,5 +139,18 @@ describe('ResourceReviewPanel', () => {
     await user.upload(await screen.findByLabelText('结构化资源 JSON'), file);
 
     await waitFor(() => expect(setError).toHaveBeenCalledWith('导入失败'));
+  });
+
+  it('上传无效 JSON 时显示解析错误且不调用导入 API', async () => {
+    const user = userEvent.setup();
+    const setError = vi.fn();
+
+    render(<ResourceReviewPanel setError={setError} />);
+
+    const file = new File(['{ invalid json'], 'bad-resource-import.json', { type: 'application/json' });
+    await user.upload(await screen.findByLabelText('结构化资源 JSON'), file);
+
+    await waitFor(() => expect(setError).toHaveBeenCalledWith(expect.stringContaining('资源导入文件不是有效 JSON')));
+    expect(api.createResourceImportJob).not.toHaveBeenCalled();
   });
 });

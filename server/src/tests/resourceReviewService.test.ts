@@ -140,6 +140,12 @@ describe('resourceReviewService', () => {
       expect(result.drafts.every((draft) => draft.contentHash.match(/^[a-f0-9]{64}$/))).toBe(true);
       expect(listResourceImportJobs(db)).toHaveLength(1);
       expect(listResourceImportDrafts(db, { status: 'pending', sourceType: 'phb_extraction', ruleset: '5e-2014', language: 'zh-CN' })).toHaveLength(3);
+      expect(listResourceImportDrafts(db, { kind: 'character_option' })).toEqual([
+        expect.objectContaining({ title: '战士', optionType: 'class' })
+      ]);
+      expect(listResourceImportDrafts(db, { status: 'pending', kind: 'resource_rule', sourceType: 'phb_extraction', ruleset: '5e-2014', language: 'zh-CN' })).toEqual([
+        expect.objectContaining({ title: '生命骰' })
+      ]);
     });
   });
 
@@ -180,6 +186,8 @@ describe('resourceReviewService', () => {
 
       expect(reviewed).toMatchObject({ status: 'rejected', rejectionReason: '页码匹配错误' });
       expect(listApprovedCharacterOptions(db)).toEqual([]);
+      expect(listApprovedRuleEntries(db)).toEqual([]);
+      expect(listApprovedResourceRules(db)).toEqual([]);
     });
   });
 

@@ -82,10 +82,16 @@ describe('remoteDbImportService', () => {
   });
 
   describe('parseJsDatabase', () => {
-    it('importJsDatabase evaluates in sandbox', () => {
+    it('parses static module.exports object data without executing code', () => {
       const jsCode = `module.exports = { entries: [{ uid: 1, key: '沙箱测试', content: '沙箱内容' }] };`;
       const result = parseJsDatabase(jsCode);
       expect(result).toEqual({ entries: [{ uid: 1, key: '沙箱测试', content: '沙箱内容' }] });
+    });
+
+    it('parses export default object data without executing code', () => {
+      const jsCode = `export default { rules: [{ title: '攻击检定', keys: ['攻击'] }] };`;
+      const result = parseJsDatabase(jsCode);
+      expect(result).toEqual({ rules: [{ title: '攻击检定', keys: ['攻击'] }] });
     });
 
     it('rejects jsCode with require', () => {
@@ -100,8 +106,12 @@ describe('remoteDbImportService', () => {
       expect(() => parseJsDatabase('module.exports = global')).toThrow(/Forbidden token/);
     });
 
+    it('rejects dynamic expressions instead of executing them', () => {
+      expect(() => parseJsDatabase("module.exports = { entries: [{ key: Date.now() }] };")).toThrow(/Failed to parse JS database data without execution/);
+    });
+
     it('rejects empty return', () => {
-      expect(() => parseJsDatabase('module.exports = 42;')).toThrow(/JS database code must return a JSON object/);
+      expect(() => parseJsDatabase('module.exports = 42;')).toThrow(/JS database data must be a JSON object/);
     });
   });
 
@@ -189,11 +199,20 @@ describe('remoteDbImportService', () => {
     it('imports character options from option arrays', async () => {
       stubServer.updateHandler(() => ({
         species: [{ name: '人类', summary: '标准人类' }],
-        classes: [{ name: '战士', summary: '前线战士' }]
+        classes: [{ name: '战士', summary: '前线战士' }],
+        skills: [{ name: '察觉', summary: '观察周遭' }]
       }));
       const result = await importFromUrlAsync(db, stubServer.url, '角色选项');
       expect(result.sourceType).toBe('character_options');
-      expect(result.draftsCount).toBe(2);
+      expect(result.draftsCount).toBe(3);
+      const pendingDrafts = db.prepare('SELECT status, source_url as sourceUrl, source_hash as sourceHash FROM resource_import_drafts ORDER BY title ASC')
+        .all() as Array<{ status: string; sourceUrl: string; sourceHash: string }>;
+      expect(pendingDrafts).toHaveLength(3);
+      expect(pendingDrafts.every((draft) => draft.status === 'pending')).toBe(true);
+      expect(pendingDrafts.every((draft) => draft.sourceUrl === new URL(stubServer.url).toString())).toBe(true);
+      expect(pendingDrafts.every((draft) => draft.sourceHash === result.source.fileHash)).toBe(true);
+      const approvedCount = db.prepare('SELECT COUNT(*) as count FROM character_options').get() as { count: number };
+      expect(approvedCount.count).toBe(0);
     });
 
     it('imports rules JSON from rules array', async () => {
@@ -203,6 +222,10 @@ describe('remoteDbImportService', () => {
       const result = await importFromUrlAsync(db, stubServer.url, '5e规则');
       expect(result.sourceType).toBe('rules_json');
       expect(result.draftsCount).toBe(1);
+      const draft = db.prepare('SELECT status, title, source_url as sourceUrl, source_hash as sourceHash FROM resource_import_drafts').get() as { status: string; title: string; sourceUrl: string; sourceHash: string };
+      expect(draft).toMatchObject({ status: 'pending', title: '攻击检定', sourceUrl: new URL(stubServer.url).toString(), sourceHash: result.source.fileHash });
+      const approvedCount = db.prepare('SELECT COUNT(*) as count FROM rule_world_book_entries').get() as { count: number };
+      expect(approvedCount.count).toBe(0);
     });
 
     it('checkForUpdates returns hasUpdate false when hash matches', async () => {

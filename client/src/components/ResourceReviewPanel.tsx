@@ -46,7 +46,12 @@ export function ResourceReviewPanel({ setError }: { setError: (message: string) 
     setError('');
     setMessage('');
     try {
-      const parsed = JSON.parse(await file.text()) as unknown;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await file.text()) as unknown;
+      } catch (error) {
+        throw new Error(`资源导入文件不是有效 JSON：${error instanceof Error ? error.message : String(error)}`);
+      }
       if (!isImportPayload(parsed)) throw new Error('资源导入 JSON 必须包含 name 和 drafts。');
       const result = await createResourceImportJob(parsed);
       setMessage(`已导入 ${result.drafts.length} 条待审核草稿。`);

@@ -1716,7 +1716,7 @@ describe('DND AI-DM integration', () => {
     }
   });
 
-  it('imports, reviews, and exposes PHB extraction catalogs through admin resource APIs', async () => {
+  it('imports, reviews, and exposes resource catalogs through admin resource APIs', async () => {
     const db = createMemoryDb();
     migrate(db);
     seedBuiltinRules(db);
@@ -1766,15 +1766,41 @@ describe('DND AI-DM integration', () => {
       const imported = await importRes.json() as { drafts: Array<{ id: string; status: string }> };
       expect(imported.drafts.map((draft) => draft.status)).toEqual(['pending', 'pending', 'pending']);
 
+      const jobsRes = await fetch(`${base}/api/admin/resources/import-jobs`);
+      expect(jobsRes.status).toBe(200);
+      const jobs = await jobsRes.json() as { jobs: Array<{ name: string; visibility: string }> };
+      expect(jobs.jobs).toEqual([
+        expect.objectContaining({ name: 'PHB API 抽取', visibility: 'private' })
+      ]);
+
+      const invalidImportRes = await fetch(`${base}/api/admin/resources/import-jobs`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: '非法导入',
+          drafts: [{ kind: 'character_option', title: '缺少类型', summary: '缺少 optionType。' }]
+        })
+      });
+      expect(invalidImportRes.status).toBe(400);
+      const invalidImport = await invalidImportRes.json() as { error: string };
+      expect(invalidImport.error).toContain('optionType');
+
       const pendingRes = await fetch(`${base}/api/admin/resources/import-drafts?status=pending`);
       expect(pendingRes.status).toBe(200);
-      const pending = await pendingRes.json() as { drafts: Array<{ id: string; title: string }> };
+      const pending = await pendingRes.json() as { drafts: Array<{ id: string; title: string; kind: string }> };
       expect(pending.drafts).toHaveLength(3);
       const attackDraft = pending.drafts.find((draft) => draft.title === '攻击检定');
       const fighterDraft = pending.drafts.find((draft) => draft.title === '战士');
+      const resourceDraft = pending.drafts.find((draft) => draft.title === '生命骰');
       expect(attackDraft).toBeDefined();
       expect(fighterDraft).toBeDefined();
-      if (!attackDraft || !fighterDraft) throw new Error('Expected PHB drafts to be importable by title');
+      expect(resourceDraft).toBeDefined();
+      if (!attackDraft || !fighterDraft || !resourceDraft) throw new Error('Expected resource drafts to be importable by title');
+
+      const rulePendingRes = await fetch(`${base}/api/admin/resources/import-drafts?status=pending&kind=rule_entry&sourceType=local_json&ruleset=unknown&language=unknown`);
+      expect(rulePendingRes.status).toBe(200);
+      const rulePending = await rulePendingRes.json() as { drafts: Array<{ title: string }> };
+      expect(rulePending.drafts).toEqual([expect.objectContaining({ title: '攻击检定' })]);
 
       const approveRes = await fetch(`${base}/api/admin/resources/import-drafts/${attackDraft.id}/review`, {
         method: 'PUT',
@@ -1783,6 +1809,13 @@ describe('DND AI-DM integration', () => {
       });
       expect(approveRes.status).toBe(200);
 
+      const repeatedReviewRes = await fetch(`${base}/api/admin/resources/import-drafts/${attackDraft.id}/review`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status: 'rejected', rejectionReason: '重复审核' })
+      });
+      expect(repeatedReviewRes.status).toBe(409);
+
       const rejectRes = await fetch(`${base}/api/admin/resources/import-drafts/${fighterDraft.id}/review`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
@@ -1790,12 +1823,19 @@ describe('DND AI-DM integration', () => {
       });
       expect(rejectRes.status).toBe(200);
 
+      const approveResourceRes = await fetch(`${base}/api/admin/resources/import-drafts/${resourceDraft.id}/review`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ status: 'approved' })
+      });
+      expect(approveResourceRes.status).toBe(200);
+
       const approvedRes = await fetch(`${base}/api/admin/resources/approved-catalogs`);
       expect(approvedRes.status).toBe(200);
       const approved = await approvedRes.json() as { ruleEntries: unknown[]; characterOptions: unknown[]; resourceRules: unknown[] };
       expect(approved.ruleEntries).toHaveLength(1);
       expect(approved.characterOptions).toHaveLength(0);
-      expect(approved.resourceRules).toHaveLength(0);
+      expect(approved.resourceRules).toHaveLength(1);
 
       const duplicateImportRes = await fetch(`${base}/api/admin/resources/import-jobs`, {
         method: 'POST',

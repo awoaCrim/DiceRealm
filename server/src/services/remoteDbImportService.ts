@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { nanoid } from 'nanoid';
 import type { AppDatabase } from '../db/connection.js';
 import type { RemoteDbSource, RemoteDbImport, ResourceWorldBook, ResourceWorldBookEntry, PromptPresetPackage } from '../domain/types.js';
+import { createResourceImportJob } from './resourceReviewService.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -205,62 +206,65 @@ function importCharacterOptions(
   json: Record<string, unknown>,
   sourceId: string,
   fallbackName: string,
+  sourceUrl: string,
+  sourceHash: string,
+  sourceVersion: string,
   now: string
 ): { drafts: Array<{ id: string }> } {
-  const jobId = nanoid();
-  const draftIds: Array<{ id: string }> = [];
-
-  db.prepare(
-    `INSERT INTO resource_import_jobs (
-      id, name, source_type, source_name, source_file_name, source_url, source_version, source_hash,
-      source_license, ruleset, language, visibility, is_private, imported_by, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(jobId, fallbackName, 'remote_url', fallbackName, '', '', '', '', '', 'unknown', 'unknown', 'private', 1, 'remote-db-import', 'imported', now, now);
-
-  insertImportRecord(db, sourceId, 'resource_import_job', jobId, false);
-
   const optionArrays: Array<{ type: string; key: string }> = [
     { type: 'species', key: 'species' },
     { type: 'class', key: 'classes' },
-    { type: 'background', key: 'backgrounds' }
+    { type: 'background', key: 'backgrounds' },
+    { type: 'skill', key: 'skills' },
+    { type: 'equipment', key: 'equipment' },
+    { type: 'spell', key: 'spells' },
+    { type: 'language', key: 'languages' },
+    { type: 'proficiency', key: 'proficiencies' }
   ];
+  const drafts: Array<Record<string, unknown>> = [];
 
   for (const { type, key } of optionArrays) {
     const arr = json[key];
     if (!Array.isArray(arr)) continue;
     for (const item of arr) {
       if (!isRecord(item)) continue;
-      const draftId = nanoid();
       const title = typeof item.name === 'string' ? item.name : `Unknown ${type}`;
       const summary = typeof item.summary === 'string' ? item.summary : (typeof item.description === 'string' ? item.description : '');
       const ruleData = item.ruleData ?? item;
       const sourceRef = typeof item.sourceRef === 'string' ? item.sourceRef : '';
-
-      db.prepare(
-        `INSERT INTO resource_import_drafts (
-          id, job_id, kind, source_type, source_name, source_file_name, source_url, source_version,
-          source_hash, source_license, ruleset, language, visibility, is_private, imported_by,
-          content_hash, title, category, option_type, summary, content, keys_json, source_ref,
-          rule_data_json, prerequisites_json, priority, raw_json, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
-        draftId, jobId, 'character_option', 'remote_url', fallbackName, '', '', '', '', '', 'unknown',
-        'unknown', 'private', 1, 'remote-db-import', '', title, 'character', type, summary, '', '[]',
-        sourceRef, JSON.stringify(ruleData), '{}', 100, JSON.stringify(item), 'approved', now, now
-      );
-
-      // Auto-approve: insert into character_options
-      const optionId = nanoid();
-      db.prepare(
-        'INSERT INTO character_options (id, draft_id, option_type, name, summary, rule_data_json, prerequisites_json, source_ref, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-      ).run(optionId, draftId, type, title, summary, JSON.stringify(ruleData), '{}', sourceRef, now, now);
-
-      insertImportRecord(db, sourceId, 'character_option', optionId, false);
-      draftIds.push({ id: draftId });
+      drafts.push({
+        kind: 'character_option',
+        optionType: type,
+        title,
+        category: type,
+        summary,
+        ruleData,
+        prerequisites: {},
+        sourceRef
+      });
     }
   }
+  if (drafts.length === 0) return { drafts: [] };
 
-  return { drafts: draftIds };
+  const result = createResourceImportJob(db, {
+    name: fallbackName,
+    sourceType: 'remote_url',
+    sourceName: fallbackName,
+    sourceUrl,
+    sourceVersion,
+    sourceHash,
+    ruleset: 'unknown',
+    language: 'unknown',
+    visibility: 'private',
+    isPrivate: true,
+    importedBy: 'remote-db-import',
+    drafts
+  });
+  insertImportRecord(db, sourceId, 'resource_import_job', result.job.id, false);
+  for (const draft of result.drafts) {
+    insertImportRecord(db, sourceId, 'resource_import_draft', draft.id, false);
+  }
+  return { drafts: result.drafts.map((draft) => ({ id: draft.id })) };
 }
 
 function importRulesJson(
@@ -268,24 +272,15 @@ function importRulesJson(
   json: Record<string, unknown>,
   sourceId: string,
   fallbackName: string,
+  sourceUrl: string,
+  sourceHash: string,
+  sourceVersion: string,
   now: string
 ): { drafts: Array<{ id: string }> } {
-  const jobId = nanoid();
-  const draftIds: Array<{ id: string }> = [];
-
-  db.prepare(
-    `INSERT INTO resource_import_jobs (
-      id, name, source_type, source_name, source_file_name, source_url, source_version, source_hash,
-      source_license, ruleset, language, visibility, is_private, imported_by, status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(jobId, fallbackName, 'remote_url', fallbackName, '', '', '', '', '', 'unknown', 'unknown', 'private', 1, 'remote-db-import', 'imported', now, now);
-
-  insertImportRecord(db, sourceId, 'resource_import_job', jobId, false);
-
   const rules = Array.isArray(json.rules) ? json.rules : [];
+  const drafts: Array<Record<string, unknown>> = [];
   for (const rule of rules) {
     if (!isRecord(rule)) continue;
-    const draftId = nanoid();
     const title = typeof rule.title === 'string' ? rule.title : (typeof rule.name === 'string' ? rule.name : 'Unknown Rule');
     const category = typeof rule.category === 'string' ? rule.category : 'general';
     const summary = typeof rule.summary === 'string' ? rule.summary : '';
@@ -293,31 +288,38 @@ function importRulesJson(
     const keys = Array.isArray(rule.keys) ? rule.keys.filter((k): k is string => typeof k === 'string') : [];
     const sourceRef = typeof rule.sourceRef === 'string' ? rule.sourceRef : '';
     const ruleData = rule.ruleData ?? rule;
-
-    db.prepare(
-      `INSERT INTO resource_import_drafts (
-        id, job_id, kind, source_type, source_name, source_file_name, source_url, source_version,
-        source_hash, source_license, ruleset, language, visibility, is_private, imported_by,
-        content_hash, title, category, option_type, summary, content, keys_json, source_ref,
-        rule_data_json, prerequisites_json, priority, raw_json, status, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      draftId, jobId, 'rule_entry', 'remote_url', fallbackName, '', '', '', '', '', 'unknown',
-      'unknown', 'private', 1, 'remote-db-import', '', title, category, null, summary, content,
-      JSON.stringify(keys), sourceRef, JSON.stringify(ruleData), '{}', 100, JSON.stringify(rule), 'approved', now, now
-    );
-
-    // Auto-approve: insert into rule_world_book_entries
-    const entryId = nanoid();
-    db.prepare(
-      'INSERT INTO rule_world_book_entries (id, draft_id, title, category, summary, content, keys_json, source_ref, priority, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-    ).run(entryId, draftId, title, category, summary, content, JSON.stringify(keys), sourceRef, 100, 1, now, now);
-
-    insertImportRecord(db, sourceId, 'rule_world_book_entry', entryId, false);
-    draftIds.push({ id: draftId });
+    drafts.push({
+      kind: 'rule_entry',
+      title,
+      category,
+      summary,
+      content,
+      keys,
+      sourceRef,
+      ruleData
+    });
   }
+  if (drafts.length === 0) return { drafts: [] };
 
-  return { drafts: draftIds };
+  const result = createResourceImportJob(db, {
+    name: fallbackName,
+    sourceType: 'remote_url',
+    sourceName: fallbackName,
+    sourceUrl,
+    sourceVersion,
+    sourceHash,
+    ruleset: 'unknown',
+    language: 'unknown',
+    visibility: 'private',
+    isPrivate: true,
+    importedBy: 'remote-db-import',
+    drafts
+  });
+  insertImportRecord(db, sourceId, 'resource_import_job', result.job.id, false);
+  for (const draft of result.drafts) {
+    insertImportRecord(db, sourceId, 'resource_import_draft', draft.id, false);
+  }
+  return { drafts: result.drafts.map((draft) => ({ id: draft.id })) };
 }
 
 export interface ImportFromUrlResult {
@@ -326,19 +328,6 @@ export interface ImportFromUrlResult {
   worldBook?: ResourceWorldBook;
   presetPackage?: PromptPresetPackage;
   draftsCount: number;
-}
-
-export function importFromUrl(
-  db: AppDatabase,
-  url: string,
-  fallbackName?: string
-): ImportFromUrlResult {
-  return db.transaction(() => {
-    const urlObj = new URL(url);
-    url = urlObj.toString();
-  }) as unknown as ImportFromUrlResult;
-
-  // This is a placeholder - actual import is async, handled below
 }
 
 export async function importFromUrlAsync(
@@ -383,12 +372,12 @@ export async function importFromUrlAsync(
           break;
         }
         case 'character_options': {
-          const result = importCharacterOptions(db, json, sourceId, fallback, now);
+          const result = importCharacterOptions(db, json, sourceId, fallback, normalizedUrl, fileHash, version, now);
           draftsCount = result.drafts.length;
           break;
         }
         case 'rules_json': {
-          const result = importRulesJson(db, json, sourceId, fallback, now);
+          const result = importRulesJson(db, json, sourceId, fallback, normalizedUrl, fileHash, version, now);
           draftsCount = result.drafts.length;
           break;
         }
@@ -468,12 +457,12 @@ export function importFromJsCode(
           break;
         }
         case 'character_options': {
-          const result = importCharacterOptions(db, json, sourceId, name, now);
+          const result = importCharacterOptions(db, json, sourceId, name, urlIdentifier, fileHash, version, now);
           draftsCount = result.drafts.length;
           break;
         }
         case 'rules_json': {
-          const result = importRulesJson(db, json, sourceId, name, now);
+          const result = importRulesJson(db, json, sourceId, name, urlIdentifier, fileHash, version, now);
           draftsCount = result.drafts.length;
           break;
         }
@@ -581,35 +570,77 @@ export async function updateSource(
   return await importFromUrlAsync(db, source.url, source.name);
 }
 
-export function parseJsDatabase(jsCode: string): Record<string, unknown> {
-  // Sandbox: create a new Function scope that only has access to the module.exports object
-  const sandboxModule = { exports: {} as Record<string, unknown> };
+function stripJsComments(input: string): string {
+  return input
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
 
-  // Check for banned globals in source
-  const bannedTokens = ['require', 'process', 'global', 'fs', 'child_process', 'import', 'eval('];
-  for (const token of bannedTokens) {
-    if (jsCode.includes(token)) {
-      throw new Error(`Forbidden token '${token}' found in JS database code`);
+function extractJsDataExpression(jsCode: string): string {
+  const trimmed = stripJsComments(jsCode).trim();
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    return trimmed;
+  }
+
+  const patterns = [
+    /^\s*module\.exports\s*=\s*([\s\S]*?)\s*;?\s*$/,
+    /^\s*export\s+default\s+([\s\S]*?)\s*;?\s*$/,
+    /^\s*const\s+\w+\s*=\s*([\s\S]*?)\s*;?\s*$/,
+    /^\s*let\s+\w+\s*=\s*([\s\S]*?)\s*;?\s*$/,
+    /^\s*var\s+\w+\s*=\s*([\s\S]*?)\s*;?\s*$/
+  ];
+
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    if (match?.[1]) return match[1].trim();
+  }
+
+  throw new Error('JS database import only accepts JSON data or a static object assigned to module.exports/export default');
+}
+
+function parseStaticJsonLikeObject(expression: string): Record<string, unknown> {
+  const forbidden = [
+    '=>',
+    'function',
+    'new ',
+    'require',
+    'process',
+    'global',
+    'globalThis',
+    'window',
+    'document',
+    'fs',
+    'child_process',
+    'import',
+    'eval',
+    'constructor',
+    '__proto__'
+  ];
+  for (const token of forbidden) {
+    if (expression.includes(token)) {
+      throw new Error(`Forbidden token '${token}' found in JS database data`);
     }
   }
 
+  const jsonText = expression
+    .replace(/'/g, '"')
+    .replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":')
+    .replace(/,\s*([}\]])/g, '$1');
+
+  const parsed = JSON.parse(jsonText) as unknown;
+  if (!isRecord(parsed)) {
+    throw new Error('JS database data must be a JSON object');
+  }
+  return parsed;
+}
+
+export function parseJsDatabase(jsCode: string): Record<string, unknown> {
   try {
-    const fn = new Function('module', jsCode + '\nreturn module.exports;');
-    const result = fn(sandboxModule);
-    if (isRecord(result)) return result;
-    if (typeof result === 'string') {
-      try {
-        const parsed = JSON.parse(result);
-        if (isRecord(parsed)) return parsed;
-      } catch {
-        // fall through to throw
-      }
-    }
-    throw new Error('JS database code must return a JSON object via module.exports');
+    return parseStaticJsonLikeObject(extractJsDataExpression(jsCode));
   } catch (error) {
-    if (error instanceof Error && error.message.includes('JS database code')) {
+    if (error instanceof Error && (error.message.includes('JS database') || error.message.includes('Forbidden token'))) {
       throw error;
     }
-    throw new Error(`Failed to evaluate JS database code: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`Failed to parse JS database data without execution: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
