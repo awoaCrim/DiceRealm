@@ -1,0 +1,16 @@
+node_modules/
+server/dist/
+client/dist/
+server/dnd.sqlite
+server/dnd.sqlite-*
+*.sqlite
+*.sqlite-*
+*.db
+.env
+.env.*
+.claude/
+.playwright-mcp/
+SillyTavern/
+scripts/adapt-tgbreak-preset.cjs
+dnd相关/5eDnD_玩家手册PHB_中译v1.72版.pdf
+dnd相关/5eDnD_失落矿坑_新手套组_模组_中译(2校）.pdf
