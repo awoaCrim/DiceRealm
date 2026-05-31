@@ -618,8 +618,37 @@ describe('中文界面文案', () => {
     expect(screen.queryByText('具体行动')).not.toBeInTheDocument();
     expect(screen.getByText('隐藏骰点（仅玩家本人可见）')).toBeInTheDocument();
 
+    await user.selectOptions(select, 'skip');
+    expect((screen.getByLabelText('行动类型') as HTMLSelectElement).value).toBe('skip');
+    expect(screen.getByPlaceholderText('跳过本回合。 可补充细节。')).toBeInTheDocument();
+
     await user.selectOptions(select, 'player_question');
     expect((screen.getByLabelText('行动类型') as HTMLSelectElement).value).toBe('player_question');
+  });
+
+  it('玩家页可以不输入文本直接提交跳过本回合', async () => {
+    vi.mocked(api.getPlayerState).mockResolvedValueOnce({
+      room: { id: 'room-1', name: '测试房间', worldInfo: '测试世界', currentTurn: 1, status: 'waiting_for_actions' },
+      player: { id: 'player-1', name: '测试玩家' },
+      character: null,
+      publicLogs: [],
+      privateLogs: [],
+      pendingInteractions: [],
+      submittedPlayers: [],
+      waitingPlayers: [],
+      ruleSummaries: []
+    });
+    const user = userEvent.setup();
+
+    render(<PlayerPage token="token-1" />);
+
+    const select = await screen.findByLabelText('行动类型');
+    await user.selectOptions(select, 'skip');
+    expect(screen.getByRole('button', { name: '提交行动' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: '提交行动' }));
+
+    await waitFor(() => expect(api.submitAction).toHaveBeenCalledWith('token-1', '跳过本回合。', 'skip', false, 'public'));
+    expect(await screen.findByText('行动已提交，等待 DM 处理。')).toBeInTheDocument();
   });
 
   it('玩家页显示本回合自己的已提交行动和替换规则', async () => {

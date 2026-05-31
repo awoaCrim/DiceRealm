@@ -521,6 +521,80 @@ describe('DND AI-DM integration', () => {
     }
   });
 
+  it('counts skipped player actions as completed actors for turn readiness', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Skip Readiness Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+
+      const ariRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Ari' })
+      });
+      const ari = await ariRes.json() as { playerId: string; token: string };
+
+      const boRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Bo' })
+      });
+      const bo = await boRes.json() as { playerId: string; token: string };
+
+      const ariAction = await fetch(`${base}/api/player/${ari.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'I check the wagon.', actionType: 'observe', visibility: 'public' })
+      });
+      expect(ariAction.status).toBe(200);
+
+      const boSkip = await fetch(`${base}/api/player/${bo.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '跳过本回合。', actionType: 'skip', visibility: 'public' })
+      });
+      expect(boSkip.status).toBe(200);
+
+      const turn = db.prepare('SELECT id, status, submitted_actor_ids_json as submittedActorIdsJson, skipped_actor_ids_json as skippedActorIdsJson FROM turns WHERE room_id = ? AND number = 1').get(room.roomId) as {
+        id: string;
+        status: string;
+        submittedActorIdsJson: string;
+        skippedActorIdsJson: string;
+      };
+      const readyRoom = db.prepare('SELECT status FROM rooms WHERE id = ?').get(room.roomId) as { status: string };
+      expect(readyRoom.status).toBe('ready_to_resolve');
+      expect(turn.status).toBe('ready_to_resolve');
+      expect(JSON.parse(turn.submittedActorIdsJson)).toEqual([ari.playerId]);
+      expect(JSON.parse(turn.skippedActorIdsJson)).toEqual([bo.playerId]);
+
+      const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(previewRes.status).toBe(200);
+      const preview = await previewRes.json() as { flatPrompt: string };
+      expect(preview.flatPrompt).toContain('Room status: ready_to_resolve');
+      expect(preview.flatPrompt).toContain('2. Bo [skip, public] submittedAt=');
+      expect(preview.flatPrompt).toContain(': 跳过本回合。 (skip, public)');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      db.close();
+    }
+  });
+
   it('omits incomplete current actions from legacy prompt preview and points admins to turn preview', async () => {
     const db = createMemoryDb();
     migrate(db);

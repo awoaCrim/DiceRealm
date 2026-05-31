@@ -62,6 +62,16 @@ function inferActionVisibility(actionType: PlayerActionType): 'public' | 'privat
   return actionType === 'player_question' || actionType === 'meta_question' ? 'private' : 'public';
 }
 
+function defaultActionText(actionType: PlayerActionType): string {
+  switch (actionType) {
+    case 'wait': return '等待并观察局势。';
+    case 'skip': return '跳过本回合。';
+    case 'ready': return '准备行动，等待合适时机。';
+    case 'follow': return '跟随队伍行动。';
+    default: return '';
+  }
+}
+
 function describeItem(name: string): { type: string; detail: string } {
   return itemInfo[name] ?? { type: '物品', detail: '角色持有的可见物品；具体规则效果由当前规则与场景决定。' };
 }
@@ -149,11 +159,13 @@ export function PlayerPage({ token }: { token: string }) {
   async function submit() {
     setError('');
     setActionNotice('');
-    if (!action.trim() || isSubmittingAction) return;
+    const selectedDefaultText = defaultActionText(actionType);
+    if (!(action.trim() || selectedDefaultText) || isSubmittingAction) return;
     setIsSubmittingAction(true);
     try {
       const inferredType = inferActionType(action, actionType);
-      await submitAction(token, action, inferredType, isHiddenRoll, inferActionVisibility(inferredType));
+      const submittedText = action.trim() || defaultActionText(inferredType);
+      await submitAction(token, submittedText, inferredType, isHiddenRoll, inferActionVisibility(inferredType));
       setAction('');
       await refresh();
       setActionNotice('行动已提交，等待 DM 处理。');
@@ -197,6 +209,8 @@ export function PlayerPage({ token }: { token: string }) {
 
   if (!state) return <main className="shell"><p>加载中...</p></main>;
   const canSubmitAction = state.room.status === 'waiting_for_actions';
+  const fallbackActionText = defaultActionText(actionType);
+  const canSubmitCurrentAction = Boolean(action.trim() || fallbackActionText);
   const actionDisabledReason = canSubmitAction
     ? ''
     : state.room.status === 'waiting_for_interaction'
@@ -293,6 +307,7 @@ export function PlayerPage({ token }: { token: string }) {
                   <option value="in_character_action">角色行动</option>
                   <option value="observe">观察</option>
                   <option value="wait">等待</option>
+                  <option value="skip">跳过本回合</option>
                   <option value="ready">准备</option>
                   <option value="follow">跟随</option>
                   <option value="combat_action">战斗行动</option>
@@ -336,9 +351,9 @@ export function PlayerPage({ token }: { token: string }) {
                   setAction(event.target.value);
                   setActionNotice('');
                 }}
-                placeholder="描述你的角色本回合想尝试做什么。"
+                placeholder={fallbackActionText ? `${fallbackActionText} 可补充细节。` : '描述你的角色本回合想尝试做什么。'}
               />
-              <button disabled={!canSubmitAction || !action.trim() || isSubmittingAction} onClick={submit}>
+              <button disabled={!canSubmitAction || !canSubmitCurrentAction || isSubmittingAction} onClick={submit}>
                 {isSubmittingAction ? '提交中...' : '提交行动'}
               </button>
               {!canSubmitAction ? <p className="muted">{actionDisabledReason}</p> : null}
