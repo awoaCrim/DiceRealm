@@ -3,10 +3,10 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import type { AppDatabase } from '../db/connection.js';
 import { createAiProviderFromConfig, requestOpenAiCompatibleMessage, testAiProviderConfig } from '../services/aiProvider.js';
-import { buildCampaignContext, createSessionSummary, listSessionSummaries, listCampaignQuests, listCampaignNpcs, listCampaignLocations, upsertCampaignQuest, upsertCampaignNpc, upsertCampaignLocation } from '../services/campaignMemoryService.js';
+import { createSessionSummary, listSessionSummaries, listCampaignQuests, listCampaignNpcs, listCampaignLocations, upsertCampaignQuest, upsertCampaignNpc, upsertCampaignLocation } from '../services/campaignMemoryService.js';
 import { createEmbeddingProviderFromConfig, testEmbeddingProviderConfig } from '../services/embeddingService.js';
 import { createStarterCharacter, createEmptyCharacterBuilderSheet } from '../services/characterService.js';
-import { getCharacterResources, applyResourcePatch, shortRest, longRest } from '../services/characterResourceService.js';
+import { applyResourcePatch, getCharacterResources, shortRest, longRest } from '../services/characterResourceService.js';
 import { listCharacterResourceChanges, rollbackResourceChange } from '../services/characterAuditService.js';
 import { importRuleSource, listRuleSources } from '../services/rulesService.js';
 import { processTurnActions } from '../services/turnEngine.js';
@@ -46,6 +46,7 @@ import {
 } from '../services/globalConfigService.js';
 import { registerAdminResourceRoutes } from './adminResourceRoutes.js';
 import { registerAdminDbRoutes } from './adminDbRoutes.js';
+import { applyPluginDatabaseChange, renderRoomPluginDatabaseContext } from '../services/remoteDbRuntimeService.js';
 import { abilityCheck, abilityModifier, attackRoll, damageRoll, rollDice } from '../services/diceService.js';
 import { createCombat, rollInitiative, nextTurn, processAttack } from '../services/combatService.js';
 import { assertPreviewMatchesCurrentReadyTurn, assertTurnReadyForAi, getTurnReadiness, playerNamesById, StaleTurnPreviewError, TurnNotReadyError, turnNotReadyPayload } from '../services/turnReadinessService.js';
@@ -292,6 +293,7 @@ interface RoomPromptPreviewContext {
   turn: Turn | null;
   players: Player[];
   actions: PlayerAction[];
+  objectiveLogs: LogEntry[];
   publicLogs: LogEntry[];
   interactions: InteractionRequest[];
   promptBlocks: PromptBlock[];
@@ -306,15 +308,20 @@ async function loadRoomPromptPreviewContext(db: AppDatabase, room: Room): Promis
   const players = db.prepare('SELECT id, room_id as roomId, name, token, is_connected as isConnected, created_at as createdAt FROM players WHERE room_id = ? ORDER BY created_at ASC').all(room.id) as Player[];
   const actions = turn ? db.prepare('SELECT id, room_id as roomId, turn_id as turnId, player_id as playerId, text, submitted_at as submittedAt, status, action_type as actionType, is_hidden_roll as isHiddenRoll FROM actions WHERE turn_id = ? ORDER BY submitted_at ASC').all(turn.id) as PlayerAction[] : [];
   const publicLogs = db.prepare('SELECT id, room_id as roomId, turn_id as turnId, visibility_scope as visibilityScope, player_id as playerId, title, content, created_at as createdAt FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at ASC').all(room.id, 'public') as LogEntry[];
+  const objectiveLogRows = db.prepare('SELECT id, room_id as roomId, turn_id as turnId, visibility_scope as visibilityScope, player_id as playerId, title, content, created_at as createdAt FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at ASC').all(room.id, 'objective') as LogEntry[];
+  const objectiveLogs = objectiveLogRows.length > 0 ? objectiveLogRows : publicLogs;
   const interactions = db.prepare('SELECT id, room_id as roomId, turn_id as turnId, source_player_id as sourcePlayerId, target_player_id as targetPlayerId, type, prompt, target_response as targetResponse, status, created_at as createdAt FROM interaction_requests WHERE room_id = ? AND status != ? ORDER BY created_at ASC').all(room.id, 'resolved') as InteractionRequest[];
-  const scanText = buildWorldBookScanText({ roomWorldInfo: room.worldInfo, publicLogs, actions, players });
+  const scanLogs = [...objectiveLogs.slice(-6), ...publicLogs.slice(-6)];
+  const scanText = buildWorldBookScanText({ roomWorldInfo: room.worldInfo, publicLogs: scanLogs, actions, players });
   const worldBookMatches = matchWorldBookEntries(getPromptGlobalWorldBookEntries(db), scanText);
   const provider = createEmbeddingProviderFromConfig(getGlobalEmbeddingProviderConfig(db));
   const ruleMatches = await retrieveRuleMatches(db, provider, scanText, { limit: 5 });
-  const campaignContext = buildCampaignContext(db, room.id);
+  const campaignContext = [
+    renderRoomPluginDatabaseContext(db, room.id)
+  ].filter((section) => section.trim().length > 0).join('\n\n');
   const combatRow = db.prepare('SELECT state_json FROM combat_state WHERE room_id = ? AND state_json LIKE ? ORDER BY updated_at DESC LIMIT 1').get(room.id, '%"status":"active"%') as { state_json: string } | undefined;
   const sceneType: import('../domain/types.js').SceneType = combatRow ? 'combat' : 'all';
-  return { turn: turn ?? null, players, actions, publicLogs, interactions, promptBlocks: getActiveGlobalPromptBlocks(db), worldBookMatches, ruleMatches, campaignContext, sceneType };
+  return { turn: turn ?? null, players, actions, objectiveLogs, publicLogs, interactions, promptBlocks: getActiveGlobalPromptBlocks(db), worldBookMatches, ruleMatches, campaignContext, sceneType };
 }
 
 function mapNativeWorldBookMatches(matches: WorldBookMatch[]): PromptPreviewResponse['worldBookMatches'] {
@@ -343,6 +350,7 @@ function buildNativePromptPreview(room: Room, context: RoomPromptPreviewContext,
   const prompt = buildTurnPrompt({
     room,
     players: context.players,
+    objectiveLogs: context.objectiveLogs,
     publicLogs: context.publicLogs,
     actions: context.actions,
     interactions: context.interactions,
@@ -356,7 +364,7 @@ function buildNativePromptPreview(room: Room, context: RoomPromptPreviewContext,
   const dndOutputContract = renderDndOutputContract();
   const nativePromptBlocks = context.promptBlocks
     .filter((block) => block.enabled && block.content.trim() !== dndOutputContract)
-    .map((block) => ({ identifier: block.id, source: 'native-preset' as const, role: block.role, content: block.content }));
+    .map((block) => ({ identifier: block.id, displayName: block.name, source: 'native-preset' as const, role: block.role, content: block.content }));
   return {
     mode: 'native',
     prompt,
@@ -366,7 +374,7 @@ function buildNativePromptPreview(room: Room, context: RoomPromptPreviewContext,
     ruleMatches: mapRuleMatches(context.ruleMatches),
     promptBlocks: [
       ...nativePromptBlocks,
-      { identifier: 'dndOutputContract', source: 'dnd-contract', role: 'system', content: dndOutputContract }
+      { identifier: 'dndOutputContract', displayName: 'DND 输出契约', source: 'dnd-contract', role: 'system', content: dndOutputContract }
     ],
     warnings: []
   };
@@ -381,6 +389,7 @@ async function buildRoomPromptPreview(db: AppDatabase, room: Room): Promise<{ pr
   const preview = buildSillyTavernPromptPreview({
     room,
     players: context.players,
+    objectiveLogs: context.objectiveLogs,
     publicLogs: context.publicLogs,
     actions: context.actions,
     interactions: context.interactions,
@@ -406,9 +415,18 @@ function formatStringList(values: unknown, empty = '无'): string {
     : empty;
 }
 
+const abilityLabels: Record<'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha', string> = {
+  str: '力量',
+  dex: '敏捷',
+  con: '体质',
+  int: '智力',
+  wis: '感知',
+  cha: '魅力',
+};
+
 function formatAbilityScores(sheet: CharacterSheet): string {
   const scores = sheet.abilityScores;
-  return `STR ${scores.str}, DEX ${scores.dex}, CON ${scores.con}, INT ${scores.int}, WIS ${scores.wis}, CHA ${scores.cha}`;
+  return `力量 ${scores.str}, 敏捷 ${scores.dex}, 体质 ${scores.con}, 智力 ${scores.int}, 感知 ${scores.wis}, 魅力 ${scores.cha}`;
 }
 
 function loadCharacterStatusSection(db: AppDatabase, roomId: string): AiTurnPromptContextSection {
@@ -427,15 +445,27 @@ function loadCharacterStatusSection(db: AppDatabase, roomId: string): AiTurnProm
     };
   }
 
-  const formatRow = (row: { characterId: string; sheetJson: string; confirmed: number; playerId: string; playerName: string }) => {
-    let sheet: CharacterSheet;
+  const parsedRows = rows.map((row) => {
     try {
-      sheet = JSON.parse(row.sheetJson) as CharacterSheet;
+      const sheet = JSON.parse(row.sheetJson) as CharacterSheet;
+      return { ...row, sheet, displayName: sheet.name || row.playerName };
     } catch {
+      return { ...row, sheet: null, displayName: row.playerName };
+    }
+  });
+  const displayNameCounts = parsedRows.reduce((counts, row) => counts.set(row.displayName, (counts.get(row.displayName) ?? 0) + 1), new Map<string, number>());
+  const aliasFor = (row: { displayName: string; playerName: string }) => (
+    (displayNameCounts.get(row.displayName) ?? 0) > 1 ? `${row.displayName}〔${row.playerName}〕` : row.displayName
+  );
+
+  const formatRow = (row: typeof parsedRows[number]) => {
+    let sheet: CharacterSheet;
+    if (!row.sheet) {
       return `- ${row.playerName}: character sheet is unreadable; avoid changing resources for characterId=${row.characterId}.`;
     }
+    sheet = row.sheet;
     return [
-      `- ${sheet.name || row.playerName} (${row.playerName}, characterId=${row.characterId}, confirmed=${Boolean(row.confirmed)})`,
+      `- ${aliasFor(row)} (playerId=${row.playerId}, playerName=${row.playerName}, characterId=${row.characterId}, confirmed=${Boolean(row.confirmed)})`,
       `  Species/Class/Level: ${sheet.species || 'unknown'} / ${sheet.className || 'unknown'} / ${sheet.level ?? 1}`,
       `  Background/Concept: ${sheet.background || 'unknown'} / ${sheet.concept || 'unknown'}`,
       `  HP/AC/Proficiency: ${sheet.hitPoints?.current ?? '?'} / ${sheet.hitPoints?.max ?? '?'} HP, AC ${sheet.armorClass ?? '?'}, PB +${sheet.proficiencyBonus ?? '?'}`,
@@ -447,9 +477,10 @@ function loadCharacterStatusSection(db: AppDatabase, roomId: string): AiTurnProm
     ].join('\n');
   };
 
-  const confirmed = rows.filter((row) => Boolean(row.confirmed));
-  const drafts = rows.filter((row) => !Boolean(row.confirmed));
+  const confirmed = parsedRows.filter((row) => Boolean(row.confirmed));
+  const drafts = parsedRows.filter((row) => !Boolean(row.confirmed));
   const content = [
+    'Structured fields must refer to characters by characterId. Narrative text may use display names; if names are duplicated, include the suffix shown here.',
     confirmed.length > 0
       ? `Confirmed Characters:\n${confirmed.map(formatRow).join('\n')}`
       : 'Confirmed Characters:\nNo confirmed character sheets yet.',
@@ -471,7 +502,7 @@ function buildRecentActionsSection(context: RoomPromptPreviewContext): AiTurnPro
     content: context.actions.map((action) => {
       const playerName = playerNames.get(action.playerId) ?? action.playerId;
       const tags = [action.actionType, action.isHiddenRoll ? 'hidden-roll' : 'public'].filter(Boolean).join(', ');
-      return `- ${playerName}: ${action.text}${tags ? ` (${tags})` : ''}`;
+      return `- ${playerName} [${action.actionType ?? 'in_character_action'}]: ${action.text}${tags ? ` (${tags})` : ''}`;
     }).join('\n')
   };
 }
@@ -500,6 +531,58 @@ function buildWorldAndRulesSection(preview: PromptPreviewResponse): AiTurnPrompt
   };
 }
 
+function titleFromPromptBlockContent(content: string): string {
+  const firstLine = content
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^#+\s*/, '').trim())
+    .find(Boolean) ?? '';
+  if (firstLine.includes('绝不代替玩家') || firstLine.includes('玩家自主权')) return '玩家自主权';
+  if (firstLine.includes('先攻') || firstLine.includes('攻击检定') || firstLine.includes('AC') || firstLine.includes('DC')) return '战斗规则';
+  if (firstLine.includes('NPC') || firstLine.includes('独立动机')) return 'NPC自主性';
+  if (firstLine.includes('世界书') || firstLine.includes('检索并注入')) return '世界书注入';
+  if (firstLine.includes('信息隔离') || firstLine.includes('私密')) return '信息隔离';
+  if (firstLine.includes('JSON') || firstLine.includes('输出格式')) return '输出格式';
+  return firstLine.length > 24 ? `${firstLine.slice(0, 24)}...` : firstLine;
+}
+
+function isCrypticPromptIdentifier(value: string): boolean {
+  return /^[A-Za-z0-9_-]{16,}$/.test(value);
+}
+
+function promptBlockDisplayName(block: PromptPreviewResponse['promptBlocks'][number]): string {
+  if (block.displayName && block.displayName !== block.identifier) return block.displayName;
+  if (isCrypticPromptIdentifier(block.identifier)) {
+    return titleFromPromptBlockContent(block.content) || '提示词块';
+  }
+  return block.displayName || block.identifier;
+}
+
+function stripDuplicatePromptHeading(content: string, identifier: string, displayName: string): string {
+  const lines = content.split(/\r?\n/);
+  const firstLine = lines[0]?.trim() ?? '';
+  const headingMatch = firstLine.match(/^#{1,6}\s+(.+)$/);
+  if (!headingMatch) return content;
+
+  const headingText = headingMatch[1].trim();
+  if (headingText === identifier || headingText === displayName || isCrypticPromptIdentifier(headingText)) {
+    return lines.slice(1).join('\n').trimStart();
+  }
+  return content;
+}
+
+function buildSystemRulesSection(preview: PromptPreviewResponse): AiTurnPromptContextSection {
+  const blocks = preview.promptBlocks
+    .filter((block) => block.source !== 'runtime-slot')
+    .map((block) => {
+      const displayName = promptBlockDisplayName(block);
+      return `### ${displayName}\n${stripDuplicatePromptHeading(block.content, block.identifier, displayName)}`;
+    });
+  return {
+    title: 'System Rules And Output Contract',
+    content: blocks.length > 0 ? blocks.join('\n\n') : renderDndOutputContract()
+  };
+}
+
 function buildAiTurnDebugPrompt(room: Room, preview: PromptPreviewResponse, context: RoomPromptPreviewContext, characterStatus: AiTurnPromptContextSection): { flatPrompt: string; contextSections: AiTurnPromptContextSection[] } {
   const contextSections: AiTurnPromptContextSection[] = [
     {
@@ -508,9 +591,16 @@ function buildAiTurnDebugPrompt(room: Room, preview: PromptPreviewResponse, cont
         'Resolve the next playable beat for this DND 5e scene.',
         'Resolve only submitted actions. Do not invent missing player actions.',
         'Do not directly mutate campaign, character, inventory, HP, spell slots, conditions, or database state.',
-        'Return narrative plus explicit suggested changes only; the admin will review and apply changes separately.',
-        'Do not invent dice results. Use diceRequests when a real roll is needed.',
+        'Return narrative plus explicit structured changes; the system applies only validated character resource and plugin database row changes.',
+        'Do not invent dice results. Use diceRequests only to ask the system to roll internally when a real random result is needed.',
+        'For diceRequests with characterId and known ability/skill, set modifier to null and let the system compute it from character status.',
+        'Use structured room, character, inventory, status, and plugin database state over worldbook text when they conflict.',
+        '当前角色使用系统内置 MVP 轻量规则。以结构化角色状态为准，不要按完整 DND 5e 自行重算 HP、AC、熟练项、装备合法性或职业特性。若发现疑似不一致，只在 ruleResults 或 suggestedStateChanges 中提出审核建议，不直接修正。',
+        'Resolve current submitted actions before long-term memory, historical summaries, or general worldbook assumptions.',
+        'Player/meta questions may be answered without advancing the scene. Resolve only actionable submissions as scene actions.',
+        'ruleResults must only describe rules that need no roll, or results already confirmed by system state or system dice.',
         'Preserve information isolation between public and private player knowledge.',
+        'Never leak or hint objectiveLog-only hidden facts in publicLog unless player action, public evidence, or system dice results justify it.',
         'Respect player agency: ask for clarification or a roll when an action needs player input.'
       ].join('\n')
     },
@@ -526,13 +616,13 @@ function buildAiTurnDebugPrompt(room: Room, preview: PromptPreviewResponse, cont
     characterStatus,
     buildRecentActionsSection(context),
     buildRecentPublicLogSection(context),
-    buildWorldAndRulesSection(preview)
+    buildWorldAndRulesSection(preview),
+    ...(context.campaignContext ? [{ title: 'Campaign Memory And Plugin Database', content: context.campaignContext }] : []),
+    buildSystemRulesSection(preview)
   ];
 
   const flatPrompt = [
-    ...contextSections.map((section) => `## ${section.title}\n${section.content}`),
-    '## Existing System Prompt And Output Contract',
-    preview.prompt
+    ...contextSections.map((section) => `## ${section.title}\n${section.content}`)
   ].join('\n\n');
 
   return { flatPrompt, contextSections };
@@ -553,6 +643,23 @@ function normalizeSuggestedStateChanges(result: AiTurnResult): unknown[] {
   ];
 }
 
+function applyPluginDatabaseChangesFromAiResult(
+  db: AppDatabase,
+  roomId: string,
+  result: AiTurnResult,
+  errors: string[]
+): void {
+  for (const change of result.suggestedStateChanges ?? []) {
+    if (!change || typeof change !== 'object' || Array.isArray(change)) continue;
+    try {
+      const outcome = applyPluginDatabaseChange(db, roomId, change);
+      if (!outcome.applied && outcome.message) errors.push(outcome.message);
+    } catch (err) {
+      errors.push(`Failed to apply plugin database change: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+}
+
 function handleTurnReadinessError(error: unknown, res: import('express').Response): boolean {
   if (error instanceof TurnNotReadyError) {
     res.status(409).json(turnNotReadyPayload(error.readiness));
@@ -571,12 +678,12 @@ function handleTurnReadinessError(error: unknown, res: import('express').Respons
 
 function claimRoomTurnForProcessing(db: AppDatabase, roomId: string, turnId: string): boolean {
   return db.transaction(() => {
-    const roomClaim = db.prepare('UPDATE rooms SET status = ? WHERE id = ? AND status = ?').run('processing', roomId, 'waiting_for_actions');
+    const roomClaim = db.prepare('UPDATE rooms SET status = ? WHERE id = ? AND status = ?').run('processing', roomId, 'ready_to_resolve');
     if (roomClaim.changes !== 1) return false;
 
     const turnClaim = db.prepare('UPDATE turns SET status = ? WHERE id = ? AND status = ?').run('processing', turnId, 'ready_to_resolve');
     if (turnClaim.changes !== 1) {
-      db.prepare('UPDATE rooms SET status = ? WHERE id = ? AND status = ?').run('waiting_for_actions', roomId, 'processing');
+      db.prepare('UPDATE rooms SET status = ? WHERE id = ? AND status = ?').run('ready_to_resolve', roomId, 'processing');
       return false;
     }
 
@@ -629,6 +736,10 @@ interface ProcessedDiceResult {
   request: NonNullable<import('../domain/types.js').AiTurnResult['diceRequests']>[number];
 }
 
+function normalizedDiceAdvantage(value: 'advantage' | 'disadvantage' | 'none' | undefined): 'advantage' | 'disadvantage' | null {
+  return value === 'advantage' || value === 'disadvantage' ? value : null;
+}
+
 function processAiDiceRequests(
   db: AppDatabase,
   diceRequests: NonNullable<import('../domain/types.js').AiTurnResult['diceRequests']>,
@@ -660,7 +771,7 @@ function processAiDiceRequests(
         const score = characterSheet?.abilityScores?.[ability] ?? 10;
         const proficiency = 0; // Raw ability checks don't add proficiency
         const dc = request.dc ?? 15;
-        const result = abilityCheck(score, dc, proficiency, request.advantage ?? null);
+        const result = abilityCheck(score, dc, proficiency, normalizedDiceAdvantage(request.advantage));
         const totalMod = result.modifier + result.proficiency;
         summary = `${request.reason} — 掷出 ${result.roll} + ${totalMod} = ${result.total}，DC ${dc}，${result.success ? '成功' : '失败'}。`;
         diceLog = {
@@ -686,9 +797,9 @@ function processAiDiceRequests(
         const score = characterSheet?.abilityScores?.[ability] ?? 10;
         const proficiency = characterSheet?.proficiencyBonus ?? 0;
         const dc = request.dc ?? 15;
-        const result = abilityCheck(score, dc, proficiency, request.advantage ?? null);
+        const result = abilityCheck(score, dc, proficiency, normalizedDiceAdvantage(request.advantage));
         const totalMod = result.modifier + result.proficiency;
-        summary = `${request.reason}（${ability.toUpperCase()}豁免）— 掷出 ${result.roll} + ${totalMod} = ${result.total}，DC ${dc}，${result.success ? '成功' : '失败'}。`;
+        summary = `${request.reason}（${abilityLabels[ability]}豁免）— 掷出 ${result.roll} + ${totalMod} = ${result.total}，DC ${dc}，${result.success ? '成功' : '失败'}。`;
         diceLog = {
           id: nanoid(),
           roomId,
@@ -714,7 +825,7 @@ function processAiDiceRequests(
         const skills = characterSheet?.skills ?? [];
         const proficiency = skill && skills.includes(skill) ? (characterSheet?.proficiencyBonus ?? 0) : 0;
         const dc = request.dc ?? 15;
-        const result = abilityCheck(score, dc, proficiency, request.advantage ?? null);
+        const result = abilityCheck(score, dc, proficiency, normalizedDiceAdvantage(request.advantage));
         const totalMod = result.modifier + result.proficiency;
         const skillLabel = skill ? `（${skill}）` : '';
         summary = `${request.reason}${skillLabel} — 掷出 ${result.roll} + ${totalMod} = ${result.total}，DC ${dc}，${result.success ? '成功' : '失败'}。`;
@@ -742,7 +853,7 @@ function processAiDiceRequests(
         const mod = request.modifier ?? abilityModifier(score);
         const proficiency = characterSheet?.proficiencyBonus ?? 0;
         const ac = request.dc ?? 10;
-        const result = attackRoll(mod, proficiency, ac, request.advantage ?? null);
+        const result = attackRoll(mod, proficiency, ac, normalizedDiceAdvantage(request.advantage));
         const totalMod = result.modifier + result.proficiency;
         summary = `${request.reason} — 掷出 ${result.roll} + ${totalMod} = ${result.total}，AC ${ac}，${result.hit ? (result.criticalHit ? '重击命中！' : '命中') : (result.criticalMiss ? '大失败！' : '未命中')}。`;
         diceLog = {
@@ -821,6 +932,163 @@ function processAiDiceRequests(
   }
 
   return results;
+}
+
+function resolvePlayerReference(players: Player[], reference: string): string | null {
+  const trimmed = reference.trim();
+  if (!trimmed) return null;
+  return players.find((player) => player.id === trimmed || player.token === trimmed || player.name === trimmed)?.id ?? null;
+}
+
+function normalizePrivateUpdatesByPlayer(players: Player[], updates: Record<string, string>): Record<string, string> {
+  const normalized: Record<string, string> = {};
+  for (const [rawPlayerRef, content] of Object.entries(updates)) {
+    const playerId = resolvePlayerReference(players, rawPlayerRef);
+    if (!playerId || !content.trim()) continue;
+    normalized[playerId] = normalized[playerId] ? `${normalized[playerId]}\n${content}` : content;
+  }
+  return normalized;
+}
+
+function ensureObjectiveLog(result: AiTurnResult): void {
+  if (!result.objectiveLog || !result.objectiveLog.trim()) {
+    result.objectiveLog = result.publicLog;
+  }
+}
+
+function appendObjectiveLog(result: AiTurnResult, content: string): void {
+  ensureObjectiveLog(result);
+  result.objectiveLog = `${result.objectiveLog}\n\n${content}`;
+}
+
+function processAiTurnDiceAndPrivateResults(db: AppDatabase, result: AiTurnResult, roomId: string, turnId: string): void {
+  ensureObjectiveLog(result);
+  if (!result.diceRequests || result.diceRequests.length === 0) return;
+
+  const diceResults = processAiDiceRequests(db, result.diceRequests, roomId, turnId);
+  if (diceResults.length === 0) return;
+
+  const publicResults = diceResults.filter((dr) => dr.diceLog.isPublic);
+  const hiddenResults = diceResults.filter((dr) => !dr.diceLog.isPublic);
+
+  if (publicResults.length > 0) {
+    const diceSummary = publicResults.map((dr) => dr.summary).join('\n');
+    result.publicLog += `\n\n🎲 系统骰点：\n${diceSummary}`;
+    appendObjectiveLog(result, `🎲 系统骰点：\n${diceSummary}`);
+  }
+
+  if (hiddenResults.length > 0) {
+    const hiddenSummary = hiddenResults.map((dr) => dr.summary).join('\n');
+    appendObjectiveLog(result, `🎲 隐藏骰点（客观）：\n${hiddenSummary}`);
+  }
+
+  for (const hidden of hiddenResults) {
+    if (!hidden.diceLog.characterId) continue;
+    const playerRow = db.prepare(
+      'SELECT p.id FROM players p JOIN characters c ON c.player_id = p.id WHERE c.id = ? AND p.room_id = ?'
+    ).get(hidden.diceLog.characterId, roomId) as { id: string } | undefined;
+    if (!playerRow) continue;
+    const existing = result.privateUpdatesByPlayer[playerRow.id] ?? '';
+    result.privateUpdatesByPlayer[playerRow.id] = existing
+      ? `${existing}\n🎲 隐藏骰点：${hidden.summary}`
+      : `🎲 隐藏骰点：${hidden.summary}`;
+  }
+
+  result.diceResults = diceResults.map((dr) => dr.diceLog);
+}
+
+interface MaterializeAiTurnInput {
+  room: Room;
+  turn: Turn;
+  players: Player[];
+  actions: PlayerAction[];
+  result: AiTurnResult;
+  providerName: string;
+  inputSummary: string;
+  ruleMatches: RuleRetrievalMatch[];
+}
+
+function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTurnInput): { nextTurnId: string; resourceErrors: string[] } {
+  const { room, turn, players, actions, result, providerName, inputSummary, ruleMatches } = input;
+  ensureObjectiveLog(result);
+  processAiTurnDiceAndPrivateResults(db, result, room.id, turn.id);
+  result.privateUpdatesByPlayer = normalizePrivateUpdatesByPlayer(players, result.privateUpdatesByPlayer);
+
+  const now = new Date().toISOString();
+  const nextTurnId = nanoid();
+  const resourceErrors: string[] = [];
+  const tx = db.transaction(() => {
+    storeRuleContextHits(db, { roomId: room.id, turnId: turn.id, matches: ruleMatches });
+
+    if (result.diceResults && result.diceResults.length > 0) {
+      for (const diceLog of result.diceResults) {
+        db.prepare(
+          'INSERT INTO dice_logs (id, room_id, turn_id, combat_id, character_id, dice_type, values_json, modifier, total, dc, success, is_public, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+        ).run(
+          diceLog.id, diceLog.roomId, diceLog.turnId, diceLog.combatId, diceLog.characterId,
+          diceLog.diceType, JSON.stringify(diceLog.values), diceLog.modifier, diceLog.total,
+          diceLog.dc, diceLog.success === null ? null : (diceLog.success ? 1 : 0),
+          diceLog.isPublic ? 1 : 0, diceLog.reason, now
+        );
+      }
+    }
+
+    db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(nanoid(), room.id, turn.id, 'objective', null, `Objective Turn ${room.currentTurn}`, result.objectiveLog ?? result.publicLog, now);
+    db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(nanoid(), room.id, turn.id, 'public', null, `Turn ${room.currentTurn}`, result.publicLog, now);
+    for (const [playerId, content] of Object.entries(result.privateUpdatesByPlayer)) {
+      db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(nanoid(), room.id, turn.id, 'private', playerId, `Private Turn ${room.currentTurn}`, content, now);
+    }
+    for (const interaction of result.interactionRequests) {
+      const sourcePlayerId = resolvePlayerReference(players, interaction.sourcePlayerId) ?? interaction.sourcePlayerId;
+      const targetPlayerId = resolvePlayerReference(players, interaction.targetPlayerId) ?? interaction.targetPlayerId;
+      db.prepare('INSERT INTO interaction_requests (id, room_id, turn_id, source_player_id, target_player_id, type, prompt, target_response, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(nanoid(), room.id, turn.id, sourcePlayerId, targetPlayerId, interaction.type, interaction.prompt, null, 'pending_target', now);
+    }
+    db.prepare('UPDATE turns SET status = ?, ended_at = ? WHERE id = ?').run('complete', now, turn.id);
+    db.prepare('UPDATE actions SET status = ? WHERE turn_id = ?').run('complete', turn.id);
+    db.prepare('INSERT INTO turns (id, room_id, number, status, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?)').run(nextTurnId, room.id, room.currentTurn + 1, 'open', now, null);
+    db.prepare('UPDATE rooms SET current_turn = ?, status = ? WHERE id = ?').run(room.currentTurn + 1, 'waiting_for_actions', room.id);
+
+    if (result.characterResourceChanges && result.characterResourceChanges.length > 0) {
+      for (const change of result.characterResourceChanges) {
+        const charRow = db.prepare(
+          'SELECT c.id FROM characters c JOIN players p ON c.player_id = p.id WHERE c.id = ? AND p.room_id = ?'
+        ).get(change.characterId, room.id) as { id: string } | undefined;
+
+        if (!charRow) {
+          resourceErrors.push(`Invalid characterId '${change.characterId}': not found in room`);
+          continue;
+        }
+
+        try {
+          applyResourcePatch(db, room.id, {
+            characterId: change.characterId,
+            path: change.path,
+            before: change.before,
+            after: change.after,
+            reason: change.reason,
+            ruleRefs: change.ruleRefs,
+          }, 'ai_dm', 'ai');
+        } catch (err) {
+          resourceErrors.push(
+            `Failed to apply resource change for ${change.characterId}: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+    }
+
+    applyPluginDatabaseChangesFromAiResult(db, room.id, result, resourceErrors);
+
+    const generationError = resourceErrors.length > 0 ? resourceErrors.join('\n') : null;
+    db.prepare('INSERT INTO ai_generations (id, room_id, turn_id, provider, input_summary, output, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(nanoid(), room.id, turn.id, providerName, inputSummary, JSON.stringify(result), generationError, now);
+  });
+  tx();
+
+  return { nextTurnId, resourceErrors };
 }
 
 export function createAdminRouter(db: AppDatabase): Router {
@@ -1054,6 +1322,35 @@ export function createAdminRouter(db: AppDatabase): Router {
     res.json(getGlobalConfigSnapshot(db));
   });
 
+  router.get('/rooms', (_req, res) => {
+    const rows = db.prepare(`
+      SELECT
+        r.id,
+        r.name,
+        r.current_turn as currentTurn,
+        r.status,
+        r.created_at as createdAt,
+        COUNT(p.id) as playerCount
+      FROM rooms r
+      LEFT JOIN players p ON p.room_id = r.id
+      GROUP BY r.id
+      ORDER BY r.created_at DESC
+    `).all() as Array<{
+      id: string;
+      name: string;
+      currentTurn: number;
+      status: string;
+      createdAt: string;
+      playerCount: number;
+    }>;
+    res.json({
+      rooms: rows.map((room) => ({
+        ...room,
+        adminUrl: `/admin/${room.id}`
+      }))
+    });
+  });
+
   router.post('/rooms', (req, res) => {
     const parsed = createRoomSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: 'Invalid room creation payload' });
@@ -1067,12 +1364,23 @@ export function createAdminRouter(db: AppDatabase): Router {
         .run(roomId, input.name, '', '此房间实时使用当前全局配置。', 1, 'waiting_for_actions', JSON.stringify(defaultAiConfig), now);
       db.prepare('INSERT INTO turns (id, room_id, number, status, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?)')
         .run(turnId, roomId, 1, 'open', now, null);
+      const openingScene = globalOpeningScene(db);
       db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(nanoid(), roomId, turnId, 'public', null, 'Opening Scene', globalOpeningScene(db), now);
+        .run(nanoid(), roomId, turnId, 'objective', null, 'Objective Opening Scene', openingScene, now);
+      db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(nanoid(), roomId, turnId, 'public', null, 'Opening Scene', openingScene, now);
     });
     tx();
 
     res.json({ roomId, adminUrl: `/admin/${roomId}` });
+  });
+
+  router.delete('/rooms/:roomId', (req, res) => {
+    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(req.params.roomId) as { id: string } | undefined;
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+    db.prepare('DELETE FROM rooms WHERE id = ?').run(req.params.roomId);
+    publishRoomUpdate(req.params.roomId);
+    res.json({ ok: true, roomId: req.params.roomId });
   });
 
   router.post('/rooms/:roomId/players', (req, res) => {
@@ -1109,8 +1417,25 @@ export function createAdminRouter(db: AppDatabase): Router {
     const interactions = db.prepare('SELECT id, room_id as roomId, turn_id as turnId, source_player_id as sourcePlayerId, target_player_id as targetPlayerId, type, prompt, target_response as targetResponse, status, created_at as createdAt FROM interaction_requests WHERE room_id = ? ORDER BY created_at ASC').all(req.params.roomId);
     const logs = db.prepare('SELECT id, room_id as roomId, turn_id as turnId, visibility_scope as visibilityScope, player_id as playerId, title, content, created_at as createdAt FROM log_entries WHERE room_id = ? ORDER BY created_at ASC').all(req.params.roomId);
     const aiGenerations = db.prepare('SELECT id, room_id as roomId, turn_id as turnId, provider, input_summary as inputSummary, output, error, created_at as createdAt FROM ai_generations WHERE room_id = ? ORDER BY created_at ASC').all(req.params.roomId);
+    const characterRows = db.prepare(`
+      SELECT c.id, c.player_id as playerId, c.sheet_json as sheetJson, c.draft_source as draftSource, c.confirmed, c.updated_at as updatedAt
+      FROM characters c
+      JOIN players p ON p.id = c.player_id
+      WHERE p.room_id = ?
+      ORDER BY p.created_at ASC
+    `).all(req.params.roomId) as any[];
+    const characters = characterRows.map((row) => ({
+      id: row.id,
+      playerId: row.playerId,
+      sheet: JSON.parse(row.sheetJson),
+      draftSource: row.draftSource === 'ai' ? 'ai' : 'manual',
+      confirmed: Boolean(row.confirmed),
+      updatedAt: row.updatedAt,
+      resources: getCharacterResources(db, row.id)
+    }));
     const globalConfig = getGlobalConfigSnapshot(db);
     const turnReadiness = getTurnReadiness(db, room);
+    if (turnReadiness.roomStatus) room.status = turnReadiness.roomStatus;
     res.json({
       room: { ...room, aiConfig: globalConfig.aiConfig },
       players,
@@ -1119,6 +1444,7 @@ export function createAdminRouter(db: AppDatabase): Router {
       interactions,
       logs,
       aiGenerations,
+      characters,
       turnReadiness,
       globalConfig,
       presets: globalConfig.presets,
@@ -1210,12 +1536,31 @@ export function createAdminRouter(db: AppDatabase): Router {
       throw error;
     }
 
+    const { context } = await buildRoomPromptPreview(db, room);
+    const { turn, players, actions, ruleMatches } = context;
+    if (!turn) return res.status(409).json({ error: 'Current turn not found' });
+    if (!claimRoomTurnForProcessing(db, input.roomId, turn.id)) {
+      return res.status(409).json({ error: 'Turn is already processing or no longer open' });
+    }
+
     const providerConfig = getGlobalAiProviderConfig(db);
     const sentAt = new Date().toISOString();
+    let aiProviderName: string = providerConfig.provider;
     try {
       const aiProvider = createAiProviderFromConfig(providerConfig);
+      aiProviderName = aiProvider.name;
       const result = await aiProvider.generateTurnResult(input.flatPrompt);
       const suggestedStateChanges = normalizeSuggestedStateChanges(result);
+      const { resourceErrors } = materializeAiTurnResult(db, {
+        room,
+        turn,
+        players,
+        actions,
+        result,
+        providerName: aiProviderName,
+        inputSummary: `Sent preview for ${actions.length} actions`,
+        ruleMatches
+      });
       db.prepare(`
         UPDATE ai_turn_previews
         SET edited_prompt = ?, response_text = ?, suggested_state_changes_json = ?, raw_json = ?, status = ?, error_message = NULL, sent_at = ?
@@ -1233,16 +1578,28 @@ export function createAdminRouter(db: AppDatabase): Router {
       const response: AiTurnPromptSendResponse = {
         responseText: result.publicLog,
         suggestedStateChanges,
-        raw: result
+        raw: result,
+        applied: true,
+        resourceErrors
       };
+      publishRoomUpdate(input.roomId);
       res.json(response);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const now = new Date().toISOString();
+      const tx = db.transaction(() => {
+        db.prepare('UPDATE rooms SET status = ? WHERE id = ?').run('needs_admin_attention', input.roomId);
+        db.prepare('UPDATE turns SET status = ? WHERE id = ?').run('needs_admin_attention', turn.id);
+        db.prepare('INSERT INTO ai_generations (id, room_id, turn_id, provider, input_summary, output, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(nanoid(), input.roomId, turn.id, aiProviderName, `Failed sending preview for ${actions.length} actions`, '', message, now);
+      });
+      tx();
       db.prepare(`
         UPDATE ai_turn_previews
         SET edited_prompt = ?, status = ?, error_message = ?, sent_at = ?
         WHERE id = ?
       `).run(input.flatPrompt, 'failed', message, sentAt, input.previewId);
+      publishRoomUpdate(input.roomId);
       res.status(502).json({ error: message });
     }
   });
@@ -1365,7 +1722,7 @@ export function createAdminRouter(db: AppDatabase): Router {
     }
 
     const { preview, context } = await buildRoomPromptPreview(db, room);
-    const { turn, players, actions, publicLogs, interactions, promptBlocks, worldBookMatches, ruleMatches } = context;
+    const { turn, players, actions, objectiveLogs, publicLogs, interactions, promptBlocks, worldBookMatches, ruleMatches } = context;
     if (!turn) return res.status(409).json({ error: 'Current turn not found' });
 
     if (!claimRoomTurnForProcessing(db, req.params.roomId, turn.id)) {
@@ -1384,6 +1741,7 @@ export function createAdminRouter(db: AppDatabase): Router {
         players,
         actions,
         publicLogs,
+        objectiveLogs,
         interactions,
         aiProvider,
         scriptCard: getActiveGlobalScriptCard(db),
@@ -1391,6 +1749,7 @@ export function createAdminRouter(db: AppDatabase): Router {
         worldBookMatches,
         promptOverride: preview.prompt
       });
+      ensureObjectiveLog(result);
 
       // Process AI dice requests — execute system dice rolls and append results to publicLog
       if (result.diceRequests && result.diceRequests.length > 0) {
@@ -1403,6 +1762,12 @@ export function createAdminRouter(db: AppDatabase): Router {
           if (publicResults.length > 0) {
             const diceSummary = publicResults.map((dr) => dr.summary).join('\n');
             result.publicLog += `\n\n🎲 系统骰点：\n${diceSummary}`;
+            appendObjectiveLog(result, `🎲 系统骰点：\n${diceSummary}`);
+          }
+
+          if (hiddenResults.length > 0) {
+            const hiddenSummary = hiddenResults.map((dr) => dr.summary).join('\n');
+            appendObjectiveLog(result, `🎲 隐藏骰点（客观）：\n${hiddenSummary}`);
           }
 
           // Route hidden dice results to respective player's private updates
@@ -1444,6 +1809,8 @@ export function createAdminRouter(db: AppDatabase): Router {
           }
         }
 
+        db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(nanoid(), req.params.roomId, turn.id, 'objective', null, `Objective Turn ${room.currentTurn}`, result.objectiveLog ?? result.publicLog, now);
         db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
           .run(nanoid(), req.params.roomId, turn.id, 'public', null, `Turn ${room.currentTurn}`, result.publicLog, now);
         for (const [playerId, content] of Object.entries(result.privateUpdatesByPlayer)) {
@@ -1489,6 +1856,8 @@ export function createAdminRouter(db: AppDatabase): Router {
             }
           }
         }
+
+        applyPluginDatabaseChangesFromAiResult(db, req.params.roomId, result, resourceErrors);
 
         const generationError = resourceErrors.length > 0 ? resourceErrors.join('\n') : null;
         db.prepare('INSERT INTO ai_generations (id, room_id, turn_id, provider, input_summary, output, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
@@ -1597,7 +1966,11 @@ export function createAdminRouter(db: AppDatabase): Router {
     try {
       const characterId = typeof req.query.characterId === 'string' ? req.query.characterId : undefined;
       const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) || 20 : 20;
-      const changes = listCharacterResourceChanges(db, req.params.roomId, { characterId, limit });
+      const changes = listCharacterResourceChanges(db, req.params.roomId, { characterId, limit }).map((change) => ({
+        ...change,
+        before: JSON.parse(change.beforeJson),
+        after: JSON.parse(change.afterJson)
+      }));
       res.json({ changes });
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
@@ -1608,7 +1981,14 @@ export function createAdminRouter(db: AppDatabase): Router {
     try {
       const input = rollbackSchema.parse(req.body);
       const change = rollbackResourceChange(db, req.params.changeId, input.revertedBy);
-      res.json({ restored: true, change });
+      res.json({
+        restored: true,
+        change: {
+          ...change,
+          before: JSON.parse(change.beforeJson),
+          after: JSON.parse(change.afterJson)
+        }
+      });
     } catch (error) {
       if (error instanceof z.ZodError) {
         res.status(400).json({ error: 'Invalid rollback payload', issues: error.issues });

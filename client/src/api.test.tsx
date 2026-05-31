@@ -7,6 +7,7 @@ import {
   createRoom,
   createWorldBook,
   createWorldBookEntry,
+  deleteRoom,
   deletePresetPackage,
   deleteResourceWorldBook,
   deleteScriptCard,
@@ -26,6 +27,7 @@ import {
   listResourceImportDrafts,
   listPresetPackages,
   listResourceWorldBooks,
+  listRooms,
   listScriptCards,
   previewAiPrompt,
   putGlobalPresetPackage,
@@ -308,6 +310,16 @@ describe('resource API helpers', () => {
     }));
   });
 
+  it('lists and deletes rooms through admin APIs', async () => {
+    const fetchMock = mockFetchJson({ rooms: [] });
+
+    await listRooms();
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/admin/rooms', expect.objectContaining({ headers: expect.any(Object) }));
+
+    await deleteRoom('room-1');
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/admin/rooms/room-1', expect.objectContaining({ method: 'DELETE' }));
+  });
+
   it('imports and reviews PHB extraction drafts through admin resource APIs', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
@@ -544,7 +556,7 @@ describe('resource API helpers', () => {
   });
 
   it('calls player character builder APIs', async () => {
-    const draft = { name: '洛林', concept: '', species: '', className: '', background: '', abilityScores: { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }, skills: [], equipment: [], spells: [], languages: [], proficiencies: [], personality: '', ideal: '', bond: '', flaw: '', notes: '' };
+    const draft = { name: '洛林', concept: '', species: '', subSpecies: '', className: '', classDetail: '', background: '', abilityScores: { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }, skills: [], equipment: [], spells: [], languages: [], proficiencies: [], personality: '', ideal: '', bond: '', flaw: '', notes: '' };
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
@@ -570,7 +582,7 @@ describe('resource API helpers', () => {
     await getCharacterBuilderOptions('token-1');
     await auditCharacterBuilderDraft('token-1', draft);
     await saveCharacterBuilderDraft('token-1', draft);
-    await confirmCharacterBuilderDraft('token-1');
+    await confirmCharacterBuilderDraft('token-1', draft);
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/player/token-1/character-builder/options', expect.objectContaining({ headers: expect.any(Object) }));
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/player/token-1/character-builder/audit', expect.objectContaining({
@@ -581,7 +593,10 @@ describe('resource API helpers', () => {
       method: 'PUT',
       body: JSON.stringify({ draft })
     }));
-    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/player/token-1/character-builder/confirm', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/player/token-1/character-builder/confirm', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ draft })
+    }));
 
     fetchMock.mockRestore();
   });
@@ -694,38 +709,21 @@ describe('resource API helpers', () => {
         ok: true,
         json: async () => ({ ok: true }),
         text: async () => JSON.stringify({ ok: true })
-      } as Response)
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ source: { id: 'src-2', name: 'JS World', fileHash: 'ghi789' }, sourceType: 'world_book', worldBook: { name: 'JS World' }, preview: { entryTypes: [{ type: 'world_book_entries', count: 3 }] } }),
-        text: async () => JSON.stringify({ source: {} })
       } as Response);
 
-    const { importFromUrl, listDbSources, checkDbSourceUpdates, updateDbSource, deleteDbSource, importJsDatabase } = await import('./api');
-
-    await importFromUrl('http://localhost/test.json', 'World A');
-    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/admin/db/import-from-url', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ url: 'http://localhost/test.json', fallbackName: 'World A' })
-    }));
+    const { listDbSources, checkDbSourceUpdates, updateDbSource, deleteDbSource } = await import('./api');
 
     await listDbSources();
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/admin/db/sources', expect.objectContaining({ headers: expect.any(Object) }));
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/admin/db/sources', expect.objectContaining({ headers: expect.any(Object) }));
 
     await checkDbSourceUpdates('src-1');
-    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/admin/db/sources/src-1/check-updates', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/admin/db/sources/src-1/check-updates', expect.objectContaining({ method: 'POST' }));
 
     await updateDbSource('src-1');
-    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/admin/db/sources/src-1/update', expect.objectContaining({ method: 'POST' }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/admin/db/sources/src-1/update', expect.objectContaining({ method: 'POST' }));
 
     await deleteDbSource('src-1');
-    expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/admin/db/sources/src-1', expect.objectContaining({ method: 'DELETE' }));
-
-    await importJsDatabase('module.exports = { entries: [] };', 'JS World');
-    expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/admin/db/import-js', expect.objectContaining({
-      method: 'POST',
-      body: JSON.stringify({ jsCode: 'module.exports = { entries: [] };', name: 'JS World' })
-    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/admin/db/sources/src-1', expect.objectContaining({ method: 'DELETE' }));
 
     fetchMock.mockRestore();
   });

@@ -12,11 +12,16 @@ export class MockAiProvider implements AiProvider {
   name = 'mock';
 
   async generateTurnResult(prompt: string): Promise<AiTurnResult> {
+    const log = `The party's actions echo through the scene.\n\n${prompt.slice(0, 240)}`;
     return {
-      publicLog: `The party's actions echo through the scene.\n\n${prompt.slice(0, 240)}`,
+      objectiveLog: log,
+      publicLog: log,
       privateUpdatesByPlayer: {},
       ruleResults: ['Mock ruling: no rule conflict detected.'],
-      interactionRequests: []
+      interactionRequests: [],
+      diceRequests: [],
+      suggestedStateChanges: [],
+      characterResourceChanges: []
     };
   }
 }
@@ -45,25 +50,168 @@ function chatCompletionsUrl(baseUrl: string): string {
   return new URL('chat/completions', base).toString();
 }
 
-function parseJsonWithMessage(text: string, message: string): unknown {
+function extractJsonCandidate(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+  if (fenced?.[1]) return fenced[1].trim();
+
+  const firstObject = trimmed.indexOf('{');
+  const lastObject = trimmed.lastIndexOf('}');
+  if (firstObject >= 0 && lastObject > firstObject) {
+    return trimmed.slice(firstObject, lastObject + 1);
+  }
+
+  return null;
+}
+
+function parseJsonWithMessage(text: string, message: string, allowEmbeddedJson = false): unknown {
   try {
     return JSON.parse(text) as unknown;
   } catch {
+    if (allowEmbeddedJson) {
+      const candidate = extractJsonCandidate(text);
+      if (candidate && candidate !== text) {
+        try {
+          return JSON.parse(candidate) as unknown;
+        } catch {
+        }
+      }
+    }
     throw new Error(message);
   }
 }
 
-function validateAiTurnResult(value: unknown): AiTurnResult {
+function optionalStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+function optionalRecordOfStrings(value: unknown): Record<string, string> {
+  if (!isPlainObject(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
+}
+
+function firstStringField(value: Record<string, unknown>, keys: string[]): string {
+  for (const key of keys) {
+    const field = value[key];
+    if (typeof field === 'string' && field.trim()) return field;
+  }
+  return '';
+}
+
+const requiredAiTurnFields = [
+  'objectiveLog',
+  'publicLog',
+  'privateUpdatesByPlayer',
+  'ruleResults',
+  'interactionRequests',
+  'diceRequests',
+  'suggestedStateChanges',
+  'characterResourceChanges'
+];
+
+function hasAnyField(value: Record<string, unknown>, keys: string[]): boolean {
+  return keys.some((key) => key in value);
+}
+
+function normalizeAiTurnResultShape(value: unknown, options: { strictRequiredFields?: boolean } = {}): Record<string, unknown> {
   if (!isPlainObject(value)) throw new Error('AI provider returned invalid AiTurnResult payload');
-  if (typeof value.publicLog !== 'string') throw new Error('AI provider returned invalid AiTurnResult payload');
-  if (!isPlainObject(value.privateUpdatesByPlayer)) throw new Error('AI provider returned invalid AiTurnResult payload');
-  if (!Object.values(value.privateUpdatesByPlayer).every((item) => typeof item === 'string')) {
+  if (options.strictRequiredFields) {
+    const missing = requiredAiTurnFields.filter((field) => !hasAnyField(value, [field, field.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`)]));
+    if (missing.length > 0) throw new Error(`AI provider returned AiTurnResult missing required fields: ${missing.join(', ')}`);
+  }
+
+  const publicLog = firstStringField(value, ['publicLog', 'public_log', 'publicNarration', 'publicNarrative', 'narration', 'story', '剧情', '公开剧情', '公共剧情']);
+  const objectiveLog = firstStringField(value, ['objectiveLog', 'objective_log', 'objectiveNarration', 'objectiveNarrative', 'dmLog', 'dm_log', '客观剧情', '完整剧情', '主持人剧情']) || publicLog;
+  const privateUpdatesByPlayer =
+    value.privateUpdatesByPlayer
+    ?? value.private_updates_by_player
+    ?? value.privateLogs
+    ?? value.playerLogs
+    ?? value.playerNarratives
+    ?? value['玩家剧情'];
+  const ruleResults = value.ruleResults ?? value.rule_results ?? value.rules ?? value['规则结果'];
+  const interactionRequests = value.interactionRequests ?? value.interaction_requests ?? value.interactions ?? value['互动请求'];
+  const suggestedStateChanges = value.suggestedStateChanges ?? value.suggested_state_changes ?? value.stateChanges ?? value['状态变更建议'];
+  const characterResourceChanges = value.characterResourceChanges ?? value.character_resource_changes ?? value.resourceChanges ?? value['玩家状态变更'];
+  const diceRequests = value.diceRequests ?? value.dice_requests ?? value['骰点请求'];
+  const diceResults = value.diceResults ?? value.dice_results ?? value['骰点结果'];
+
+  return {
+    ...value,
+    objectiveLog,
+    publicLog,
+    privateUpdatesByPlayer: optionalRecordOfStrings(privateUpdatesByPlayer),
+    ruleResults: optionalStringArray(ruleResults),
+    interactionRequests: Array.isArray(interactionRequests) ? interactionRequests : [],
+    suggestedStateChanges: Array.isArray(suggestedStateChanges) ? suggestedStateChanges : [],
+    characterResourceChanges: normalizeCharacterResourceChanges(characterResourceChanges, suggestedStateChanges),
+    diceRequests: Array.isArray(diceRequests) ? diceRequests : [],
+    diceResults: Array.isArray(diceResults) ? diceResults : undefined
+  };
+}
+
+function isCharacterResourcePath(path: string): boolean {
+  return [
+    /^hitPoints\.(current|max|temp)$/,
+    /^hitDice\.(remaining|total)$/,
+    /^spellSlots\.([a-zA-Z0-9_]+|\d+)$/,
+    /^spellSlots\.([a-zA-Z0-9_]+|\d+)\.(total|used)$/,
+    /^ammo\.\d+\.(name|current|max)$/,
+    /^consumables\.\d+\.(name|quantity)$/,
+    /^currency\.(gp|sp|cp)$/,
+    /^conditions$/,
+  ].some((pattern) => pattern.test(path));
+}
+
+function normalizeOneCharacterResourceChange(change: unknown): unknown[] {
+  if (!isPlainObject(change) || typeof change.path !== 'string' || !isCharacterResourcePath(change.path)) return [];
+  const characterId = typeof change.characterId === 'string'
+    ? change.characterId
+    : typeof change.targetId === 'string'
+      ? change.targetId
+      : '';
+  if (!characterId || characterId.startsWith('room:')) return [];
+  return [{
+    characterId,
+    path: change.path,
+    before: change.before,
+    after: change.after,
+    reason: typeof change.reason === 'string' ? change.reason : 'AI suggested character resource change',
+    ruleRefs: Array.isArray(change.ruleRefs) ? change.ruleRefs.filter((item): item is string => typeof item === 'string') : []
+  }];
+}
+
+function normalizeCharacterResourceChanges(explicitChanges: unknown, suggestedChanges: unknown): unknown[] | undefined {
+  const direct = Array.isArray(explicitChanges) ? explicitChanges.flatMap(normalizeOneCharacterResourceChange) : [];
+  const fromSuggested = Array.isArray(suggestedChanges)
+    ? suggestedChanges.flatMap((change) => {
+      if (!isPlainObject(change)) return [];
+      const changeType = typeof change.changeType === 'string' ? change.changeType : typeof change.type === 'string' ? change.type : '';
+      const looksLikeResourceChange = ['character_resource', 'character_resource_change', 'player_status', '玩家状态'].includes(changeType)
+        || (typeof change.path === 'string'
+          && isCharacterResourcePath(change.path)
+          && (typeof change.characterId === 'string' || typeof change.targetId === 'string'));
+      if (!looksLikeResourceChange || typeof change.path !== 'string') return [];
+      return normalizeOneCharacterResourceChange(change);
+    })
+    : [];
+  const combined = [...direct, ...fromSuggested];
+  return combined;
+}
+
+export function validateAiTurnResult(value: unknown, options: { strictRequiredFields?: boolean } = {}): AiTurnResult {
+  const normalized = normalizeAiTurnResultShape(value, options);
+  if (typeof normalized.publicLog !== 'string' || normalized.publicLog.trim() === '') throw new Error('AI provider returned invalid AiTurnResult payload');
+  if (!isPlainObject(normalized.privateUpdatesByPlayer)) throw new Error('AI provider returned invalid AiTurnResult payload');
+  if (!Object.values(normalized.privateUpdatesByPlayer).every((item) => typeof item === 'string')) {
     throw new Error('AI provider returned invalid AiTurnResult payload');
   }
-  if (!Array.isArray(value.ruleResults) || !value.ruleResults.every((item) => typeof item === 'string')) {
+  if (!Array.isArray(normalized.ruleResults) || !normalized.ruleResults.every((item) => typeof item === 'string')) {
     throw new Error('AI provider returned invalid AiTurnResult payload');
   }
-  if (!Array.isArray(value.interactionRequests) || !value.interactionRequests.every((item) => (
+  if (!Array.isArray(normalized.interactionRequests) || !normalized.interactionRequests.every((item) => (
     isPlainObject(item)
     && typeof item.sourcePlayerId === 'string'
     && typeof item.targetPlayerId === 'string'
@@ -74,14 +222,15 @@ function validateAiTurnResult(value: unknown): AiTurnResult {
   }
 
   return {
-    publicLog: value.publicLog,
-    privateUpdatesByPlayer: value.privateUpdatesByPlayer as Record<string, string>,
-    ruleResults: value.ruleResults,
-    interactionRequests: value.interactionRequests as AiTurnResult['interactionRequests'],
-    suggestedStateChanges: Array.isArray(value.suggestedStateChanges) ? value.suggestedStateChanges as AiTurnResult['suggestedStateChanges'] : undefined,
-    characterResourceChanges: value.characterResourceChanges as AiTurnResult['characterResourceChanges'],
-    diceRequests: value.diceRequests as AiTurnResult['diceRequests'],
-    diceResults: value.diceResults as AiTurnResult['diceResults']
+    objectiveLog: normalized.objectiveLog as string,
+    publicLog: normalized.publicLog,
+    privateUpdatesByPlayer: normalized.privateUpdatesByPlayer as Record<string, string>,
+    ruleResults: normalized.ruleResults as string[],
+    interactionRequests: normalized.interactionRequests as AiTurnResult['interactionRequests'],
+    suggestedStateChanges: normalized.suggestedStateChanges as AiTurnResult['suggestedStateChanges'],
+    characterResourceChanges: normalized.characterResourceChanges as AiTurnResult['characterResourceChanges'],
+    diceRequests: normalized.diceRequests as AiTurnResult['diceRequests'],
+    diceResults: normalized.diceResults as AiTurnResult['diceResults']
   };
 }
 
@@ -149,8 +298,18 @@ export class OpenAiCompatibleProvider implements AiProvider {
       { role: 'user', content: prompt }
     ]);
 
-    const parsed = parseJsonWithMessage(content, 'AI provider returned invalid AiTurnResult JSON');
-    return validateAiTurnResult(parsed);
+    let parsed: unknown;
+    try {
+      parsed = parseJsonWithMessage(content, 'AI provider returned invalid AiTurnResult JSON', true);
+    } catch {
+      parsed = {
+        publicLog: content.trim(),
+        privateUpdatesByPlayer: {},
+        ruleResults: [],
+        interactionRequests: []
+      };
+    }
+    return validateAiTurnResult(parsed, { strictRequiredFields: true });
   }
 }
 

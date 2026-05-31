@@ -3,6 +3,7 @@ import type { Player, PlayerAction, Room, Turn } from '../domain/types.js';
 
 export interface TurnReadiness {
   turnId: string | null;
+  roomStatus: Room['status'] | null;
   status: Turn['status'] | null;
   requiredActorIds: string[];
   submittedActorIds: string[];
@@ -50,11 +51,32 @@ function requiredActorsForCurrentScene(db: AppDatabase, roomId: string): string[
 }
 
 function submittedActorsForTurn(db: AppDatabase, turnId: string): string[] {
-  const actions = db.prepare('SELECT player_id as playerId FROM actions WHERE turn_id = ? AND status = ?').all(turnId, 'submitted') as Pick<PlayerAction, 'playerId'>[];
+  const actions = db.prepare(`
+    SELECT player_id as playerId
+    FROM actions
+    WHERE turn_id = ?
+      AND status = ?
+      AND COALESCE(action_type, '') NOT IN ('skip')
+  `).all(turnId, 'submitted') as Pick<PlayerAction, 'playerId'>[];
   return actions.map((action) => action.playerId);
 }
 
-function buildReadiness(turn: Turn | null, requiredActorIds: string[], submittedActorIds: string[], skippedActorIds: string[], excludedActorIds: string[]): TurnReadiness {
+function skippedActorsForTurn(db: AppDatabase, turnId: string): string[] {
+  const actions = db.prepare(`
+    SELECT player_id as playerId
+    FROM actions
+    WHERE turn_id = ?
+      AND status = ?
+      AND action_type = 'skip'
+  `).all(turnId, 'submitted') as Pick<PlayerAction, 'playerId'>[];
+  return actions.map((action) => action.playerId);
+}
+
+function roomStatusForRoom(db: AppDatabase, roomId: string): Room['status'] | null {
+  return (db.prepare('SELECT status FROM rooms WHERE id = ?').get(roomId) as { status: Room['status'] } | undefined)?.status ?? null;
+}
+
+function buildReadiness(roomStatus: Room['status'] | null, turn: Turn | null, requiredActorIds: string[], submittedActorIds: string[], skippedActorIds: string[], excludedActorIds: string[]): TurnReadiness {
   const required = unique(requiredActorIds);
   const submitted = unique(submittedActorIds);
   const skipped = unique(skippedActorIds);
@@ -64,6 +86,7 @@ function buildReadiness(turn: Turn | null, requiredActorIds: string[], submitted
   const missing = required.filter((id) => !completedSet.has(id));
   return {
     turnId: turn?.id ?? null,
+    roomStatus,
     status: turn?.status ?? null,
     requiredActorIds: required,
     submittedActorIds: submitted,
@@ -71,13 +94,15 @@ function buildReadiness(turn: Turn | null, requiredActorIds: string[], submitted
     excludedActorIds: excluded,
     completedActorIds: completed,
     missingActorIds: missing,
-    ready: required.length > 0 && missing.length === 0 && turn?.status === 'ready_to_resolve'
+    ready: required.length > 0 && missing.length === 0 && turn?.status === 'ready_to_resolve' && roomStatus === 'ready_to_resolve'
   };
 }
 
-export function getTurnReadiness(db: AppDatabase, room: Pick<Room, 'id' | 'currentTurn'>): TurnReadiness {
+export function getTurnReadiness(db: AppDatabase, room: Pick<Room, 'id' | 'currentTurn'> & Partial<Pick<Room, 'status'>>, options: { updateStatus?: boolean } = {}): TurnReadiness {
+  const updateStatus = options.updateStatus ?? true;
   const turn = currentTurn(db, room);
-  if (!turn) return buildReadiness(null, [], [], [], []);
+  let roomStatus = room.status ?? roomStatusForRoom(db, room.id);
+  if (!turn) return buildReadiness(roomStatus, null, [], [], [], []);
 
   const row = db.prepare(`
     SELECT required_actor_ids_json as requiredActorIdsJson,
@@ -87,15 +112,17 @@ export function getTurnReadiness(db: AppDatabase, room: Pick<Room, 'id' | 'curre
     WHERE id = ?
   `).get(turn.id) as { requiredActorIdsJson?: string; skippedActorIdsJson?: string; excludedActorIdsJson?: string } | undefined;
 
-  const required = requiredActorsForCurrentScene(db, room.id);
+  const configuredRequired = parseStringArray(row?.requiredActorIdsJson);
+  const required = configuredRequired.length > 0 ? configuredRequired : requiredActorsForCurrentScene(db, room.id);
   const submitted = submittedActorsForTurn(db, turn.id);
-  const skipped = parseStringArray(row?.skippedActorIdsJson);
+  const skipped = unique([...parseStringArray(row?.skippedActorIdsJson), ...skippedActorsForTurn(db, turn.id)]);
   const excluded = parseStringArray(row?.excludedActorIdsJson);
   const completedSet = new Set(unique([...submitted, ...skipped, ...excluded]));
   const readyByActors = required.length > 0 && required.every((id) => completedSet.has(id));
 
-  if (turn.status === 'open' || turn.status === 'waiting_for_actions' || turn.status === 'ready_to_resolve') {
+  if (updateStatus && (turn.status === 'open' || turn.status === 'waiting_for_actions' || turn.status === 'ready_to_resolve')) {
     const nextStatus = readyByActors ? 'ready_to_resolve' : 'open';
+    const nextRoomStatus: Room['status'] = readyByActors ? 'ready_to_resolve' : 'waiting_for_actions';
     if (turn.status !== nextStatus || JSON.stringify(required) !== row?.requiredActorIdsJson) {
       db.prepare(`
         UPDATE turns
@@ -104,13 +131,17 @@ export function getTurnReadiness(db: AppDatabase, room: Pick<Room, 'id' | 'curre
       `).run(JSON.stringify(required), JSON.stringify(unique(submitted)), JSON.stringify(skipped), JSON.stringify(excluded), nextStatus, turn.id);
       turn.status = nextStatus as Turn['status'];
     }
+    if (roomStatus !== nextRoomStatus) {
+      db.prepare('UPDATE rooms SET status = ? WHERE id = ?').run(nextRoomStatus, room.id);
+      roomStatus = nextRoomStatus;
+    }
   }
 
-  return buildReadiness(turn, required, submitted, skipped, excluded);
+  return buildReadiness(roomStatus, turn, required, submitted, skipped, excluded);
 }
 
 export function assertTurnReadyForAi(db: AppDatabase, room: Pick<Room, 'id' | 'currentTurn'>): TurnReadiness {
-  const readiness = getTurnReadiness(db, room);
+  const readiness = getTurnReadiness(db, { ...room, status: roomStatusForRoom(db, room.id) }, { updateStatus: false });
   if (!readiness.ready) {
     throw new TurnNotReadyError(readiness);
   }

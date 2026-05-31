@@ -7,11 +7,19 @@ import {
   deleteSource,
   detectSourceType,
   fetchRemoteJson,
+  importFromJsCode,
   importFromUrlAsync,
   listSources,
   parseJsDatabase,
   getSource
 } from '../services/remoteDbImportService.js';
+import {
+  applyPluginDatabaseChange,
+  getRoomPluginDatabaseSnapshot,
+  renderRoomPluginDatabaseContext,
+  replaceRoomDbSourceBindings,
+  upsertRoomDbRow
+} from '../services/remoteDbRuntimeService.js';
 
 async function createStubServer(handler: (body: unknown) => unknown): Promise<{ url: string; close: () => Promise<void>; updateHandler: (newHandler: (body: unknown) => unknown) => void }> {
   let currentHandler = handler;
@@ -92,6 +100,61 @@ describe('remoteDbImportService', () => {
       const jsCode = `export default { rules: [{ title: '攻击检定', keys: ['攻击'] }] };`;
       const result = parseJsDatabase(jsCode);
       expect(result).toEqual({ rules: [{ title: '攻击检定', keys: ['攻击'] }] });
+    });
+
+    it('parses SP database plugin table sheets without executing the userscript', () => {
+      const jsCode = `
+        // ==UserScript==
+        // @name         SP·数据库 III
+        // @version      2.0.0
+        // ==/UserScript==
+        (function () {
+          const globalStateSheet = {
+            uid: "sheet_state",
+            name: "全局数据表",
+            sourceData: {
+              note: "记录地点和时间。",
+              initNode: "插入初始状态。",
+              updateNode: "每轮更新时间。",
+              insertNode: "禁止操作。",
+              deleteNode: "禁止删除。",
+              ddl: \`CREATE TABLE global_state (
+                row_id INTEGER PRIMARY KEY,
+                current_location TEXT NOT NULL
+              );\`
+            },
+            exportConfig: { enabled: true },
+            orderNo: 0
+          };
+          const inventorySheet = {
+            uid: "sheet_inventory",
+            name: "背包物品表",
+            sourceData: {
+              note: "记录物品。",
+              ddl: \`CREATE TABLE inventory (
+                row_id INTEGER PRIMARY KEY,
+                item_name TEXT NOT NULL UNIQUE
+              );\`
+            },
+            exportConfig: { enabled: false },
+            orderNo: 1
+          };
+          function buildDefaultTableTemplateObject_ACU() {
+            return { [globalStateSheet.uid]: globalStateSheet, [inventorySheet.uid]: inventorySheet };
+          }
+        })();
+      `;
+      const result = parseJsDatabase(jsCode);
+      expect(detectSourceType(result)).toBe('table_plugin');
+      expect(result).toMatchObject({ dbPluginType: 'acustar_table_plugin', name: 'SP·数据库 III', version: '2.0.0' });
+      const sheets = result.sheets as Array<{ name: string; tableName: string; ddl: string; exportEnabled: boolean }>;
+      expect(sheets).toHaveLength(2);
+      expect(sheets[0].name).toBe('全局数据表');
+      expect(sheets[0].tableName).toBe('global_state');
+      expect(sheets[0].ddl).toContain('CREATE TABLE global_state');
+      expect(sheets[0].exportEnabled).toBe(true);
+      expect(sheets[1].name).toBe('背包物品表');
+      expect(sheets[1].exportEnabled).toBe(false);
     });
 
     it('rejects jsCode with require', () => {
@@ -226,6 +289,97 @@ describe('remoteDbImportService', () => {
       expect(draft).toMatchObject({ status: 'pending', title: '攻击检定', sourceUrl: new URL(stubServer.url).toString(), sourceHash: result.source.fileHash });
       const approvedCount = db.prepare('SELECT COUNT(*) as count FROM rule_world_book_entries').get() as { count: number };
       expect(approvedCount.count).toBe(0);
+    });
+
+    it('connects SP database plugin as table source instead of importing world book entries', () => {
+      const jsCode = `
+        // ==UserScript==
+        // @name         SP·数据库 III
+        // @version      2.0.0
+        // ==/UserScript==
+        (function () {
+          const inventorySheet = {
+            uid: "sheet_inventory",
+            name: "背包物品表",
+            sourceData: {
+              note: "记录物品。",
+              ddl: \`CREATE TABLE inventory (
+                row_id INTEGER PRIMARY KEY,
+                item_name TEXT NOT NULL UNIQUE
+              );\`
+            },
+            exportConfig: { enabled: false },
+            orderNo: 1
+          };
+          function buildDefaultTableTemplateObject_ACU() {
+            return { [inventorySheet.uid]: inventorySheet };
+          }
+        })();
+      `;
+      const result = importFromJsCode(db, 'SP 数据库', jsCode);
+      expect(result.sourceType).toBe('table_plugin');
+      expect(result.sheetsCount).toBe(1);
+      expect(result.worldBook).toBeUndefined();
+      const sheet = db.prepare('SELECT name, table_name as tableName FROM remote_db_sheets WHERE source_id = ?')
+        .get(result.source.id) as { name: string; tableName: string };
+      expect(sheet).toMatchObject({ name: '背包物品表', tableName: 'inventory' });
+      const worldBookEntries = db.prepare('SELECT COUNT(*) as count FROM resource_world_book_entries').get() as { count: number };
+      expect(worldBookEntries.count).toBe(0);
+    });
+
+    it('uses connected table plugin as room runtime database context', () => {
+      db.prepare(
+        'INSERT INTO rooms (id, name, system_prompt, world_info, current_turn, status, ai_config_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+      ).run('room-1', '测试房间', '', '', 1, 'waiting_for_actions', '{}', new Date().toISOString());
+      const jsCode = `
+        // ==UserScript==
+        // @name         SP·数据库 III
+        // @version      2.0.0
+        // ==/UserScript==
+        (function () {
+          const inventorySheet = {
+            uid: "sheet_inventory",
+            name: "背包物品表",
+            sourceData: {
+              note: "记录物品。",
+              insertNode: "获得新物品时插入。",
+              updateNode: "数量变化时更新。",
+              deleteNode: "物品不再存在时删除。",
+              ddl: \`CREATE TABLE inventory (
+                row_id INTEGER PRIMARY KEY,
+                item_name TEXT NOT NULL UNIQUE,
+                quantity INTEGER NOT NULL
+              );\`
+            },
+            exportConfig: { enabled: true },
+            orderNo: 1
+          };
+          function buildDefaultTableTemplateObject_ACU() {
+            return { [inventorySheet.uid]: inventorySheet };
+          }
+        })();
+      `;
+      const result = importFromJsCode(db, 'SP 数据库', jsCode);
+      const bindings = replaceRoomDbSourceBindings(db, 'room-1', [{ sourceId: result.source.id, enabled: true, orderIndex: 0 }]);
+      expect(bindings).toHaveLength(1);
+      const sheet = db.prepare('SELECT id FROM remote_db_sheets WHERE source_id = ?').get(result.source.id) as { id: string };
+      const row = upsertRoomDbRow(db, 'room-1', sheet.id, 'silver-key', { item_name: '银钥匙', quantity: 1 });
+      expect(row.data.item_name).toBe('银钥匙');
+      const context = renderRoomPluginDatabaseContext(db, 'room-1');
+      expect(context).toContain('插件数据库');
+      expect(context).toContain('背包物品表');
+      expect(context).toContain('silver-key');
+      expect(context).toContain('银钥匙');
+
+      applyPluginDatabaseChange(db, 'room-1', {
+        changeType: 'database_row_upsert',
+        targetId: `sheet:${sheet.id}`,
+        path: 'silver-key',
+        before: { item_name: '银钥匙', quantity: 1 },
+        after: { item_name: '银钥匙', quantity: 0 }
+      });
+      const snapshot = getRoomPluginDatabaseSnapshot(db, 'room-1');
+      expect(snapshot[0].sheets[0].rows[0].data.quantity).toBe(0);
     });
 
     it('checkForUpdates returns hasUpdate false when hash matches', async () => {

@@ -1,0 +1,9 @@
+root = true
+
+[*.{java,kt,groovy,xml,yml,yaml,properties,sql,js,jsx,ts,tsx,vue,css,scss,less,html,md,txt,json,sh,ps1,cmd,bat}]
+charset = utf-8
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false

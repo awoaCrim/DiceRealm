@@ -54,8 +54,11 @@ export function PromptPreviewPanel({ preview }: { preview: PromptPreviewResponse
         <h4>promptBlocks</h4>
         {preview.promptBlocks.length ? preview.promptBlocks.map((block, index) => (
           <div className="subcard" key={`${block.identifier}-${block.source}-${index}`}>
-            <strong>{block.identifier}</strong>
-            <p className="muted">{block.source} · {block.role}</p>
+            <strong>{block.displayName || block.identifier}</strong>
+            <p className="muted">
+              {block.source} · {block.role}
+              {block.displayName && block.displayName !== block.identifier ? ` · ID: ${block.identifier}` : ''}
+            </p>
             <pre>{block.content}</pre>
           </div>
         )) : <p className="muted">无 promptBlocks。</p>}

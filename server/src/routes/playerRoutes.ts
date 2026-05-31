@@ -18,11 +18,22 @@ import { getTurnReadiness } from '../services/turnReadinessService.js';
 
 const actionSchema = z.object({
   text: z.string().min(1),
-  actionType: z.enum(['narrative', 'exploration', 'social', 'combat', 'ooc']).optional(),
+  actionType: z.enum(['narrative', 'exploration', 'social', 'combat', 'ooc', 'in_character_action', 'player_question', 'meta_question', 'observe', 'wait', 'skip', 'ready', 'follow', 'combat_action']).optional(),
   isHiddenRoll: z.boolean().optional()
 });
 const interactionResponseSchema = z.object({ response: z.string().min(1) });
 const builderDraftSchema = z.object({ draft: z.unknown() }).strict();
+const optionalBuilderDraftSchema = z.object({ draft: z.unknown().optional() }).strict();
+
+function inferActionType(text: string, actionType: z.infer<typeof actionSchema>['actionType']): NonNullable<z.infer<typeof actionSchema>['actionType']> {
+  if (actionType && actionType !== 'narrative') return actionType;
+  const trimmed = text.trim();
+  if (/^(我是谁|我现在是谁|我的角色是谁)[？?]?$/.test(trimmed)) return 'player_question';
+  if (/[？?]$/.test(trimmed)) return 'player_question';
+  if (/^(观察|查看|环顾|侦查|搜索)/.test(trimmed)) return 'observe';
+  if (/^(等待|静观|观望|不行动)/.test(trimmed)) return 'wait';
+  return actionType ?? 'in_character_action';
+}
 
 function getPlayerByToken(db: AppDatabase, token: string): any | null {
   return db.prepare('SELECT id, room_id as roomId, name, token, is_connected as isConnected, created_at as createdAt FROM players WHERE token = ?').get(token) as any | null;
@@ -155,7 +166,9 @@ export function createPlayerRouter(db: AppDatabase): Router {
       ...currentSheet,
       name: draft.name || currentSheet.name,
       species: draft.species || currentSheet.species,
+      subSpecies: draft.subSpecies,
       className: draft.className || currentSheet.className,
+      classDetail: draft.classDetail,
       background: draft.background,
       abilityScores: draft.abilityScores,
       skills: draft.skills,
@@ -188,7 +201,8 @@ export function createPlayerRouter(db: AppDatabase): Router {
     if (!characterRow) return res.status(404).json({ error: 'Character not found' });
     const currentSheet = JSON.parse(characterRow.sheetJson);
 
-    const rawDraft = currentSheet.builderDraft || currentSheet;
+    const input = optionalBuilderDraftSchema.parse(req.body ?? {});
+    const rawDraft = input.draft ?? currentSheet.builderDraft ?? currentSheet;
     const draft = normalizeCharacterBuilderDraft(rawDraft);
     const audit = auditCharacterBuilderDraft(draft);
 
@@ -217,7 +231,7 @@ export function createPlayerRouter(db: AppDatabase): Router {
     const now = new Date().toISOString();
 
     db.prepare('INSERT OR REPLACE INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status, action_type, is_hidden_roll) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(nanoid(), player.roomId, turn.id, player.id, input.text, now, 'submitted', input.actionType ?? null, input.isHiddenRoll ? 1 : 0);
+      .run(nanoid(), player.roomId, turn.id, player.id, input.text, now, 'submitted', inferActionType(input.text, input.actionType), input.isHiddenRoll ? 1 : 0);
     const fullRoom = db.prepare('SELECT id, current_turn as currentTurn FROM rooms WHERE id = ?').get(player.roomId) as { id: string; currentTurn: number };
     getTurnReadiness(db, fullRoom);
     publishRoomUpdate(player.roomId);

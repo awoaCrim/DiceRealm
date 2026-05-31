@@ -103,7 +103,7 @@ export function migrate(db: AppDatabase): void {
       CHECK (visibility IN ('private', 'campaign', 'workspace', 'public')),
       CHECK (is_private IN (0, 1)),
       CHECK (status IN ('pending', 'approved', 'rejected')),
-      CHECK (option_type IS NULL OR option_type IN ('species', 'class', 'background', 'skill', 'equipment', 'spell', 'language', 'proficiency')),
+      CHECK (option_type IS NULL OR option_type IN ('species', 'subspecies', 'class', 'background', 'skill', 'equipment', 'spell', 'language', 'proficiency')),
       CHECK ((kind = 'character_option' AND option_type IS NOT NULL) OR (kind != 'character_option' AND option_type IS NULL))
     );
 
@@ -134,7 +134,7 @@ export function migrate(db: AppDatabase): void {
       source_ref TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
-      CHECK (option_type IN ('species', 'class', 'background', 'skill', 'equipment', 'spell', 'language', 'proficiency')),
+      CHECK (option_type IN ('species', 'subspecies', 'class', 'background', 'skill', 'equipment', 'spell', 'language', 'proficiency')),
       UNIQUE(option_type, name)
     );
 
@@ -537,6 +537,46 @@ export function migrate(db: AppDatabase): void {
       has_local_edits INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY(source_id, resource_type, resource_id)
     );
+
+    CREATE TABLE IF NOT EXISTS remote_db_sheets (
+      id TEXT NOT NULL PRIMARY KEY,
+      source_id TEXT NOT NULL REFERENCES remote_db_sources(id) ON DELETE CASCADE,
+      uid TEXT NOT NULL,
+      name TEXT NOT NULL,
+      table_name TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      init_node TEXT NOT NULL DEFAULT '',
+      update_node TEXT NOT NULL DEFAULT '',
+      insert_node TEXT NOT NULL DEFAULT '',
+      delete_node TEXT NOT NULL DEFAULT '',
+      ddl TEXT NOT NULL DEFAULT '',
+      export_enabled INTEGER NOT NULL DEFAULT 0,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      raw_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(source_id, uid)
+    );
+
+    CREATE TABLE IF NOT EXISTS room_db_source_bindings (
+      room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      source_id TEXT NOT NULL REFERENCES remote_db_sources(id) ON DELETE CASCADE,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      order_index INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY(room_id, source_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS remote_db_rows (
+      id TEXT NOT NULL PRIMARY KEY,
+      room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      sheet_id TEXT NOT NULL REFERENCES remote_db_sheets(id) ON DELETE CASCADE,
+      row_key TEXT NOT NULL,
+      data_json TEXT NOT NULL DEFAULT '{}',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(room_id, sheet_id, row_key)
+    );
   `);
 
   upgradeResourceImportSchema(db);
@@ -556,6 +596,9 @@ export function migrate(db: AppDatabase): void {
   db.prepare('CREATE INDEX IF NOT EXISTS campaign_quests_room_idx ON campaign_quests(room_id, title)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS campaign_npcs_room_idx ON campaign_npcs(room_id, name)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS campaign_locations_room_idx ON campaign_locations(room_id, name)').run();
+  db.prepare('CREATE INDEX IF NOT EXISTS remote_db_sheets_source_idx ON remote_db_sheets(source_id, order_index)').run();
+  db.prepare('CREATE INDEX IF NOT EXISTS room_db_source_bindings_room_idx ON room_db_source_bindings(room_id, order_index)').run();
+  db.prepare('CREATE INDEX IF NOT EXISTS remote_db_rows_room_sheet_idx ON remote_db_rows(room_id, sheet_id, updated_at)').run();
   createResourceCatalogTriggers(db);
 
   db.prepare(`
@@ -621,6 +664,115 @@ function tableExists(db: AppDatabase, name: string): boolean {
   return Boolean(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name));
 }
 
+function upgradeResourceOptionTypeConstraints(db: AppDatabase): void {
+  const needsDraftRebuild = tableSql(db, 'resource_import_drafts').includes('option_type') && !tableSql(db, 'resource_import_drafts').includes("'subspecies'");
+  const needsCharacterOptionsRebuild = tableSql(db, 'character_options').includes('option_type') && !tableSql(db, 'character_options').includes("'subspecies'");
+  if (!needsDraftRebuild && !needsCharacterOptionsRebuild) {
+    return;
+  }
+
+  const foreignKeys = db.pragma('foreign_keys', { simple: true }) as number;
+  db.pragma('foreign_keys = OFF');
+  try {
+    if (needsDraftRebuild) {
+      db.exec(`
+        DROP TABLE IF EXISTS resource_import_drafts_new;
+
+        CREATE TABLE resource_import_drafts_new (
+          id TEXT NOT NULL PRIMARY KEY,
+          job_id TEXT NOT NULL REFERENCES resource_import_jobs(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL,
+          source_type TEXT NOT NULL,
+          source_name TEXT NOT NULL DEFAULT '',
+          source_file_name TEXT NOT NULL DEFAULT '',
+          source_url TEXT NOT NULL DEFAULT '',
+          source_version TEXT NOT NULL DEFAULT '',
+          source_hash TEXT NOT NULL DEFAULT '',
+          source_license TEXT NOT NULL DEFAULT '',
+          ruleset TEXT NOT NULL DEFAULT 'unknown',
+          language TEXT NOT NULL DEFAULT 'unknown',
+          visibility TEXT NOT NULL DEFAULT 'private',
+          is_private INTEGER NOT NULL DEFAULT 1,
+          imported_by TEXT NOT NULL DEFAULT 'admin',
+          content_hash TEXT NOT NULL DEFAULT '',
+          title TEXT NOT NULL,
+          category TEXT NOT NULL DEFAULT 'general',
+          option_type TEXT,
+          summary TEXT NOT NULL,
+          content TEXT NOT NULL DEFAULT '',
+          keys_json TEXT NOT NULL DEFAULT '[]',
+          source_ref TEXT NOT NULL DEFAULT '',
+          rule_data_json TEXT NOT NULL DEFAULT '{}',
+          prerequisites_json TEXT NOT NULL DEFAULT '{}',
+          priority INTEGER NOT NULL DEFAULT 100,
+          raw_json TEXT NOT NULL DEFAULT '{}',
+          status TEXT NOT NULL DEFAULT 'pending',
+          rejection_reason TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          CHECK (kind IN ('rule_entry', 'character_option', 'resource_rule', 'worldbook_entry', 'spell', 'monster', 'item', 'npc', 'campaign_entry', 'preset_module')),
+          CHECK (source_type IN ('local_json', 'phb_extraction', 'sillytavern_worldbook', 'sillytavern_preset', 'remote_url', 'manual')),
+          CHECK (ruleset IN ('5e-2014', '5e-2024', 'homebrew', 'unknown')),
+          CHECK (visibility IN ('private', 'campaign', 'workspace', 'public')),
+          CHECK (is_private IN (0, 1)),
+          CHECK (status IN ('pending', 'approved', 'rejected')),
+          CHECK (option_type IS NULL OR option_type IN ('species', 'subspecies', 'class', 'background', 'skill', 'equipment', 'spell', 'language', 'proficiency')),
+          CHECK ((kind = 'character_option' AND option_type IS NOT NULL) OR (kind != 'character_option' AND option_type IS NULL))
+        );
+
+        INSERT OR IGNORE INTO resource_import_drafts_new (
+          id, job_id, kind, source_type, source_name, source_file_name, source_url, source_version,
+          source_hash, source_license, ruleset, language, visibility, is_private, imported_by,
+          content_hash, title, category, option_type, summary, content, keys_json, source_ref,
+          rule_data_json, prerequisites_json, priority, raw_json, status, rejection_reason,
+          created_at, updated_at
+        )
+        SELECT id, job_id, kind, source_type, source_name, source_file_name, source_url, source_version,
+          source_hash, source_license, ruleset, language, visibility, is_private, imported_by,
+          content_hash, title, category, option_type, summary, content, keys_json, source_ref,
+          rule_data_json, prerequisites_json, priority, raw_json, status, rejection_reason,
+          created_at, updated_at
+        FROM resource_import_drafts;
+
+        DROP TABLE resource_import_drafts;
+        ALTER TABLE resource_import_drafts_new RENAME TO resource_import_drafts;
+      `);
+    }
+
+    if (needsCharacterOptionsRebuild) {
+      db.exec(`
+        DROP TABLE IF EXISTS character_options_new;
+
+        CREATE TABLE character_options_new (
+          id TEXT NOT NULL PRIMARY KEY,
+          draft_id TEXT NOT NULL UNIQUE REFERENCES resource_import_drafts(id) ON DELETE CASCADE,
+          option_type TEXT NOT NULL,
+          name TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          rule_data_json TEXT NOT NULL DEFAULT '{}',
+          prerequisites_json TEXT NOT NULL DEFAULT '{}',
+          source_ref TEXT NOT NULL DEFAULT '',
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          CHECK (option_type IN ('species', 'subspecies', 'class', 'background', 'skill', 'equipment', 'spell', 'language', 'proficiency')),
+          UNIQUE(option_type, name)
+        );
+
+        INSERT OR IGNORE INTO character_options_new (
+          id, draft_id, option_type, name, summary, rule_data_json, prerequisites_json, source_ref, created_at, updated_at
+        )
+        SELECT id, draft_id, option_type, name, summary, rule_data_json, prerequisites_json, source_ref, created_at, updated_at
+        FROM character_options;
+
+        DROP TABLE character_options;
+        ALTER TABLE character_options_new RENAME TO character_options;
+      `);
+    }
+  } finally {
+    db.pragma(`foreign_keys = ${foreignKeys ? 'ON' : 'OFF'}`);
+  }
+}
+
 function upgradeResourceImportSchema(db: AppDatabase): void {
   if (tableExists(db, 'phb_extraction_jobs')) {
     db.prepare(`
@@ -653,6 +805,8 @@ function upgradeResourceImportSchema(db: AppDatabase): void {
       JOIN phb_extraction_jobs j ON j.id = d.job_id
     `).run();
   }
+
+  upgradeResourceOptionTypeConstraints(db);
 
   const needsCatalogRebuild = ['rule_world_book_entries', 'character_options', 'resource_rules']
     .some((name) => tableSql(db, name).includes('phb_extraction_drafts'));
@@ -691,7 +845,7 @@ function upgradeResourceImportSchema(db: AppDatabase): void {
         source_ref TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        CHECK (option_type IN ('species', 'class', 'background', 'skill', 'equipment', 'spell', 'language', 'proficiency')),
+        CHECK (option_type IN ('species', 'subspecies', 'class', 'background', 'skill', 'equipment', 'spell', 'language', 'proficiency')),
         UNIQUE(option_type, name)
       );
 

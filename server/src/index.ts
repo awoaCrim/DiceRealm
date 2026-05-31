@@ -9,6 +9,6 @@ const db = getDb();
 migrate(db);
 seedBuiltinRules(db);
 
-createApp(db).listen(config.port, () => {
-  console.log(`DND AI-DM server listening on http://localhost:${config.port}`);
+createApp(db).listen(config.port, config.host, () => {
+  console.log(`DND AI-DM server listening on http://${config.host}:${config.port}`);
 });

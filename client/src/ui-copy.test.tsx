@@ -17,6 +17,18 @@ import * as api from './api';
 
 vi.mock('./api', () => ({
   createRoom: vi.fn(),
+  listRooms: vi.fn(async () => ({
+    rooms: [{
+      id: 'room-1',
+      name: '烛堡之门',
+      currentTurn: 2,
+      status: 'waiting_for_actions',
+      playerCount: 2,
+      createdAt: '2026-05-30T00:00:00.000Z',
+      adminUrl: '/admin/room-1'
+    }]
+  })),
+  deleteRoom: vi.fn(async () => ({ ok: true as const, roomId: 'room-1' })),
   getAdminState: vi.fn(async (): Promise<AdminState> => ({
     room: {
       id: 'room-1',
@@ -41,6 +53,7 @@ vi.mock('./api', () => ({
     interactions: [],
     logs: [],
     aiGenerations: [],
+    characters: [],
     turnReadiness: {
       turnId: 'turn-1',
       status: 'ready_to_resolve',
@@ -238,14 +251,16 @@ vi.mock('./api', () => ({
   respondToInteraction: vi.fn(async () => ({ ok: true })),
   subscribeRoom: vi.fn(() => () => {}),
   getCharacterBuilderOptions: vi.fn(async () => ({
-    options: { species: [], classes: [], backgrounds: [], skills: [], equipment: [], spells: [], languages: [], proficiencies: [] }
+    options: { species: [], subSpecies: [], classes: [], backgrounds: [], skills: [], equipment: [], spells: [], languages: [], proficiencies: [] }
   })),
   auditCharacterBuilderDraft: vi.fn(async () => ({
     draft: {
       name: '新英雄',
       concept: '',
       species: '',
+      subSpecies: '',
       className: '',
+      classDetail: '',
       background: '',
       abilityScores: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 },
       skills: [],
@@ -323,8 +338,6 @@ vi.mock('./api', () => ({
   listLocations: vi.fn(async () => ({ locations: [] })),
   updateLocation: vi.fn(async () => ({ location: { id: 'l-1', roomId: 'room-1', name: '废弃矿井', description: '', notes: '', updatedAt: '2026-05-30T00:00:00.000Z' } })),
   // DB Management Center mocks
-  importFromUrl: vi.fn(async () => ({ source: { id: 'src-1', url: '', name: 'World A', sourceType: 'world_book', version: '', fileHash: 'abc123', fileSize: 100, entryCount: 5, lastCheckedAt: '', createdAt: '' }, sourceType: 'world_book', worldBook: { name: 'World A', id: 'wb-1' }, draftsCount: 0 })),
-  importJsDatabase: vi.fn(async () => ({ source: { id: 'src-2', url: '', name: 'JS World', sourceType: 'world_book', version: '', fileHash: 'ghi789', fileSize: 50, entryCount: 3, lastCheckedAt: '', createdAt: '' }, sourceType: 'world_book', worldBook: { name: 'JS World', id: 'wb-2' }, preview: { entryTypes: [{ type: 'world_book_entries', count: 3 }] }, draftsCount: 0 })),
   listDbSources: vi.fn(async () => ({ sources: [] })),
   checkDbSourceUpdates: vi.fn(async () => ({ hasUpdate: false })),
   updateDbSource: vi.fn(async () => ({ source: { id: 'src-1', url: '', name: 'World A', sourceType: 'world_book', version: '', fileHash: 'newhash', fileSize: 100, entryCount: 5, lastCheckedAt: '', createdAt: '' }, sourceType: 'world_book', worldBook: { name: 'World A', id: 'wb-1' }, draftsCount: 0 })),
@@ -352,7 +365,7 @@ function globalWorldBookBinding(worldBookId: string, enabled: boolean, orderInde
 }
 
 describe('中文界面文案', () => {
-  it('首页使用中文创建房间文案', () => {
+  it('首页使用中文创建房间文案并展示已有房间', async () => {
     render(<HomePage />);
 
     expect(screen.getByText('创建本地多人跑团房间，并为每位玩家隔离可见信息。')).toBeInTheDocument();
@@ -361,6 +374,23 @@ describe('中文界面文案', () => {
     expect(screen.queryByText('世界信息')).not.toBeInTheDocument();
     expect(screen.queryByText('AI-DM 指令')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '创建房间' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '已有房间' })).toBeInTheDocument();
+    expect(screen.getByText('烛堡之门')).toBeInTheDocument();
+    expect(screen.getByText(/第 2 回合/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '进入房间' })).toHaveAttribute('href', '/admin/room-1');
+    expect(screen.getByRole('button', { name: '删除' })).toBeInTheDocument();
+  });
+
+  it('首页可以删除已有房间', async () => {
+    const user = userEvent.setup();
+    vi.spyOn(window, 'confirm').mockReturnValueOnce(true);
+    render(<HomePage />);
+
+    await screen.findByText('烛堡之门');
+    await user.click(screen.getByRole('button', { name: '删除' }));
+
+    await waitFor(() => expect(api.deleteRoom).toHaveBeenCalledWith('room-1'));
+    expect(screen.queryByText('烛堡之门')).not.toBeInTheDocument();
   });
 
   it('公共组件使用中文空状态和回合文案', () => {
@@ -383,6 +413,46 @@ describe('中文界面文案', () => {
     expect(screen.getByText('暂无记录。')).toBeInTheDocument();
   });
 
+  it('角色卡默认折叠并在弹窗展示完整内容', async () => {
+    const user = userEvent.setup();
+    render(<CharacterCard character={{
+      id: 'char-1',
+      playerId: 'player-1',
+      draftSource: 'manual',
+      confirmed: true,
+      updatedAt: '2026-05-30T00:00:00.000Z',
+      sheet: {
+        name: '洛林',
+        species: '人类',
+        subSpecies: '变体人类',
+        className: '战士',
+        classDetail: '防御战斗风格',
+        level: 1,
+        abilityScores: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 },
+        hitPoints: { current: 12, max: 12 },
+        armorClass: 16,
+        proficiencyBonus: 2,
+        skills: ['运动'],
+        equipment: ['长剑'],
+        spells: ['光亮术'],
+        languages: ['通用语'],
+        proficiencies: ['盾牌熟练'],
+        privateNotes: '私密备注',
+        background: '士兵',
+        concept: '守护同伴'
+      }
+    }} />);
+
+    expect(screen.getByText('洛林')).toBeInTheDocument();
+    expect(screen.queryByText('技能')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '查看详情' }));
+
+    expect(await screen.findByRole('dialog', { name: '洛林' })).toBeInTheDocument();
+    expect(screen.getByText('技能')).toBeInTheDocument();
+    expect(screen.getByText('运动')).toBeInTheDocument();
+    expect(screen.getByText('私密备注：私密备注')).toBeInTheDocument();
+  });
+
   it('AI prompt 预览展示 5e 规则命中', () => {
     render(<PromptPreviewPanel preview={{
       mode: 'native',
@@ -400,6 +470,28 @@ describe('中文界面文案', () => {
     expect(screen.getByText('攻击时掷 d20 对抗 AC。')).toBeInTheDocument();
   });
 
+  it('AI prompt 预览优先展示可读提示词块标题', () => {
+    render(<PromptPreviewPanel preview={{
+      mode: 'sillytavern-compatible',
+      prompt: 'prompt',
+      messages: [],
+      slots: [],
+      worldBookMatches: [],
+      ruleMatches: [],
+      promptBlocks: [{
+        identifier: 'plqGRxqxkIwGvcbkiYxIi',
+        displayName: '玩家自主权',
+        source: 'st-preset',
+        role: 'system',
+        content: '绝不代替玩家做出关键决定。'
+      }],
+      warnings: []
+    }} />);
+
+    expect(screen.getByText('玩家自主权')).toBeInTheDocument();
+    expect(screen.getByText(/ID: plqGRxqxkIwGvcbkiYxIi/)).toBeInTheDocument();
+  });
+
   it('玩家页展示本轮规则摘要', async () => {
     vi.mocked(api.getPlayerState).mockResolvedValueOnce({
       room: { id: 'room-1', name: '测试房间', worldInfo: '测试世界', currentTurn: 1, status: 'waiting_for_actions' },
@@ -415,6 +507,7 @@ describe('中文界面文案', () => {
 
     render(<PlayerPage token="token-1" />);
 
+    await userEvent.click(await screen.findByRole('button', { name: '状态' }));
     expect(await screen.findByText('本轮规则摘要')).toBeInTheDocument();
     expect(screen.getByText('攻击检定')).toBeInTheDocument();
     expect(screen.getByText('攻击时掷 d20 对抗 AC。')).toBeInTheDocument();
@@ -465,7 +558,9 @@ describe('中文界面文案', () => {
         sheet: {
           name: '新英雄',
           species: '',
+          subSpecies: '',
           className: '',
+          classDetail: '',
           level: 1,
           abilityScores: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 },
           hitPoints: { current: 10, max: 10 },
@@ -481,7 +576,9 @@ describe('中文界面文案', () => {
             name: '新英雄',
             concept: '',
             species: '',
+            subSpecies: '',
             className: '',
+            classDetail: '',
             background: '',
             abilityScores: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 },
             skills: [],
@@ -521,7 +618,6 @@ describe('中文界面文案', () => {
 
     expect(await screen.findByRole('button', { name: '总览' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'AI 接口' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '检定战斗' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '角色资源' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '战役记忆' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '资源配置' })).toBeInTheDocument();
@@ -529,9 +625,11 @@ describe('中文界面文案', () => {
     expect(screen.getByRole('button', { name: '预设' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '世界书' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'AI 约束' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '检定战斗' })).not.toBeInTheDocument();
 
     expect(screen.getByText('玩家')).toBeInTheDocument();
-    expect(screen.getByText('全部日志')).toBeInTheDocument();
+    expect(screen.getAllByText('客观剧情').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '公开剧情' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'AI 接口' }));
     expect(screen.getByRole('heading', { name: 'AI 接口' })).toBeInTheDocument();
@@ -561,6 +659,60 @@ describe('中文界面文案', () => {
     expect(screen.getByRole('button', { name: '添加世界书条目' })).toBeInTheDocument();
   });
 
+  it('管理页行动区按玩家折叠展示行动', async () => {
+    const user = userEvent.setup();
+    const baseState = await api.getAdminState('room-1');
+    vi.mocked(api.getAdminState).mockResolvedValueOnce({
+      ...baseState,
+      players: [
+        { id: 'player-1', roomId: 'room-1', name: '阿瑞', token: 't1', isConnected: true, createdAt: '2026-05-27T00:00:00.000Z' },
+        { id: 'player-2', roomId: 'room-1', name: '波', token: 't2', isConnected: true, createdAt: '2026-05-27T00:01:00.000Z' }
+      ],
+      actions: [{
+        id: 'action-1',
+        roomId: 'room-1',
+        turnId: 'turn-1',
+        playerId: 'player-1',
+        text: '调查银色门缝',
+        submittedAt: '2026-05-30T00:00:00.000Z',
+        status: 'submitted',
+        actionType: 'exploration'
+      }, {
+        id: 'action-2',
+        roomId: 'room-1',
+        turnId: 'turn-1',
+        playerId: 'player-1',
+        text: '再次使用侦测魔法',
+        submittedAt: '2026-05-30T00:01:00.000Z',
+        status: 'submitted',
+        actionType: 'narrative'
+      }],
+      turnReadiness: {
+        ...baseState.turnReadiness,
+        requiredActorIds: ['player-1', 'player-2'],
+        submittedActorIds: ['player-1'],
+        completedActorIds: ['player-1'],
+        missingActorIds: ['player-2'],
+        ready: false
+      }
+    });
+
+    render(<AdminPage roomId="room-1" />);
+
+    expect(await screen.findByText('2 条行动 · 最新：再次使用侦测魔法')).toBeInTheDocument();
+    expect(screen.getByText('未提交')).toBeInTheDocument();
+    expect(screen.queryByText('1 条行动 · 调查银色门缝')).not.toBeInTheDocument();
+    expect(screen.getByText('行动详情：调查银色门缝')).not.toBeVisible();
+    expect(screen.getByText('行动详情：再次使用侦测魔法')).not.toBeVisible();
+
+    await user.click(screen.getByText('2 条行动 · 最新：再次使用侦测魔法'));
+
+    expect(screen.getByText('行动详情：调查银色门缝')).toBeVisible();
+    expect(screen.getByText('行动详情：再次使用侦测魔法')).toBeVisible();
+    expect(screen.getByText(/exploration · submitted/)).toBeVisible();
+    expect(screen.getByText(/narrative · submitted/)).toBeVisible();
+  });
+
   it('总览页先生成可编辑 AI 回合提示词，再发送给 AI', async () => {
     const user = userEvent.setup();
     vi.mocked(api.createAiTurnPreview).mockClear();
@@ -584,7 +736,7 @@ describe('中文界面文案', () => {
     ));
     expect(await screen.findByText('AI narration result')).toBeInTheDocument();
     expect(screen.getByText(/attack roll/)).toBeInTheDocument();
-    expect(screen.getByText('AI 已返回结果；建议变更仅展示，不会自动写入角色卡或战局。')).toBeInTheDocument();
+    expect(screen.getByText('AI 已返回并推进回合；客观剧情、公开剧情、玩家私人剧情和可应用的玩家状态已写入系统。')).toBeInTheDocument();
   });
 
   it('总览页在回合未就绪时禁用生成提示词并显示缺席玩家', async () => {
@@ -967,6 +1119,7 @@ describe('中文界面文案', () => {
   });
 
   it('玩家资源面板在确认角色且有 resources 时展示', async () => {
+    const user = userEvent.setup();
     vi.mocked(api.getPlayerState).mockResolvedValueOnce({
       room: { id: 'room-1', name: '测试房间', worldInfo: '测试世界', currentTurn: 1, status: 'waiting_for_actions' },
       player: { id: 'player-1', name: '测试玩家' },
@@ -976,7 +1129,9 @@ describe('中文界面文案', () => {
         sheet: {
           name: '洛林',
           species: '人类',
+          subSpecies: '标准人类',
           className: '战士',
+          classDetail: '防御型战士',
           level: 3,
           abilityScores: { str: 16, dex: 13, con: 15, int: 10, wis: 12, cha: 8 },
           hitPoints: { current: 28, max: 28 },
@@ -1001,8 +1156,8 @@ describe('中文界面文案', () => {
         hitPoints: { current: 28, max: 28, temp: 0 },
         hitDice: { total: 3, remaining: 3, die: 'd10' },
         spellSlots: {},
-        ammo: [],
-        consumables: [],
+        ammo: [{ name: '弩矢', current: 20, max: 20 }],
+        consumables: [{ name: '治疗包', quantity: 1 }],
         currency: { gp: 15, sp: 3, cp: 7 },
         conditions: []
       }
@@ -1010,10 +1165,27 @@ describe('中文界面文案', () => {
 
     render(<PlayerPage token="token-1" />);
 
+    expect(await screen.findByRole('button', { name: '剧情' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '人物卡' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '背包' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '状态' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '状态' }));
+
     expect(await screen.findByText('角色资源')).toBeInTheDocument();
     expect(screen.getByText(/HP/)).toBeInTheDocument();
-    expect(screen.getByText('短休')).toBeInTheDocument();
-    expect(screen.getByText('长休')).toBeInTheDocument();
+    expect(screen.queryByText('短休')).not.toBeInTheDocument();
+    expect(screen.queryByText('长休')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '背包' }));
+
+    const backpack = (await screen.findByRole('heading', { name: '背包' })).closest('section')!;
+    expect(backpack).toBeInTheDocument();
+    expect(within(backpack).getByText('长剑')).toBeInTheDocument();
+    expect(within(backpack).getByText('盾牌')).toBeInTheDocument();
+    expect(within(backpack).getByText(/弩矢: 20 \/ 20/)).toBeInTheDocument();
+    expect(within(backpack).getByText(/治疗包: 1/)).toBeInTheDocument();
+    expect(within(backpack).getByText(/15 gp/)).toBeInTheDocument();
   });
 
   it('管理员台资源变更列表展示并支持回滚', async () => {
@@ -1037,12 +1209,10 @@ describe('中文界面文案', () => {
     render(<AdminPage roomId="room-1" />);
 
     await user.click(await screen.findByRole('button', { name: '角色资源' }));
-    expect(screen.getByText('角色资源变更')).toBeInTheDocument();
-
-    await user.type(screen.getByPlaceholderText('char-1'), 'char-1');
-    await user.click(screen.getByRole('button', { name: '查询变更' }));
 
     expect(await screen.findByText('hitPoints.current')).toBeInTheDocument();
+    expect(api.listCharacterResourceChanges).toHaveBeenCalledWith('room-1');
+    expect(screen.queryByRole('button', { name: '查询变更' })).not.toBeInTheDocument();
     expect(screen.getByText(/10.*→.*12/)).toBeInTheDocument();
     expect(screen.getByText(/短休恢复/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '回滚' })).toBeInTheDocument();
@@ -1070,6 +1240,7 @@ describe('中文界面文案', () => {
   });
 
   it('战斗面板在玩家页展示先攻顺序和骰点日志', async () => {
+    const user = userEvent.setup();
     vi.mocked(api.getPlayerState).mockResolvedValueOnce({
       room: { id: 'room-1', name: '测试房间', worldInfo: '测试世界', currentTurn: 1, status: 'waiting_for_actions' },
       player: { id: 'player-1', name: '测试玩家' },
@@ -1099,6 +1270,8 @@ describe('中文界面文案', () => {
 
     render(<PlayerPage token="token-1" />);
 
+    await user.click(await screen.findByRole('button', { name: '状态' }));
+
     expect(await screen.findByRole('heading', { name: '战斗' })).toBeInTheDocument();
     expect(screen.getByText(/第 1 回合 .* 当前行动者/)).toBeInTheDocument();
     // Initiative order list (both participant names appear in combat cards)
@@ -1112,71 +1285,6 @@ describe('中文界面文案', () => {
     expect(screen.getByText('最近骰点')).toBeInTheDocument();
     expect(screen.getByText(/攻击检定/)).toBeInTheDocument();
     expect(screen.getByText(/匕首伤害/)).toBeInTheDocument();
-  });
-
-  it('管理台展示骰点和战斗操作', async () => {
-    const user = userEvent.setup();
-    render(<AdminPage roomId="room-1" />);
-
-    await user.click(await screen.findByRole('button', { name: '检定战斗' }));
-
-    // 骰点 子区域
-    expect(screen.getByText('骰点')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '掷骰' })).toBeInTheDocument();
-
-    // Select die type and roll
-    const dieSelect = screen.getAllByLabelText('骰子类型')[0] as HTMLSelectElement;
-    expect(dieSelect).toBeInTheDocument();
-    await user.selectOptions(dieSelect, 'd6');
-    await user.type(screen.getByLabelText('调整值'), '2');
-    await user.type(screen.getByLabelText('DC'), '10');
-    await user.type(screen.getByLabelText('原因'), '技能检定');
-    await user.click(screen.getByRole('button', { name: '掷骰' }));
-
-    await waitFor(() => expect(api.adminDiceRoll).toHaveBeenCalledWith('room-1', {
-      die: 'd6',
-      modifier: 2,
-      dc: 10,
-      reason: '技能检定'
-    }));
-    expect(await screen.findByText(/d6.*15.*\+ 3 = 18.*成功/)).toBeInTheDocument();
-
-    // 战斗 子区域 (basic buttons always visible)
-    expect(screen.getByText('战斗')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '开始战斗' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '掷先攻' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '下一回合' })).toBeInTheDocument();
-
-    // Start combat
-    const combatTextarea = screen.getByLabelText('参战者 (每行: name hp ac initMod)');
-    await user.clear(combatTextarea);
-    await user.type(combatTextarea, '哥布林 7 15 2');
-    vi.mocked(api.startCombat).mockResolvedValueOnce({
-      id: 'combat-1',
-      roomId: 'room-1',
-      participants: [
-        { id: 'c-1', name: '哥布林', hp: 7, maxHp: 7, ac: 15, initiative: null, isNpc: true }
-      ],
-      currentTurnIndex: 0,
-      round: 1,
-      status: 'active'
-    });
-    await user.click(screen.getByRole('button', { name: '开始战斗' }));
-    await waitFor(() => expect(api.startCombat).toHaveBeenCalled());
-    expect(api.startCombat).toHaveBeenCalledWith('room-1', {
-      participants: [{ name: '哥布林', hp: 7, ac: 15, initiativeModifier: 2 }]
-    });
-
-    // Attack button visible after combat starts
-    expect(screen.getByRole('button', { name: '攻击' })).toBeInTheDocument();
-
-    // Roll initiative
-    await user.click(screen.getByRole('button', { name: '掷先攻' }));
-    await waitFor(() => expect(api.rollCombatInitiative).toHaveBeenCalledWith('room-1', 'combat-1'));
-
-    // Combat state display
-    expect(screen.getByText(/第 1 回合 .* 当前行动者/)).toBeInTheDocument();
-    expect(screen.getByText('HP: 7/7')).toBeInTheDocument();
   });
 
   it('管理员台战役记忆页展示战役记忆子区域', async () => {
@@ -1278,40 +1386,6 @@ describe('中文界面文案', () => {
     expect(screen.getByText('格拉克')).toBeInTheDocument();
   });
 
-  it('管理台检定战斗页展示快速检定按钮', async () => {
-    const user = userEvent.setup();
-    render(<AdminPage roomId="room-1" />);
-
-    await user.click(await screen.findByRole('button', { name: '检定战斗' }));
-
-    expect(screen.getByText('快速检定')).toBeInTheDocument();
-    expect(screen.getByText('属性检定（无熟练加值，调整值0，DC 10）：')).toBeInTheDocument();
-    // Ability buttons
-    expect(screen.getByRole('button', { name: 'STR' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'DEX' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'CON' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'INT' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'WIS' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'CHA' })).toBeInTheDocument();
-    // Social action buttons
-    expect(screen.getByText('社交行动（无调整值）：')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '说服 DC15' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '欺骗 DC15' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '威吓 DC17' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '洞察 DC12' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '交易 DC15' })).toBeInTheDocument();
-
-    // Quick roll should call adminDiceRoll
-    vi.mocked(api.adminDiceRoll).mockClear();
-    await user.click(screen.getByRole('button', { name: 'STR' }));
-    await waitFor(() => expect(api.adminDiceRoll).toHaveBeenCalledWith('room-1', {
-      die: 'd20',
-      modifier: 0,
-      dc: 10,
-      reason: 'STR属性检定'
-    }));
-  });
-
   it('数据库标签页展示数据库管理子区域', async () => {
     const user = userEvent.setup();
     render(<AdminPage roomId="room-1" />);
@@ -1319,18 +1393,14 @@ describe('中文界面文案', () => {
     await user.click(await screen.findByRole('button', { name: '数据库' }));
 
     expect(screen.getByRole('heading', { name: '数据库管理' })).toBeInTheDocument();
-    expect(screen.getByText('从远程 URL 或 JS 代码导入结构化数据，支持增量更新检测。')).toBeInTheDocument();
-
-    // URL import section
-    expect(screen.getByRole('heading', { name: '从 URL 导入' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '从 URL 导入' })).toBeInTheDocument();
-
-    // JS import section
-    expect(screen.getByRole('heading', { name: '从 JS 代码导入' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '从 JS 代码导入' })).toBeInTheDocument();
+    expect(screen.getByText('管理已接入的数据源。数据库插件会作为表结构来源使用，不会作为世界书条目导入。')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '从 URL 接入' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '从 URL 接入' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '从 JS 代码接入' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '从 JS 代码接入' })).not.toBeInTheDocument();
 
     // Source list section
-    expect(screen.getByRole('heading', { name: '已导入源' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '已接入数据源' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '刷新列表' })).toBeInTheDocument();
   });
 });

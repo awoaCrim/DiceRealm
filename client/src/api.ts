@@ -23,7 +23,10 @@ import type {
   PromptPreset,
   PromptPresetPackage,
   PromptPreviewResponse,
+  RemoteDbRow,
   RemoteDbSource,
+  RemoteDbSheet,
+  RoomDbSourceBinding,
   ResourceImportDraft,
   ResourceImportDraftKind,
   ResourceImportDraftStatus,
@@ -39,6 +42,7 @@ import type {
   RollbackResponse,
   RoomPresetBinding,
   RoomScriptBinding,
+  RoomSummary,
   RoomWorldBookBinding,
   RuleRetrievalMatch,
   RuleWorldBookEntry,
@@ -48,11 +52,26 @@ import type {
   WorldBookEntry
 } from './types';
 
+const REQUEST_TIMEOUT_MS = 15000;
+const DEV_BACKEND_PORT = '3000';
+
+function eventSourceUrl(path: string): string {
+  if (typeof window === 'undefined') return path;
+  if (window.location.hostname && window.location.port === '5180') {
+    return `${window.location.protocol}//${window.location.hostname}:${DEV_BACKEND_PORT}${path}`;
+  }
+  return path;
+}
+
 async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
-    ...init,
-    headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) }
-  });
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    const response = await fetch(url, {
+      ...init,
+      signal: controller.signal,
+      headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) }
+    });
   if (!response.ok) {
     const text = await response.text();
     let message = text;
@@ -65,7 +84,15 @@ async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
     }
     throw new Error(message);
   }
-  return response.json() as Promise<T>;
+    return response.json() as Promise<T>;
+  } catch (err: unknown) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error('请求已被前端超时取消：后端 15 秒内没有响应，请确认服务是否仍在运行。');
+    }
+    throw err;
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
 }
 
 export function createRoom(input: { name: string }) {
@@ -73,6 +100,14 @@ export function createRoom(input: { name: string }) {
     method: 'POST',
     body: JSON.stringify({ name: input.name })
   });
+}
+
+export function listRooms() {
+  return jsonRequest<{ rooms: RoomSummary[] }>('/api/admin/rooms');
+}
+
+export function deleteRoom(roomId: string) {
+  return jsonRequest<{ ok: true; roomId: string }>(`/api/admin/rooms/${roomId}`, { method: 'DELETE' });
 }
 
 export function addPlayer(roomId: string, name: string) {
@@ -352,18 +387,22 @@ export function saveCharacterBuilderDraft(token: string, draft: CharacterBuilder
   return jsonRequest<{ character: { id: string; confirmed: boolean } }>(`/api/player/${token}/character-builder/draft`, { method: 'PUT', body: JSON.stringify({ draft }) });
 }
 
-export function confirmCharacterBuilderDraft(token: string) {
-  return jsonRequest<{ character: { id: string; confirmed: boolean } }>(`/api/player/${token}/character-builder/confirm`, { method: 'POST' });
+export function confirmCharacterBuilderDraft(token: string, draft?: CharacterBuilderDraft) {
+  return jsonRequest<{ character: { id: string; confirmed: boolean } }>(`/api/player/${token}/character-builder/confirm`, {
+    method: 'POST',
+    ...(draft ? { body: JSON.stringify({ draft }) } : {})
+  });
 }
 
 export function restCharacter(roomId: string, characterId: string, input: RestInput) {
   return jsonRequest<RestResponse>(`/api/admin/rooms/${roomId}/characters/${characterId}/rest`, { method: 'POST', body: JSON.stringify(input) });
 }
 
-export function listCharacterResourceChanges(roomId: string, filters: { characterId: string }) {
+export function listCharacterResourceChanges(roomId: string, filters: { characterId?: string } = {}) {
   const params = new URLSearchParams();
-  params.set('characterId', filters.characterId);
-  return jsonRequest<AuditListResponse>(`/api/admin/rooms/${roomId}/character-resource-changes?${params.toString()}`);
+  if (filters.characterId) params.set('characterId', filters.characterId);
+  const query = params.toString();
+  return jsonRequest<AuditListResponse>(`/api/admin/rooms/${roomId}/character-resource-changes${query ? `?${query}` : ''}`);
 }
 
 export function rollbackCharacterResourceChange(roomId: string, changeId: string, adminId: string) {
@@ -443,28 +482,45 @@ export function getActivePresetType() {
 }
 
 export function subscribeRoom(roomId: string, onUpdate: () => void): () => void {
-  const events = new EventSource(`/events/rooms/${roomId}`);
+  const events = new EventSource(eventSourceUrl(`/events/rooms/${roomId}`));
   events.addEventListener('room-updated', onUpdate);
   return () => events.close();
 }
 
 // --- Database Management Center APIs ---
 
-export function importFromUrl(url: string, fallbackName?: string) {
-  return jsonRequest<{
-    source: RemoteDbSource;
-    sourceType: string;
-    worldBook?: { name: string; id: string };
-    presetPackage?: { name: string; id: string };
-    draftsCount: number;
-  }>('/api/admin/db/import-from-url', {
-    method: 'POST',
-    body: JSON.stringify({ url, ...(fallbackName ? { fallbackName } : {}) })
+export function listDbSources() {
+  return jsonRequest<{ sources: RemoteDbSource[] }>('/api/admin/db/sources');
+}
+
+export function listDbSourceSheets(sourceId: string) {
+  return jsonRequest<{ sheets: RemoteDbSheet[] }>(`/api/admin/db/sources/${sourceId}/sheets`);
+}
+
+export function listRoomDbSourceBindings(roomId: string) {
+  return jsonRequest<{ bindings: RoomDbSourceBinding[] }>(`/api/admin/rooms/${roomId}/db/sources`);
+}
+
+export function putRoomDbSourceBindings(roomId: string, bindings: Array<{ sourceId: string; enabled: boolean; orderIndex: number }>) {
+  return jsonRequest<{ bindings: RoomDbSourceBinding[] }>(`/api/admin/rooms/${roomId}/db/sources`, {
+    method: 'PUT',
+    body: JSON.stringify({ bindings })
   });
 }
 
-export function listDbSources() {
-  return jsonRequest<{ sources: RemoteDbSource[] }>('/api/admin/db/sources');
+export function listRoomDbSheets(roomId: string) {
+  return jsonRequest<{ sheets: RemoteDbSheet[] }>(`/api/admin/rooms/${roomId}/db/sheets`);
+}
+
+export function listRoomDbRows(roomId: string, sheetId: string) {
+  return jsonRequest<{ rows: RemoteDbRow[] }>(`/api/admin/rooms/${roomId}/db/sheets/${sheetId}/rows`);
+}
+
+export function putRoomDbRow(roomId: string, sheetId: string, rowKey: string, data: Record<string, unknown>) {
+  return jsonRequest<{ row: RemoteDbRow }>(`/api/admin/rooms/${roomId}/db/sheets/${sheetId}/rows/${encodeURIComponent(rowKey)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ data })
+  });
 }
 
 export function checkDbSourceUpdates(sourceId: string) {
@@ -481,23 +537,10 @@ export function updateDbSource(sourceId: string) {
     worldBook?: { name: string; id: string };
     presetPackage?: { name: string; id: string };
     draftsCount: number;
+    sheetsCount?: number;
   }>(`/api/admin/db/sources/${sourceId}/update`, { method: 'POST' });
 }
 
 export function deleteDbSource(sourceId: string) {
   return jsonRequest<{ ok: true }>(`/api/admin/db/sources/${sourceId}`, { method: 'DELETE' });
-}
-
-export function importJsDatabase(jsCode: string, name: string) {
-  return jsonRequest<{
-    source: RemoteDbSource;
-    sourceType: string;
-    worldBook?: { name: string; id: string };
-    presetPackage?: { name: string; id: string };
-    draftsCount: number;
-    preview: { entryTypes: Array<{ type: string; count: number }> };
-  }>('/api/admin/db/import-js', {
-    method: 'POST',
-    body: JSON.stringify({ jsCode, name })
-  });
 }

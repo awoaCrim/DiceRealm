@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { nanoid } from 'nanoid';
 import type { AppDatabase } from '../db/connection.js';
-import type { RemoteDbSource, RemoteDbImport, ResourceWorldBook, ResourceWorldBookEntry, PromptPresetPackage } from '../domain/types.js';
+import type { RemoteDbSource, RemoteDbImport, RemoteDbSheet, ResourceWorldBook, ResourceWorldBookEntry, PromptPresetPackage } from '../domain/types.js';
 import { createResourceImportJob } from './resourceReviewService.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -14,31 +14,67 @@ export interface FetchRemoteJsonResult {
   fileSize: number;
 }
 
+function parseRemoteDatabaseText(text: string, contentType: string, url: string): unknown {
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    const lowerContentType = contentType.toLowerCase();
+    const lowerUrl = url.toLowerCase();
+    if (lowerContentType.includes('javascript') || lowerUrl.endsWith('.js')) {
+      return parseJsDatabase(text);
+    }
+    throw new Error('Remote URL returned invalid JSON');
+  }
+}
+
 export async function fetchRemoteJson(url: string): Promise<FetchRemoteJsonResult> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch remote JSON: ${response.status} ${response.statusText}`);
   }
   const contentType = response.headers.get('content-type') ?? '';
-  if (!contentType.includes('application/json') && !contentType.includes('text/plain') && !contentType.includes('application/octet-stream')) {
-    throw new Error(`Remote URL returned non-JSON Content-Type: ${contentType}`);
+  if (!contentType.includes('application/json')
+    && !contentType.includes('text/plain')
+    && !contentType.includes('application/octet-stream')
+    && !contentType.includes('javascript')) {
+    throw new Error(`Remote URL returned unsupported Content-Type: ${contentType}`);
   }
   const text = await response.text();
   const fileSize = Buffer.byteLength(text, 'utf-8');
   const fileHash = crypto.createHash('sha256').update(text, 'utf-8').digest('hex');
-  let json: unknown;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    throw new Error('Remote URL returned invalid JSON');
-  }
+  const json = parseRemoteDatabaseText(text, contentType, url);
   return { json, fileHash, fileSize };
 }
 
 export type RemoteDbSourceType = RemoteDbSource['sourceType'];
 
+interface ParsedTablePluginSheet {
+  uid: string;
+  variableName: string;
+  name: string;
+  tableName: string;
+  note: string;
+  initNode: string;
+  updateNode: string;
+  insertNode: string;
+  deleteNode: string;
+  ddl: string;
+  exportEnabled: boolean;
+  orderIndex: number;
+}
+
+interface ParsedTablePlugin {
+  dbPluginType: 'acustar_table_plugin';
+  name: string;
+  version: string;
+  sheets: ParsedTablePluginSheet[];
+}
+
 export function detectSourceType(json: unknown): RemoteDbSourceType {
   if (isRecord(json)) {
+    if (json.dbPluginType === 'acustar_table_plugin' && Array.isArray(json.sheets)) {
+      return 'table_plugin';
+    }
     if (Array.isArray(json.entries) && json.entries.length > 0) {
       return 'world_book';
     }
@@ -64,6 +100,9 @@ function parseEntryArray(json: unknown): Array<Record<string, unknown>> {
 
 function entryCount(json: unknown): number {
   if (isRecord(json)) {
+    if (json.dbPluginType === 'acustar_table_plugin' && Array.isArray(json.sheets)) {
+      return json.sheets.length;
+    }
     if (Array.isArray(json.entries)) return json.entries.length;
     if (Array.isArray(json.species) || Array.isArray(json.classes) || Array.isArray(json.backgrounds)) {
       let count = 0;
@@ -322,12 +361,70 @@ function importRulesJson(
   return { drafts: result.drafts.map((draft) => ({ id: draft.id })) };
 }
 
+function parsedTablePluginSheets(json: Record<string, unknown>): ParsedTablePluginSheet[] {
+  if (json.dbPluginType !== 'acustar_table_plugin' || !Array.isArray(json.sheets)) return [];
+  return json.sheets.filter(isRecord).map((sheet, index) => ({
+    uid: typeof sheet.uid === 'string' ? sheet.uid : `sheet-${index + 1}`,
+    variableName: typeof sheet.variableName === 'string' ? sheet.variableName : '',
+    name: typeof sheet.name === 'string' ? sheet.name : `表 ${index + 1}`,
+    tableName: typeof sheet.tableName === 'string' ? sheet.tableName : '',
+    note: typeof sheet.note === 'string' ? sheet.note : '',
+    initNode: typeof sheet.initNode === 'string' ? sheet.initNode : '',
+    updateNode: typeof sheet.updateNode === 'string' ? sheet.updateNode : '',
+    insertNode: typeof sheet.insertNode === 'string' ? sheet.insertNode : '',
+    deleteNode: typeof sheet.deleteNode === 'string' ? sheet.deleteNode : '',
+    ddl: typeof sheet.ddl === 'string' ? sheet.ddl : '',
+    exportEnabled: sheet.exportEnabled === true,
+    orderIndex: typeof sheet.orderIndex === 'number' ? sheet.orderIndex : index
+  }));
+}
+
+function importTablePlugin(
+  db: AppDatabase,
+  json: Record<string, unknown>,
+  sourceId: string,
+  now: string
+): { sheetsCount: number } {
+  const sheets = parsedTablePluginSheets(json);
+  let sheetsCount = 0;
+  for (const sheet of sheets) {
+    const sheetId = nanoid();
+    db.prepare(
+      `INSERT INTO remote_db_sheets (
+        id, source_id, uid, name, table_name, note, init_node, update_node, insert_node,
+        delete_node, ddl, export_enabled, order_index, raw_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      sheetId,
+      sourceId,
+      sheet.uid,
+      sheet.name,
+      sheet.tableName,
+      sheet.note,
+      sheet.initNode,
+      sheet.updateNode,
+      sheet.insertNode,
+      sheet.deleteNode,
+      sheet.ddl,
+      sheet.exportEnabled ? 1 : 0,
+      sheet.orderIndex,
+      JSON.stringify(sheet),
+      now,
+      now
+    );
+    insertImportRecord(db, sourceId, 'remote_db_sheet', sheetId, false);
+    sheetsCount++;
+  }
+  return { sheetsCount };
+}
+
 export interface ImportFromUrlResult {
   source: RemoteDbSource;
   sourceType: RemoteDbSourceType;
   worldBook?: ResourceWorldBook;
   presetPackage?: PromptPresetPackage;
   draftsCount: number;
+  sheetsCount?: number;
 }
 
 export async function importFromUrlAsync(
@@ -348,6 +445,7 @@ export async function importFromUrlAsync(
   let worldBook: ResourceWorldBook | undefined;
   let presetPackage: PromptPresetPackage | undefined;
   let draftsCount = 0;
+  let sheetsCount = 0;
 
   db.transaction(() => {
     sourceId = insertSourceRecord(db, {
@@ -381,6 +479,11 @@ export async function importFromUrlAsync(
           draftsCount = result.drafts.length;
           break;
         }
+        case 'table_plugin': {
+          const result = importTablePlugin(db, json, sourceId, now);
+          sheetsCount = result.sheetsCount;
+          break;
+        }
         default:
           // unknown type, just record the source
           break;
@@ -391,7 +494,7 @@ export async function importFromUrlAsync(
   const source = getSource(db, sourceId);
   if (!source) throw new Error(`Failed to retrieve source ${sourceId}`);
 
-  return { source, sourceType, worldBook, presetPackage, draftsCount };
+  return { source, sourceType, worldBook, presetPackage, draftsCount, sheetsCount };
 }
 
 export interface ImportFromJsCodeResult extends ImportFromUrlResult {
@@ -426,6 +529,8 @@ export function importFromJsCode(
       if (Array.isArray(json.backgrounds)) preview.entryTypes.push({ type: 'backgrounds', count: json.backgrounds.length });
     } else if (sourceType === 'rules_json' && Array.isArray(json.rules)) {
       preview.entryTypes.push({ type: 'rules', count: json.rules.length });
+    } else if (sourceType === 'table_plugin') {
+      preview.entryTypes.push({ type: 'table_plugin_sheets', count: parsedTablePluginSheets(json).length });
     }
   }
 
@@ -433,6 +538,7 @@ export function importFromJsCode(
   let worldBook: ResourceWorldBook | undefined;
   let presetPackage: PromptPresetPackage | undefined;
   let draftsCount = 0;
+  let sheetsCount = 0;
 
   db.transaction(() => {
     sourceId = insertSourceRecord(db, {
@@ -466,6 +572,11 @@ export function importFromJsCode(
           draftsCount = result.drafts.length;
           break;
         }
+        case 'table_plugin': {
+          const result = importTablePlugin(db, json, sourceId, now);
+          sheetsCount = result.sheetsCount;
+          break;
+        }
         default:
           break;
       }
@@ -475,7 +586,7 @@ export function importFromJsCode(
   const source = getSource(db, sourceId);
   if (!source) throw new Error(`Failed to retrieve source ${sourceId}`);
 
-  return { source, sourceType, worldBook, presetPackage, draftsCount, preview };
+  return { source, sourceType, worldBook, presetPackage, draftsCount, sheetsCount, preview };
 }
 
 export function getSource(db: AppDatabase, sourceId: string): RemoteDbSource | null {
@@ -512,6 +623,36 @@ export function listSources(db: AppDatabase): RemoteDbSource[] {
     entryCount: row.entryCount as number,
     lastCheckedAt: row.lastCheckedAt as string,
     createdAt: row.createdAt as string
+  }));
+}
+
+export function listSourceSheets(db: AppDatabase, sourceId: string): RemoteDbSheet[] {
+  const rows = db.prepare(
+    `SELECT id, source_id as sourceId, uid, name, table_name as tableName, note, init_node as initNode,
+      update_node as updateNode, insert_node as insertNode, delete_node as deleteNode, ddl,
+      export_enabled as exportEnabled, order_index as orderIndex, raw_json as rawJson,
+      created_at as createdAt, updated_at as updatedAt
+     FROM remote_db_sheets
+     WHERE source_id = ?
+     ORDER BY order_index ASC, name ASC`
+  ).all(sourceId) as Array<Record<string, unknown>>;
+  return rows.map((row) => ({
+    id: row.id as string,
+    sourceId: row.sourceId as string,
+    uid: row.uid as string,
+    name: row.name as string,
+    tableName: row.tableName as string,
+    note: row.note as string,
+    initNode: row.initNode as string,
+    updateNode: row.updateNode as string,
+    insertNode: row.insertNode as string,
+    deleteNode: row.deleteNode as string,
+    ddl: row.ddl as string,
+    exportEnabled: Boolean(row.exportEnabled),
+    orderIndex: row.orderIndex as number,
+    rawJson: JSON.parse((row.rawJson as string | undefined) ?? '{}') as Record<string, unknown>,
+    createdAt: row.createdAt as string,
+    updatedAt: row.updatedAt as string
   }));
 }
 
@@ -634,7 +775,167 @@ function parseStaticJsonLikeObject(expression: string): Record<string, unknown> 
   return parsed;
 }
 
+function findMatchingBrace(source: string, openIndex: number): number {
+  let depth = 0;
+  let quote: '"' | "'" | '`' | null = null;
+  let escaped = false;
+
+  for (let index = openIndex; index < source.length; index++) {
+    const char = source[index];
+    if (quote) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === '\\') {
+        escaped = true;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      continue;
+    }
+    if (char === '{') {
+      depth++;
+      continue;
+    }
+    if (char === '}') {
+      depth--;
+      if (depth === 0) return index;
+    }
+  }
+
+  return -1;
+}
+
+function unescapeJsString(raw: string): string {
+  return raw
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+    .replace(/\\r/g, '\r')
+    .replace(/\\n/g, '\n')
+    .replace(/\\t/g, '\t')
+    .replace(/\\"/g, '"')
+    .replace(/\\'/g, "'")
+    .replace(/\\`/g, '`')
+    .replace(/\\\\/g, '\\');
+}
+
+function readStringLiteral(source: string, startIndex: number): string | null {
+  let index = startIndex;
+  while (/\s/.test(source[index] ?? '')) index++;
+  const quote = source[index];
+  if (quote !== '"' && quote !== "'" && quote !== '`') return null;
+
+  let escaped = false;
+  for (let cursor = index + 1; cursor < source.length; cursor++) {
+    const char = source[cursor];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    if (char === quote) {
+      return unescapeJsString(source.slice(index + 1, cursor));
+    }
+  }
+  return null;
+}
+
+function extractStringProperty(source: string, propertyName: string): string | null {
+  const pattern = new RegExp(`\\b${propertyName}\\s*:`);
+  const match = pattern.exec(source);
+  if (!match) return null;
+  return readStringLiteral(source, match.index + match[0].length);
+}
+
+function extractObjectProperty(source: string, propertyName: string): string | null {
+  const pattern = new RegExp(`\\b${propertyName}\\s*:`);
+  const match = pattern.exec(source);
+  if (!match) return null;
+  let index = match.index + match[0].length;
+  while (/\s/.test(source[index] ?? '')) index++;
+  if (source[index] !== '{') return null;
+  const end = findMatchingBrace(source, index);
+  return end >= 0 ? source.slice(index, end + 1) : null;
+}
+
+function extractBooleanProperty(source: string, propertyName: string): boolean | null {
+  const pattern = new RegExp(`\\b${propertyName}\\s*:\\s*(true|false)`);
+  const match = pattern.exec(source);
+  return match ? match[1] === 'true' : null;
+}
+
+function extractNumberProperty(source: string, propertyName: string): number | null {
+  const pattern = new RegExp(`\\b${propertyName}\\s*:\\s*(-?\\d+)`);
+  const match = pattern.exec(source);
+  return match ? Number(match[1]) : null;
+}
+
+function parseAcustarSheetPlugin(jsCode: string): Record<string, unknown> | null {
+  if (!jsCode.includes('SP·数据库') && !jsCode.includes('buildDefaultTableTemplateObject_ACU')) return null;
+
+  const sheets: ParsedTablePluginSheet[] = [];
+  const constPattern = /const\s+([A-Za-z_$][\w$]*Sheet)\s*=\s*\{/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = constPattern.exec(jsCode)) !== null) {
+    const variableName = match[1];
+    const objectStart = constPattern.lastIndex - 1;
+    const objectEnd = findMatchingBrace(jsCode, objectStart);
+    if (objectEnd < 0) continue;
+
+    const sheetObject = jsCode.slice(objectStart, objectEnd + 1);
+    const sourceData = extractObjectProperty(sheetObject, 'sourceData') ?? '';
+    const uid = extractStringProperty(sheetObject, 'uid') ?? variableName;
+    const name = extractStringProperty(sheetObject, 'name') ?? variableName;
+    const note = extractStringProperty(sourceData, 'note') ?? '';
+    const initNode = extractStringProperty(sourceData, 'initNode') ?? '';
+    const updateNode = extractStringProperty(sourceData, 'updateNode') ?? '';
+    const insertNode = extractStringProperty(sourceData, 'insertNode') ?? '';
+    const deleteNode = extractStringProperty(sourceData, 'deleteNode') ?? '';
+    const ddl = extractStringProperty(sourceData, 'ddl') ?? '';
+    const tableName = ddl.match(/CREATE\s+TABLE\s+([A-Za-z_][\w]*)/i)?.[1] ?? '';
+    const orderNo = extractNumberProperty(sheetObject, 'orderNo') ?? sheets.length;
+    const exportConfig = extractObjectProperty(sheetObject, 'exportConfig') ?? '';
+    const exportedByDefault = extractBooleanProperty(exportConfig, 'enabled') ?? false;
+
+    sheets.push({
+      uid,
+      variableName,
+      name,
+      tableName,
+      note,
+      initNode,
+      updateNode,
+      insertNode,
+      deleteNode,
+      ddl,
+      exportEnabled: exportedByDefault,
+      orderIndex: orderNo
+    });
+  }
+
+  if (sheets.length === 0) return null;
+
+  const version = jsCode.match(/\/\/\s*@version\s+([^\n\r]+)/)?.[1]?.trim() ?? '';
+  const plugin: ParsedTablePlugin = {
+    dbPluginType: 'acustar_table_plugin',
+    name: 'SP·数据库 III',
+    version,
+    sheets: sheets.sort((left, right) => left.orderIndex - right.orderIndex)
+  };
+  return plugin as unknown as Record<string, unknown>;
+}
+
 export function parseJsDatabase(jsCode: string): Record<string, unknown> {
+  const acustarSheetPlugin = parseAcustarSheetPlugin(jsCode);
+  if (acustarSheetPlugin) return acustarSheetPlugin;
+
   try {
     return parseStaticJsonLikeObject(extractJsDataExpression(jsCode));
   } catch (error) {

@@ -1,27 +1,96 @@
 import { useEffect, useRef, useState } from 'react';
-import { activatePreset, addPlayer, adminDiceRoll, applyPresetTemplate, checkDbSourceUpdates, combatAttack, combatNextTurn, createAiTurnPreview, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getCombatState, getDiceLogs, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, importFromUrl, importJsDatabase, listCharacterResourceChanges, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listSessionSummaries, previewAiPrompt, reindexRuleEmbeddings, rollbackCharacterResourceChange, rollCombatInitiative, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, sendAiTurnPreview, startCombat, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updateQuest } from '../api';
+import { activatePreset, addPlayer, applyPresetTemplate, checkDbSourceUpdates, createAiTurnPreview, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, listCharacterResourceChanges, listDbSourceSheets, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listRoomDbRows, listRoomDbSheets, listRoomDbSourceBindings, listSessionSummaries, previewAiPrompt, putRoomDbRow, putRoomDbSourceBindings, reindexRuleEmbeddings, rollbackCharacterResourceChange, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, sendAiTurnPreview, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updateQuest } from '../api';
 import { LogList } from '../components/LogList';
+import { CharacterCard } from '../components/CharacterCard';
 import { PromptPreviewPanel } from '../components/PromptPreviewPanel';
 import { ResourceImportPanel } from '../components/ResourceImportPanel';
 import { GlobalResourceConfigPanel } from '../components/RoomResourceBindingsPanel';
-import type { AdminState, AiProviderConfig, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, CampaignLocation, CampaignNpc, CampaignQuest, CharacterResourceChange, CombatState, DieType, DiceRollResult, EmbeddingProviderConfig, PresetTemplateMeta, PresetType, PromptBlock, PromptPreset, PromptPreviewResponse, RemoteDbSource, SessionSummary, WorldBookEntry } from '../types';
+import type { AdminState, AiProviderConfig, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, CampaignLocation, CampaignNpc, CampaignQuest, CharacterResourceChange, EmbeddingProviderConfig, PresetTemplateMeta, PresetType, PromptBlock, PromptPreset, PromptPresetPackage, PromptPreviewResponse, RemoteDbRow, RemoteDbSheet, RemoteDbSource, RoomDbSourceBinding, SessionSummary, WorldBookEntry } from '../types';
 
-type AdminTab = 'overview' | 'aiProvider' | 'diceCombat' | 'characterResources' | 'campaignMemory' | 'resources' | 'database' | 'presets' | 'worldBooks';
+interface PromptPackageBlockView {
+  identifier: string;
+  name: string;
+  role: string;
+  enabled: boolean;
+  content: string;
+}
+
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function readString(value: unknown): string {
+  return typeof value === 'string' ? value : '';
+}
+
+function promptPackageBlocks(presetPackage: PromptPresetPackage | null): PromptPackageBlockView[] {
+  if (!presetPackage || !isJsonRecord(presetPackage.openAiSettings)) return [];
+  const prompts: Record<string, unknown>[] = Array.isArray(presetPackage.openAiSettings.prompts)
+    ? presetPackage.openAiSettings.prompts.filter(isJsonRecord) as Record<string, unknown>[]
+    : [];
+  const firstOrder = Array.isArray(presetPackage.openAiSettings.prompt_order)
+    ? presetPackage.openAiSettings.prompt_order.filter(isJsonRecord)[0] as Record<string, unknown> | undefined
+    : undefined;
+  const order = firstOrder ? firstOrder['order'] : undefined;
+  const orderItems: Record<string, unknown>[] = Array.isArray(order) ? order.filter(isJsonRecord) as Record<string, unknown>[] : [];
+  const enabledByIdentifier = new Map<string, boolean>();
+  orderItems.forEach((item) => {
+    const identifier = (readString(item.identifier) || readString(item.name)).trim();
+    if (identifier) enabledByIdentifier.set(identifier, item.enabled !== false);
+  });
+
+  return prompts
+    .map((prompt) => {
+      const identifier = (readString(prompt.identifier) || readString(prompt.name)).trim();
+      return {
+        identifier,
+        name: (readString(prompt.name) || identifier || '未命名块').trim(),
+        role: readString(prompt.role) || 'system',
+        enabled: enabledByIdentifier.get(identifier) ?? true,
+        content: readString(prompt.content).trim()
+      };
+    })
+    .filter((block) => block.identifier.length > 0 || block.content.length > 0);
+}
+
+const runtimePromptSlotIds = new Set([
+  'worldInfoBefore',
+  'worldInfoAfter',
+  'charDescription',
+  'charPersonality',
+  'scenario',
+  'dialogueExamples',
+  'chatHistory',
+  'dndTurnState',
+  'dndPlayerActions',
+  'dndPendingInteractions',
+  'dndOutputContract'
+]);
+
+function promptPackageBlockContent(block: PromptPackageBlockView): string {
+  if (block.content) return block.content;
+  if (runtimePromptSlotIds.has(block.identifier)) {
+    return '运行时槽位：实际内容由当前房间、剧本卡、世界书、日志或输出契约生成。点击“预览 AI 请求”查看最终内容。';
+  }
+  return '空内容';
+}
+
+type AdminTab = 'overview' | 'aiProvider' | 'characterResources' | 'campaignMemory' | 'resources' | 'database' | 'presets' | 'worldBooks';
+type AdminLogTab = 'objective' | 'public' | `player:${string}`;
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'overview', label: '总览' },
   { id: 'aiProvider', label: 'AI 接口' },
-  { id: 'diceCombat', label: '检定战斗' },
-  { id: 'characterResources', label: '角色资源' },
+  { id: 'presets', label: 'Prompt 配置' },
+  { id: 'resources', label: '剧本/世界书' },
+  { id: 'database', label: '数据库插件' },
   { id: 'campaignMemory', label: '战役记忆' },
-  { id: 'resources', label: '资源配置' },
-  { id: 'database', label: '数据库' },
-  { id: 'presets', label: '预设' },
-  { id: 'worldBooks', label: '世界书' }
+  { id: 'characterResources', label: '角色资源' }
 ];
 
 export function AdminPage({ roomId }: { roomId: string }) {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
+  const [activeLogTab, setActiveLogTab] = useState<AdminLogTab>('objective');
   const [state, setState] = useState<AdminState | null>(null);
   const [playerName, setPlayerName] = useState('新英雄');
   const [lastLink, setLastLink] = useState('');
@@ -29,6 +98,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
   const [aiProviderConfig, setAiProviderConfig] = useState<AiProviderConfig | null>(null);
   const aiProviderConfigDirtyRef = useRef(false);
   const refreshSeqRef = useRef(0);
+  const adminLogScrollRef = useRef<HTMLDivElement | null>(null);
   const [aiProviderMessage, setAiProviderMessage] = useState('');
   const [aiProviderTesting, setAiProviderTesting] = useState(false);
   const [embeddingProviderConfig, setEmbeddingProviderConfig] = useState<EmbeddingProviderConfig | null>(null);
@@ -46,34 +116,14 @@ export function AdminPage({ roomId }: { roomId: string }) {
   const [activePresetType, setActivePresetType] = useState<PresetType | null>(null);
   const [templateApplying, setTemplateApplying] = useState<PresetType | null>(null);
   const [resourceChanges, setResourceChanges] = useState<CharacterResourceChange[]>([]);
-  const [resourceChangeCharId, setResourceChangeCharId] = useState('');
   const [resourceChangeLoading, setResourceChangeLoading] = useState(false);
-  const [resourceChangeMessage, setResourceChangeMessage] = useState('');
 
-  // Dice state
-  const [diceDie, setDiceDie] = useState<DieType>('d20');
-  const [diceModifier, setDiceModifier] = useState(0);
-  const [diceDc, setDiceDc] = useState<number | undefined>(undefined);
-  const [diceReason, setDiceReason] = useState('');
-  const [diceResult, setDiceResult] = useState<DiceRollResult | null>(null);
-  const [diceRolling, setDiceRolling] = useState(false);
-
-  // Combat state
-  const [combatState, setCombatState] = useState<CombatState | null>(null);
-  const [combatParticipants, setCombatParticipants] = useState('哥布林 7 15 2');
-  const [combatAttackerId, setCombatAttackerId] = useState('');
-  const [combatTargetId, setCombatTargetId] = useState('');
-  const [combatAttackBonus, setCombatAttackBonus] = useState(5);
-  const [combatDamageDice, setCombatDamageDice] = useState('1d8');
-  const [combatDamageBonus, setCombatDamageBonus] = useState(3);
-  const [combatBusy, setCombatBusy] = useState(false);
-
-  const [worldBookName, setWorldBookName] = useState('主世界书');
+  const [worldBookName, setWorldBookName] = useState('凡戴尔补充世界书');
   const [entryDraft, setEntryDraft] = useState<Omit<WorldBookEntry, 'id' | 'worldBookId' | 'createdAt' | 'updatedAt'>>({
-    title: '烛堡密门',
-    keys: ['烛堡', '密门'],
+    title: '凡达林新线索',
+    keys: ['凡达林', '线索'],
     secondaryKeys: [],
-    content: '当玩家提到烛堡或密门时，提醒 AI-DM：密门只会对持有银钥匙的人显现。',
+    content: '当玩家围绕凡达林调查新线索时，按当前公开信息、NPC 立场和玩家行动逐步揭示，不提前公开隐藏真相。',
     enabled: true,
     constant: false,
     selective: false,
@@ -94,13 +144,15 @@ export function AdminPage({ roomId }: { roomId: string }) {
 
   // DB Management state
   const [dbSources, setDbSources] = useState<RemoteDbSource[]>([]);
-  const [dbUrl, setDbUrl] = useState('');
-  const [dbImportName, setDbImportName] = useState('');
-  const [dbJsCode, setDbJsCode] = useState('');
-  const [dbJsName, setDbJsName] = useState('');
+  const [dbSheetsBySource, setDbSheetsBySource] = useState<Record<string, RemoteDbSheet[]>>({});
+  const [dbRoomBindings, setDbRoomBindings] = useState<RoomDbSourceBinding[]>([]);
+  const [dbRoomSheets, setDbRoomSheets] = useState<RemoteDbSheet[]>([]);
+  const [dbRowsBySheet, setDbRowsBySheet] = useState<Record<string, RemoteDbRow[]>>({});
+  const [dbSelectedSheetId, setDbSelectedSheetId] = useState('');
+  const [dbRowKey, setDbRowKey] = useState('');
+  const [dbRowJson, setDbRowJson] = useState('{\n  \n}');
   const [dbMessage, setDbMessage] = useState('');
   const [dbLoading, setDbLoading] = useState(false);
-  const [dbPreview, setDbPreview] = useState<{ entryTypes: Array<{ type: string; count: number }> } | null>(null);
 
   async function refresh() {
     const seq = ++refreshSeqRef.current;
@@ -147,6 +199,12 @@ export function AdminPage({ roomId }: { roomId: string }) {
     }
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab === 'database') {
+      void loadDbSources();
+    }
+  }, [activeTab, roomId]);
+
   async function createPlayer() {
     setError('');
     try {
@@ -184,7 +242,10 @@ export function AdminPage({ roomId }: { roomId: string }) {
     try {
       const result = await sendAiTurnPreview(roomId, aiTurnPreview.previewId, aiTurnPromptDraft);
       setAiTurnResult(result);
-      setAiTurnMessage('AI 已返回结果；建议变更仅展示，不会自动写入角色卡或战局。');
+      setAiTurnMessage(result.resourceErrors?.length
+        ? 'AI 已返回并推进回合；部分玩家状态更新失败，请查看建议变更和 AI 错误。'
+        : 'AI 已返回并推进回合；客观剧情、公开剧情、玩家私人剧情和可应用的玩家状态已写入系统。');
+      await refresh();
     } catch (err) {
       setAiTurnMessage('');
       setError(err instanceof Error ? err.message : String(err));
@@ -278,17 +339,12 @@ export function AdminPage({ roomId }: { roomId: string }) {
   }
 
   async function fetchResourceChanges() {
-    if (!resourceChangeCharId.trim()) {
-      setResourceChangeMessage('请先输入角色 ID。');
-      return;
-    }
+    if (resourceChangeLoading) return;
     setError('');
     setResourceChangeLoading(true);
-    setResourceChangeMessage('');
     try {
-      const result = await listCharacterResourceChanges(roomId, { characterId: resourceChangeCharId.trim() });
+      const result = await listCharacterResourceChanges(roomId);
       setResourceChanges(result.changes);
-      setResourceChangeMessage(`查询到 ${result.changes.length} 条变更记录。`);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -298,148 +354,11 @@ export function AdminPage({ roomId }: { roomId: string }) {
 
   async function rollbackChange(changeId: string, adminId: string) {
     setError('');
-    setResourceChangeMessage('');
     try {
       const result = await rollbackCharacterResourceChange(roomId, changeId, adminId);
       setResourceChanges((current) => current.map((change) => change.id === changeId ? result.change : change));
-      setResourceChangeMessage('回滚成功。');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  async function rollDice() {
-    setError('');
-    setDiceResult(null);
-    setDiceRolling(true);
-    try {
-      const result = await adminDiceRoll(roomId, {
-        die: diceDie,
-        modifier: diceModifier,
-        dc: diceDc,
-        reason: diceReason.trim() || undefined
-      });
-      setDiceResult(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDiceRolling(false);
-    }
-  }
-
-  async function quickAbilityRoll(ability: string, mod: number, dc?: number) {
-    setError('');
-    setDiceResult(null);
-    setDiceRolling(true);
-    try {
-      const result = await adminDiceRoll(roomId, {
-        die: 'd20',
-        modifier: mod,
-        dc,
-        reason: `${ability}属性检定`
-      });
-      setDiceResult(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDiceRolling(false);
-    }
-  }
-
-  async function quickSocialRoll(label: string, dc: number) {
-    setError('');
-    setDiceResult(null);
-    setDiceRolling(true);
-    try {
-      const result = await adminDiceRoll(roomId, {
-        die: 'd20',
-        modifier: 0,
-        dc,
-        reason: `${label}检定`
-      });
-      setDiceResult(result);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDiceRolling(false);
-    }
-  }
-
-  async function doStartCombat() {
-    setError('');
-    setCombatBusy(true);
-    try {
-      const lines = combatParticipants.split('\n').filter(line => line.trim());
-      const participants = lines.map(line => {
-        const parts = line.trim().split(/\s+/);
-        const name = parts[0];
-        const hp = Number(parts[1]) || 0;
-        const ac = parts[2] ? Number(parts[2]) : undefined;
-        const initiativeModifier = parts[3] ? Number(parts[3]) : undefined;
-        return { name, hp, ac, initiativeModifier };
-      });
-      const state = await startCombat(roomId, { participants });
-      setCombatState(state as unknown as CombatState);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCombatBusy(false);
-    }
-  }
-
-  async function doRollInitiative() {
-    if (!combatState) return;
-    setError('');
-    setCombatBusy(true);
-    try {
-      const state = await rollCombatInitiative(roomId, combatState.id);
-      setCombatState(state as unknown as CombatState);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCombatBusy(false);
-    }
-  }
-
-  async function doCombatAttack() {
-    if (!combatState) return;
-    setError('');
-    setCombatBusy(true);
-    try {
-      const result = await combatAttack(roomId, {
-        combatId: combatState.id,
-        attackerId: combatAttackerId || combatState.participants[combatState.currentTurnIndex]?.id || '',
-        targetId: combatTargetId || combatState.participants[(combatState.currentTurnIndex + 1) % combatState.participants.length]?.id || '',
-        attackBonus: combatAttackBonus,
-        damageDice: combatDamageDice,
-        damageBonus: combatDamageBonus
-      });
-      if (result.newHp !== undefined) {
-        setCombatState(prev => prev ? {
-          ...prev,
-          participants: prev.participants.map(p =>
-            p.id === combatTargetId ? { ...p, hp: result.newHp! } : p
-          )
-        } : prev);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCombatBusy(false);
-    }
-  }
-
-  async function doNextTurn() {
-    if (!combatState) return;
-    setError('');
-    setCombatBusy(true);
-    try {
-      const state = await combatNextTurn(roomId, combatState.id);
-      setCombatState(state as unknown as CombatState);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setCombatBusy(false);
     }
   }
 
@@ -639,6 +558,13 @@ export function AdminPage({ roomId }: { roomId: string }) {
     try {
       const result = await listDbSources();
       setDbSources(result.sources);
+      const tablePluginSources = result.sources.filter((source) => source.sourceType === 'table_plugin');
+      const sheetsEntries = await Promise.all(tablePluginSources.map(async (source) => {
+        const sheets = await listDbSourceSheets(source.id);
+        return [source.id, sheets.sheets] as const;
+      }));
+      setDbSheetsBySource(Object.fromEntries(sheetsEntries));
+      await loadRoomPluginDatabase();
       setDbMessage('');
     } catch (err) {
       setDbMessage('');
@@ -648,43 +574,60 @@ export function AdminPage({ roomId }: { roomId: string }) {
     }
   }
 
-  async function doImportFromUrl() {
-    if (!dbUrl.trim()) return;
+  async function loadRoomPluginDatabase() {
+    const [bindingsResult, sheetsResult] = await Promise.all([
+      listRoomDbSourceBindings(roomId),
+      listRoomDbSheets(roomId)
+    ]);
+    setDbRoomBindings(bindingsResult.bindings);
+    setDbRoomSheets(sheetsResult.sheets);
+    if (sheetsResult.sheets.length > 0 && !sheetsResult.sheets.some((sheet) => sheet.id === dbSelectedSheetId)) {
+      setDbSelectedSheetId(sheetsResult.sheets[0].id);
+    }
+    const rowEntries = await Promise.all(sheetsResult.sheets.map(async (sheet) => {
+      const rows = await listRoomDbRows(roomId, sheet.id);
+      return [sheet.id, rows.rows] as const;
+    }));
+    setDbRowsBySheet(Object.fromEntries(rowEntries));
+  }
+
+  async function toggleRoomDbSource(sourceId: string, enabled: boolean) {
     setError('');
-    setDbMessage('导入中...');
-    setDbLoading(true);
+    setDbMessage('保存房间数据库绑定...');
     try {
-      const result = await importFromUrl(dbUrl.trim(), dbImportName.trim() || undefined);
-      setDbMessage(`已导入：${result.sourceType} · ${result.source.name}`);
-      setDbUrl('');
-      setDbImportName('');
-      setDbPreview(null);
-      await loadDbSources();
+      const existingById = new Map(dbRoomBindings.map((binding) => [binding.sourceId, binding]));
+      const nextBindings = dbSources
+        .filter((source) => source.sourceType === 'table_plugin')
+        .map((source, index) => ({
+          sourceId: source.id,
+          enabled: source.id === sourceId ? enabled : existingById.get(source.id)?.enabled ?? false,
+          orderIndex: existingById.get(source.id)?.orderIndex ?? index
+        }))
+        .filter((binding) => binding.enabled);
+      await putRoomDbSourceBindings(roomId, nextBindings);
+      await loadRoomPluginDatabase();
+      setDbMessage('房间数据库绑定已保存。');
     } catch (err) {
       setDbMessage('');
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDbLoading(false);
     }
   }
 
-  async function doImportFromJs() {
-    if (!dbJsCode.trim() || !dbJsName.trim()) return;
+  async function saveRoomDbRow() {
+    if (!dbSelectedSheetId || !dbRowKey.trim()) return;
     setError('');
-    setDbMessage('导入中...');
-    setDbLoading(true);
+    setDbMessage('保存数据行...');
     try {
-      const result = await importJsDatabase(dbJsCode.trim(), dbJsName.trim());
-      setDbMessage(`已导入：${result.sourceType} · ${result.source.name}`);
-      setDbJsCode('');
-      setDbJsName('');
-      setDbPreview(null);
-      await loadDbSources();
+      const data = JSON.parse(dbRowJson) as unknown;
+      if (typeof data !== 'object' || data === null || Array.isArray(data)) {
+        throw new Error('数据行必须是 JSON 对象。');
+      }
+      await putRoomDbRow(roomId, dbSelectedSheetId, dbRowKey.trim(), data as Record<string, unknown>);
+      await loadRoomPluginDatabase();
+      setDbMessage('数据行已保存。');
     } catch (err) {
       setDbMessage('');
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setDbLoading(false);
     }
   }
 
@@ -745,13 +688,69 @@ export function AdminPage({ roomId }: { roomId: string }) {
     }
   }
 
+  useEffect(() => {
+    if (!state || activeTab !== 'overview') return;
+    const node = adminLogScrollRef.current;
+    if (node) node.scrollTop = node.scrollHeight;
+  }, [activeTab, activeLogTab, state?.logs.length]);
+
+  useEffect(() => {
+    if (!state || activeTab !== 'characterResources') return;
+    void fetchResourceChanges();
+  }, [activeTab, roomId]);
+
   if (!state) return <main className="shell"><p>加载中...</p></main>;
   const playerNameById = new Map(state.players.map((player) => [player.id, player.name]));
+  const playerUrl = (token: string) => `${window.location.origin}/player/${token}`;
   const readiness = state.turnReadiness;
   const missingActorNames = readiness.missingActorIds.map((id) => playerNameById.get(id) ?? id);
   const readinessLabel = readiness.requiredActorIds.length > 0
     ? `${readiness.completedActorIds.length} / ${readiness.requiredActorIds.length} 已完成`
     : '暂无必需行动者';
+  const actionsByPlayerId = new Map<string, typeof state.actions>();
+  for (const action of state.actions) {
+    const existing = actionsByPlayerId.get(action.playerId) ?? [];
+    actionsByPlayerId.set(action.playerId, [...existing, action]);
+  }
+  const actionPlayerIds = Array.from(new Set([
+    ...state.players.map((player) => player.id),
+    ...state.actions.map((action) => action.playerId)
+  ]));
+  const actionGroups = actionPlayerIds.map((playerId) => ({
+    playerId,
+    playerName: playerNameById.get(playerId) ?? playerId,
+    actions: actionsByPlayerId.get(playerId) ?? []
+  }));
+  const privateLogsByPlayer = state.players.map((player) => ({
+    player,
+    logs: state.logs.filter((log) => log.visibilityScope === 'private' && log.playerId === player.id)
+  })).filter((group) => group.logs.length > 0);
+  const objectiveLogs = state.logs.filter((log) => log.visibilityScope === 'objective' || log.visibilityScope === 'admin');
+  const publicLogs = state.logs.filter((log) => log.visibilityScope === 'public');
+  const selectedPrivateLogGroup = activeLogTab.startsWith('player:')
+    ? privateLogsByPlayer.find((group) => group.player.id === activeLogTab.slice('player:'.length))
+    : undefined;
+  const characters = state.characters ?? [];
+  const characterByPlayerId = new Map(characters.map((character) => [character.playerId, character]));
+  const resourceChangesNewestFirst = [...resourceChanges].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const activePresetPackage = state?.presetPackages.find((presetPackage) => presetPackage.id === state.globalPresetPackageId) ?? null;
+  const activePresetPackageBlocks = promptPackageBlocks(activePresetPackage);
+  const enabledPresetPackageBlocks = activePresetPackageBlocks.filter((block) => block.enabled);
+  const disabledPresetPackageBlocks = activePresetPackageBlocks.filter((block) => !block.enabled);
+  const selectedDbSheet = dbRoomSheets.find((sheet) => sheet.id === dbSelectedSheetId) ?? dbRoomSheets[0];
+  const selectedDbRows = selectedDbSheet ? dbRowsBySheet[selectedDbSheet.id] ?? [] : [];
+  const actionSummary = (actions: typeof state.actions): string => {
+    if (actions.length === 0) return '未提交';
+    const latestAction = actions[actions.length - 1];
+    const text = latestAction?.text.trim() ?? '';
+    const clipped = text.length > 42 ? `${text.slice(0, 42)}...` : text;
+    return `${actions.length} 条行动 · 最新：${clipped || '已提交'}`;
+  };
+  const formatChangeValue = (value: unknown): string => {
+    if (value === undefined) return '未记录';
+    if (value === null) return 'null';
+    return typeof value === 'string' ? value : JSON.stringify(value);
+  };
 
   return (
     <main className="shell">
@@ -777,14 +776,43 @@ export function AdminPage({ roomId }: { roomId: string }) {
         <div className="grid">
           <aside className="card">
             <h2>玩家</h2>
-            {state.players.map((player) => <p key={player.id}>{player.name}</p>)}
+            {state.players.map((player) => (
+              <details className="subcard player-link-row" key={player.id}>
+                <summary>
+                  <strong>{player.name}</strong>
+                  <span className="muted">玩家链接</span>
+                </summary>
+                <a href={playerUrl(player.token)} target="_blank" rel="noreferrer">{playerUrl(player.token)}</a>
+              </details>
+            ))}
             <input value={playerName} onChange={(event) => setPlayerName(event.target.value)} />
             <div className="button-row">
               <button onClick={createPlayer}>创建玩家链接</button>
             </div>
-            {lastLink ? <p><a href={lastLink}>{lastLink}</a></p> : null}
+            {lastLink ? <p className="muted">最近创建：<a href={lastLink}>{lastLink}</a></p> : null}
             <h2>行动</h2>
-            {state.actions.map((action) => <p key={action.id}>{action.playerId}: {action.text}</p>)}
+            {actionGroups.length > 0 ? (
+              <div className="action-player-list">
+                {actionGroups.map((group) => (
+                  <details className="subcard action-player-group" key={group.playerId}>
+                    <summary>
+                      <strong>{group.playerName}</strong>
+                      <span className="muted action-summary-text">{actionSummary(group.actions)}</span>
+                    </summary>
+                    {group.actions.length > 0 ? group.actions.map((action) => (
+                      <div className="action-entry" key={action.id}>
+                        <p>行动详情：{action.text}</p>
+                        <p className="muted">
+                          {action.actionType ?? 'narrative'} · {action.status}
+                          {action.isHiddenRoll ? ' · 隐藏骰点' : ''}
+                          {action.submittedAt ? ` · ${action.submittedAt}` : ''}
+                        </p>
+                      </div>
+                    )) : <p className="muted">暂无行动。</p>}
+                  </details>
+                ))}
+              </div>
+            ) : <p className="muted">暂无玩家行动。</p>}
             <p className="muted">等待玩家行动：{readinessLabel}</p>
             {missingActorNames.length > 0 ? <p className="muted">未提交：{missingActorNames.join(', ')}</p> : null}
             <div className="button-row">
@@ -795,12 +823,36 @@ export function AdminPage({ roomId }: { roomId: string }) {
             <h2>AI 错误</h2>
             {state.aiGenerations.filter((gen) => gen.error).map((gen) => <p key={gen.id}>{gen.error}</p>)}
           </aside>
-          <LogList title="全部日志" logs={state.logs} />
+          <section className="card admin-log-panel">
+            <div className="inline-tab-row" role="tablist" aria-label="DM 日志类型">
+              <button className={activeLogTab === 'objective' ? 'active' : ''} onClick={() => setActiveLogTab('objective')} type="button">客观剧情</button>
+              <button className={activeLogTab === 'public' ? 'active' : ''} onClick={() => setActiveLogTab('public')} type="button">公开剧情</button>
+              {privateLogsByPlayer.map(({ player }) => (
+                <button
+                  className={activeLogTab === `player:${player.id}` ? 'active' : ''}
+                  key={player.id}
+                  onClick={() => setActiveLogTab(`player:${player.id}`)}
+                  type="button"
+                >
+                  {player.name}
+                </button>
+              ))}
+            </div>
+            <div className="admin-log-scroll" ref={adminLogScrollRef}>
+              {activeLogTab === 'objective' ? (
+                <LogList title="客观剧情" logs={objectiveLogs.length > 0 ? objectiveLogs : publicLogs} />
+              ) : activeLogTab === 'public' ? (
+                <LogList title="公开剧情" logs={publicLogs} />
+              ) : selectedPrivateLogGroup ? (
+                <LogList title={`${selectedPrivateLogGroup.player.name} 的私人剧情`} logs={selectedPrivateLogGroup.logs} />
+              ) : <p className="muted">暂无私人剧情。</p>}
+            </div>
+          </section>
         </div>
         {aiTurnPreview ? (
           <div className="card ai-turn-debug-panel">
             <h2>AI-DM 回合调试</h2>
-            <p className="muted">先检查上下文和提示词，再发送给模型；返回的状态变更只作为建议展示。</p>
+            <p className="muted">先检查上下文和提示词，再发送给模型；发送成功后会写入客观剧情、公开剧情、玩家私人剧情，并推进回合。</p>
             <div className="context-section-list">
               {aiTurnPreview.contextSections.map((section) => (
                 <details key={section.title}>
@@ -825,12 +877,19 @@ export function AdminPage({ roomId }: { roomId: string }) {
               <div className="subcard">
                 <h3>AI 回复</h3>
                 <p>{aiTurnResult.responseText}</p>
+                {aiTurnResult.applied ? <p className="muted">已写入本回合客观剧情、公开剧情、私人剧情并推进到下一回合。</p> : null}
                 <h3>建议状态变更</h3>
                 {aiTurnResult.suggestedStateChanges.length > 0 ? (
                   <pre>{JSON.stringify(aiTurnResult.suggestedStateChanges, null, 2)}</pre>
                 ) : (
                   <p className="muted">本次没有建议状态变更。</p>
                 )}
+                {aiTurnResult.resourceErrors?.length ? (
+                  <>
+                    <h3>状态更新错误</h3>
+                    <ul>{aiTurnResult.resourceErrors.map((item) => <li key={item}>{item}</li>)}</ul>
+                  </>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -886,125 +945,69 @@ export function AdminPage({ roomId }: { roomId: string }) {
         ) : null}
       </section>
 
-      <section className="card" role="tabpanel" hidden={activeTab !== 'diceCombat'}>
-        <h2>检定与战斗</h2>
-        <p className="muted">集中处理 DM 掷骰、快速检定、先攻和战斗中的 HP 调整。</p>
-            <div className="subcard">
-              <h3>骰点</h3>
-              <p className="muted">DM 手动掷骰，结果会广播给所有玩家。</p>
-              <div className="form-grid">
-                <label>骰子类型
-                  <select value={diceDie} onChange={(event) => setDiceDie(event.target.value as DieType)}>
-                    <option value="d4">d4</option>
-                    <option value="d6">d6</option>
-                    <option value="d8">d8</option>
-                    <option value="d10">d10</option>
-                    <option value="d12">d12</option>
-                    <option value="d20">d20</option>
-                  </select>
-                </label>
-                <label>调整值<input type="number" value={diceModifier} onChange={(event) => setDiceModifier(Number(event.target.value))} /></label>
-                <label>DC<input type="number" value={diceDc ?? ''} onChange={(event) => setDiceDc(event.target.value ? Number(event.target.value) : undefined)} /></label>
-                <label>原因<input value={diceReason} onChange={(event) => setDiceReason(event.target.value)} placeholder="攻击检定" /></label>
-              </div>
-              <div className="button-row">
-                <button onClick={rollDice} disabled={diceRolling}>{diceRolling ? '掷骰中...' : '掷骰'}</button>
-              </div>
-              {diceResult ? (
-                <p>结果: {diceDie} [{diceResult.values.join(', ')}] + {diceResult.modifier} = {diceResult.total}{diceResult.success !== undefined ? (diceResult.success ? ' (成功)' : ' (失败)') : ''}</p>
-              ) : null}
-            </div>
-            <div className="subcard">
-              <h3>快速检定</h3>
-              <p className="muted">属性检定（无熟练加值，调整值0，DC 10）：</p>
-              <div className="button-row" style={{ flexWrap: 'wrap', gap: '4px' }}>
-                <button onClick={() => quickAbilityRoll('STR', 0, 10)} disabled={diceRolling}>STR</button>
-                <button onClick={() => quickAbilityRoll('DEX', 0, 10)} disabled={diceRolling}>DEX</button>
-                <button onClick={() => quickAbilityRoll('CON', 0, 10)} disabled={diceRolling}>CON</button>
-                <button onClick={() => quickAbilityRoll('INT', 0, 10)} disabled={diceRolling}>INT</button>
-                <button onClick={() => quickAbilityRoll('WIS', 0, 10)} disabled={diceRolling}>WIS</button>
-                <button onClick={() => quickAbilityRoll('CHA', 0, 10)} disabled={diceRolling}>CHA</button>
-              </div>
-              <p className="muted" style={{ marginTop: '8px' }}>社交行动（无调整值）：</p>
-              <div className="button-row" style={{ flexWrap: 'wrap', gap: '4px' }}>
-                <button onClick={() => quickSocialRoll('说服', 15)} disabled={diceRolling}>说服 DC15</button>
-                <button onClick={() => quickSocialRoll('欺骗', 15)} disabled={diceRolling}>欺骗 DC15</button>
-                <button onClick={() => quickSocialRoll('威吓', 17)} disabled={diceRolling}>威吓 DC17</button>
-                <button onClick={() => quickSocialRoll('洞察', 12)} disabled={diceRolling}>洞察 DC12</button>
-                <button onClick={() => quickSocialRoll('交易', 15)} disabled={diceRolling}>交易 DC15</button>
-              </div>
-            </div>
-            <div className="subcard">
-              <h3>战斗</h3>
-              <p className="muted">管理战斗先攻顺序、攻击判定和 NPC HP。</p>
-              <label>参战者 (每行: name hp ac initMod)<textarea value={combatParticipants} onChange={(event) => setCombatParticipants(event.target.value)} rows={3} /></label>
-              <div className="button-row">
-                <button onClick={doStartCombat} disabled={combatBusy}>开始战斗</button>
-                <button onClick={doRollInitiative} disabled={!combatState || combatBusy}>掷先攻</button>
-                <button onClick={doNextTurn} disabled={!combatState || combatBusy}>下一回合</button>
-              </div>
-              {combatState ? (
-                <div className="subcard" style={{ marginTop: '8px' }}>
-                  <p><strong>第 {combatState.round} 回合 · 当前行动者：{combatState.participants[combatState.currentTurnIndex]?.name ?? '--'}</strong></p>
-                  {combatState.participants
-                    .slice()
-                    .sort((a, b) => (b.initiative ?? -Infinity) - (a.initiative ?? -Infinity))
-                    .map((p) => (
-                      <div className="subcard" key={p.id} style={{ margin: '4px 0', border: p.id === combatState.participants[combatState.currentTurnIndex]?.id ? '2px solid #ffd700' : undefined }}>
-                        <strong>{p.name}{p.isNpc ? ' (NPC)' : ''}</strong>
-                        <p>先攻: {p.initiative ?? '--'} · AC: {p.ac}</p>
-                        <div className="hp-bar-bg">
-                          <div className="hp-bar-fill" style={{
-                            width: `${Math.min(100, Math.round(p.hp / p.maxHp * 100))}%`,
-                            background: p.hp > p.maxHp / 2 ? '#79bd74' : p.hp > 0 ? '#dfa34b' : '#de6f62'
-                          }} />
+      <section role="tabpanel" hidden={activeTab !== 'characterResources'}>
+        <div className="admin-character-resource-layout">
+          <section className="card">
+            <h2>玩家角色与当前状态</h2>
+            <p className="muted">展示所有玩家的角色卡、HP、法术位、货币和状态。</p>
+            <div className="admin-character-list">
+              {state.players.map((player) => {
+                const character = characterByPlayerId.get(player.id) ?? null;
+                const resources = character?.resources;
+                return (
+                  <div className="subcard admin-character-resource-card" key={player.id}>
+                    <h3>{player.name}</h3>
+                    <CharacterCard character={character} />
+                    {resources ? (
+                      <div className="current-resource-grid">
+                        <div>
+                          <strong>HP</strong>
+                          <p>{resources.hitPoints.current} / {resources.hitPoints.max}{resources.hitPoints.temp > 0 ? `（临时 ${resources.hitPoints.temp}）` : ''}</p>
                         </div>
-                        <p className="muted">HP: {p.hp}/{p.maxHp}</p>
+                        <div>
+                          <strong>生命骰</strong>
+                          <p>{resources.hitDice.remaining} / {resources.hitDice.total} {resources.hitDice.die}</p>
+                        </div>
+                        <div>
+                          <strong>法术位</strong>
+                          {Object.keys(resources.spellSlots).length > 0
+                            ? Object.entries(resources.spellSlots).map(([level, slots]) => <p key={level}>{level}: {slots.total - slots.used} / {slots.total}</p>)
+                            : <p>无</p>}
+                        </div>
+                        <div>
+                          <strong>货币</strong>
+                          <p>{resources.currency.gp} gp · {resources.currency.sp} sp · {resources.currency.cp} cp</p>
+                        </div>
+                        <div>
+                          <strong>状态</strong>
+                          <p>{resources.conditions.length ? resources.conditions.join('、') : '无'}</p>
+                        </div>
                       </div>
-                    ))}
-                  <div className="form-grid">
-                    <label>攻击者 ID<input value={combatAttackerId} onChange={(event) => setCombatAttackerId(event.target.value)} placeholder={combatState.participants[combatState.currentTurnIndex]?.id ?? ''} /></label>
-                    <label>目标 ID<input value={combatTargetId} onChange={(event) => setCombatTargetId(event.target.value)} placeholder={combatState.participants[(combatState.currentTurnIndex + 1) % combatState.participants.length]?.id ?? ''} /></label>
-                    <label>攻击加值<input type="number" value={combatAttackBonus} onChange={(event) => setCombatAttackBonus(Number(event.target.value))} /></label>
-                    <label>伤害骰<input value={combatDamageDice} onChange={(event) => setCombatDamageDice(event.target.value)} /></label>
-                    <label>伤害加值<input type="number" value={combatDamageBonus} onChange={(event) => setCombatDamageBonus(Number(event.target.value))} /></label>
+                    ) : <p className="muted">暂无资源状态。</p>}
                   </div>
-                  <div className="button-row">
-                    <button onClick={doCombatAttack} disabled={!combatState || combatBusy}>攻击</button>
-                  </div>
-                </div>
-              ) : null}
+                );
+              })}
             </div>
-      </section>
-
-      <section className="card" role="tabpanel" hidden={activeTab !== 'characterResources'}>
-        <h2>角色资源</h2>
-        <p className="muted">查询并回滚角色 HP、法术位、货币等资源变更。</p>
-            <div className="subcard">
-              <h3>角色资源变更</h3>
-              <p className="muted">查询角色的资源变更历史并支持回滚操作。</p>
-              <label>角色 ID<input value={resourceChangeCharId} onChange={(event) => setResourceChangeCharId(event.target.value)} placeholder="char-1" /></label>
-              <div className="button-row">
-                <button onClick={fetchResourceChanges} disabled={resourceChangeLoading}>{resourceChangeLoading ? '查询中...' : '查询变更'}</button>
+          </section>
+          <section className="card">
+            {resourceChangesNewestFirst.length > 0 ? (
+              <div className="changes-list">
+                {resourceChangesNewestFirst.map((change) => (
+                  <div className="subcard" key={change.id}>
+                    <strong>{change.path}</strong>
+                    <p>{formatChangeValue(change.before)} → {formatChangeValue(change.after)}</p>
+                    <p className="muted">{change.characterId} · {change.reason} · {change.actorType} · {change.createdAt}</p>
+                    {!change.revertedAt ? (
+                      <button onClick={() => rollbackChange(change.id, 'admin-1')}>回滚</button>
+                    ) : (
+                      <p className="muted">已于 {change.revertedAt} 回滚</p>
+                    )}
+                  </div>
+                ))}
               </div>
-              {resourceChangeMessage ? <p>{resourceChangeMessage}</p> : null}
-              {resourceChanges.length > 0 ? (
-                <div className="changes-list">
-                  {resourceChanges.map((change) => (
-                    <div className="subcard" key={change.id}>
-                      <strong>{change.path}</strong>
-                      <p>{String(change.before)} → {String(change.after)}</p>
-                      <p className="muted">{change.reason} · {change.actorType} · {change.createdAt}</p>
-                      {!change.revertedAt ? (
-                        <button onClick={() => rollbackChange(change.id, 'admin-1')}>回滚</button>
-                      ) : (
-                        <p className="muted">已于 {change.revertedAt} 回滚</p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+            ) : <p className="muted">暂无状态变更记录。</p>}
+          </section>
+        </div>
       </section>
 
       <section className="card" role="tabpanel" hidden={activeTab !== 'campaignMemory'}>
@@ -1090,6 +1093,10 @@ export function AdminPage({ roomId }: { roomId: string }) {
       </section>
 
       <section role="tabpanel" hidden={activeTab !== 'resources'}>
+        <div className="card">
+          <h2>剧本 / 世界书</h2>
+          <p className="muted">这里管理实际进入 AI 上下文的剧本卡和资源世界书。旧“世界书”页已隐藏，避免和当前生效链路混用。</p>
+        </div>
         <ResourceImportPanel
           scriptCards={state.scriptCards}
           resourceWorldBooks={state.resourceWorldBooks}
@@ -1110,74 +1117,144 @@ export function AdminPage({ roomId }: { roomId: string }) {
       </section>
 
       <section className="card" role="tabpanel" hidden={activeTab !== 'database'}>
-          <h2>数据库管理</h2>
-          <p className="muted">从远程 URL 或 JS 代码导入结构化数据，支持增量更新检测。</p>
+          <h2>数据库插件</h2>
+          <p className="muted">数据库插件只提供结构化表数据，不会作为世界书或 prompt 预设导入。停用只影响当前房间；永久删除会移除整个数据源。</p>
 
           <div className="subcard">
-            <h4>从 URL 导入</h4>
-            <label>URL<input value={dbUrl} onChange={(event) => setDbUrl(event.target.value)} placeholder="https://example.com/world-book.json" /></label>
-            <label>名称（可选）<input value={dbImportName} onChange={(event) => setDbImportName(event.target.value)} placeholder="默认从 URL 提取" /></label>
-            <div className="button-row">
-              <button onClick={doImportFromUrl} disabled={dbLoading}>{dbLoading ? '导入中...' : '从 URL 导入'}</button>
-            </div>
-          </div>
-
-          <div className="subcard">
-            <h4>从 JS 代码导入</h4>
-            <label>名称<input value={dbJsName} onChange={(event) => setDbJsName(event.target.value)} placeholder="数据源名称" /></label>
-            <label>JS 代码<textarea value={dbJsCode} onChange={(event) => setDbJsCode(event.target.value)} rows={4} placeholder="module.exports = { entries: [...] };" /></label>
-            <div className="button-row">
-              <button onClick={doImportFromJs} disabled={dbLoading}>{dbLoading ? '导入中...' : '从 JS 代码导入'}</button>
-            </div>
-          </div>
-
-          {dbPreview ? (
-            <div className="subcard">
-              <h4>导入预览</h4>
-              {dbPreview.entryTypes.map((et, index) => (
-                <p key={index}>{et.type}: {et.count} 条</p>
-              ))}
-            </div>
-          ) : null}
-
-          <div className="subcard">
-            <h4>已导入源</h4>
+            <h4>已接入数据源</h4>
             <div className="button-row">
               <button onClick={loadDbSources} disabled={dbLoading}>{dbLoading ? '加载中...' : '刷新列表'}</button>
             </div>
             {dbMessage ? <p>{dbMessage}</p> : null}
             {dbSources.length === 0 ? (
-              <p className="muted">暂无已导入的数据源。</p>
+              <p className="muted">暂无已接入的数据源。</p>
             ) : (
               dbSources.map((source) => (
                 <div className="subcard" key={source.id}>
                   <strong>{source.name}</strong>
                   <p className="muted">
-                    类型：{source.sourceType} · 版本：{source.version || '--'} · 哈希：{source.fileHash.substring(0, 12)}... · 条目数：{source.entryCount} · 大小：{source.fileSize} bytes
+                    类型：{source.sourceType} · 版本：{source.version || '--'} · 哈希：{source.fileHash.substring(0, 12)}... · {source.sourceType === 'table_plugin' ? '表数量' : '条目数'}：{source.entryCount} · 大小：{source.fileSize} bytes
                     {source.lastCheckedAt ? ` · 上次检查：${source.lastCheckedAt}` : ''}
                   </p>
+                  {source.sourceType === 'table_plugin' ? (
+                    <div className="button-row">
+                      <button
+                        onClick={() => toggleRoomDbSource(source.id, !dbRoomBindings.some((binding) => binding.sourceId === source.id && binding.enabled))}
+                      >
+                        {dbRoomBindings.some((binding) => binding.sourceId === source.id && binding.enabled) ? '仅停用当前房间' : '启用到当前房间'}
+                      </button>
+                    </div>
+                  ) : null}
+                  {source.sourceType === 'table_plugin' ? (
+                    <div className="resource-grid">
+                      {(dbSheetsBySource[source.id] ?? []).map((sheet) => (
+                        <div className="subcard" key={sheet.id}>
+                          <strong>{sheet.name}</strong>
+                          <p className="muted">{sheet.tableName || sheet.uid} · {sheet.exportEnabled ? '默认注入' : '不默认注入'}</p>
+                          {sheet.note ? <p>{sheet.note}</p> : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   <div className="button-row">
                     <button onClick={() => doCheckDbUpdates(source.id)}>检查更新</button>
-                    <button onClick={() => doUpdateDbSource(source.id)}>更新</button>
-                    <button onClick={() => doDeleteDbSource(source.id)}>删除</button>
+                    <button onClick={() => doUpdateDbSource(source.id)}>更新源文件</button>
+                    <button onClick={() => {
+                      if (window.confirm(`永久删除数据源“${source.name}”？这不是停用当前房间。`)) void doDeleteDbSource(source.id);
+                    }}>永久删除数据源</button>
                   </div>
                 </div>
               ))
             )}
           </div>
+
+          <div className="subcard">
+            <h4>当前房间插件数据库</h4>
+            {dbRoomSheets.length === 0 ? (
+              <p className="muted">尚未为此房间启用数据库插件。</p>
+            ) : (
+              <>
+                <label>数据表
+                  <select value={selectedDbSheet?.id ?? ''} onChange={(event) => setDbSelectedSheetId(event.target.value)}>
+                    {dbRoomSheets.map((sheet) => (
+                      <option key={sheet.id} value={sheet.id}>{sheet.name} / {sheet.tableName || sheet.uid}</option>
+                    ))}
+                  </select>
+                </label>
+                {selectedDbSheet ? (
+                  <div className="subcard">
+                    <strong>{selectedDbSheet.name}</strong>
+                    <p className="muted">{selectedDbSheet.tableName || selectedDbSheet.uid}</p>
+                    {selectedDbSheet.note ? <p>{selectedDbSheet.note}</p> : null}
+                    <div className="form-grid">
+                      <label>行 Key<input value={dbRowKey} onChange={(event) => setDbRowKey(event.target.value)} placeholder="row_id 或唯一键" /></label>
+                      <label>行数据 JSON<textarea value={dbRowJson} onChange={(event) => setDbRowJson(event.target.value)} rows={5} /></label>
+                    </div>
+                    <div className="button-row">
+                      <button onClick={saveRoomDbRow}>保存数据行</button>
+                    </div>
+                    {selectedDbRows.length === 0 ? (
+                      <p className="muted">此表暂无数据行。</p>
+                    ) : (
+                      <div className="resource-grid">
+                        {selectedDbRows.map((row) => (
+                          <div className="subcard" key={row.id}>
+                            <strong>{row.rowKey}</strong>
+                            <pre>{JSON.stringify(row.data, null, 2)}</pre>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : null}
+              </>
+            )}
+          </div>
       </section>
 
       <section className="card" role="tabpanel" hidden={activeTab !== 'presets'}>
-        <h2>预设管理</h2>
-        <p className="muted">全局提示词预设会实时影响所有房间，可启用、排序并决定注入位置。</p>
+        <h2>Prompt 配置</h2>
+        <p className="muted">最终请求优先使用“资源配置”中绑定的预设包。下面先展示当前真正生效的预设包；旧原生预设仅作为高级配置保留。</p>
         <div className="button-row">
           <button onClick={loadPromptPreview}>预览 AI 请求</button>
         </div>
         <PromptPreviewPanel preview={promptPreview} />
 
         <div className="subcard" style={{ marginTop: '16px' }}>
-          <h3>预设模板</h3>
-          <p className="muted">选择一个预设模板快速配置 AI-DM 行为风格。应用后会创建新的全局预设并自动启用。</p>
+          <h3>当前生效预设包</h3>
+          {activePresetPackage ? (
+            <>
+              <p><strong>{activePresetPackage.name}</strong></p>
+              <p className="muted">启用块：{enabledPresetPackageBlocks.length} · 禁用块：{disabledPresetPackageBlocks.length}</p>
+              <details open>
+                <summary>启用并进入最终 prompt 的块</summary>
+                {enabledPresetPackageBlocks.length ? enabledPresetPackageBlocks.map((block, index) => (
+                  <div className="subcard" key={`${block.identifier}-enabled-${index}`}>
+                    <strong>{block.name}</strong>
+                    <p className="muted">{block.role} · ID: {block.identifier}</p>
+                    <pre>{promptPackageBlockContent(block)}</pre>
+                  </div>
+                )) : <p className="muted">没有启用块。</p>}
+              </details>
+              <details>
+                <summary>已导入但禁用的原始块</summary>
+                {disabledPresetPackageBlocks.length ? disabledPresetPackageBlocks.map((block, index) => (
+                  <div className="subcard" key={`${block.identifier}-disabled-${index}`}>
+                    <strong>{block.name}</strong>
+                    <p className="muted">{block.role} · ID: {block.identifier}</p>
+                    <pre>{promptPackageBlockContent(block)}</pre>
+                  </div>
+                )) : <p className="muted">没有禁用块。</p>}
+              </details>
+            </>
+          ) : (
+            <p className="muted">当前没有绑定资源预设包，最终请求会回退到旧原生预设。</p>
+          )}
+        </div>
+
+        <div className="subcard" style={{ marginTop: '16px' }}>
+          <h3>高级：旧原生预设模板</h3>
+          <p className="muted">这部分是旧 prompt 系统。存在资源预设包时，它不是最终 prompt 的主要来源。</p>
           {activePresetType ? (
             <p>当前激活模板类型：<strong>{activePresetType}</strong></p>
           ) : (

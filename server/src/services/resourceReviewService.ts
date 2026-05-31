@@ -32,7 +32,7 @@ const draftKindSchema = z.enum(resourceImportDraftKinds).refine((kind) => suppor
 const sourceTypeSchema = z.enum(['local_json', 'phb_extraction', 'sillytavern_worldbook', 'sillytavern_preset', 'remote_url', 'manual']);
 const rulesetSchema = z.enum(['5e-2014', '5e-2024', 'homebrew', 'unknown']);
 const visibilitySchema = z.enum(['private', 'campaign', 'workspace', 'public']);
-const characterOptionTypeSchema = z.enum(['species', 'class', 'background', 'skill', 'equipment', 'spell', 'language', 'proficiency']);
+const characterOptionTypeSchema = z.enum(['species', 'subspecies', 'class', 'background', 'skill', 'equipment', 'spell', 'language', 'proficiency']);
 
 const draftInputSchema = z.object({
   kind: draftKindSchema,

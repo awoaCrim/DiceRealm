@@ -7,6 +7,7 @@ export interface ProcessTurnActionsInput {
   turn: Turn;
   players: Player[];
   actions: PlayerAction[];
+  objectiveLogs?: LogEntry[];
   publicLogs: LogEntry[];
   interactions: InteractionRequest[];
   aiProvider: AiProvider;
@@ -21,6 +22,7 @@ export async function processTurnActions(input: ProcessTurnActionsInput): Promis
   const prompt = input.promptOverride ?? buildTurnPrompt({
     room: input.room,
     players: input.players,
+    objectiveLogs: input.objectiveLogs,
     publicLogs: input.publicLogs,
     actions: orderedActions,
     interactions: input.interactions,

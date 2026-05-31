@@ -118,6 +118,59 @@ describe('characterResourceService', () => {
     }
   });
 
+  it('accepts bare spell slot level paths as remaining-slot changes', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    try {
+      const { characterId, roomId } = seedCharacter(db);
+      const { applyResourcePatch, getCharacterResources } = await import('../services/characterResourceService.js');
+
+      const result = applyResourcePatch(db, roomId, {
+        characterId,
+        path: 'spellSlots.level1',
+        before: 2,
+        after: 1,
+        reason: '施放侦测魔法',
+        ruleRefs: ['Spellcasting'],
+      }, 'ai_dm', 'ai');
+
+      expect(result.spellSlots.level1).toEqual({ total: 2, used: 1 });
+      expect(getCharacterResources(db, characterId).spellSlots.level1).toEqual({ total: 2, used: 1 });
+
+      const auditRow = db.prepare('SELECT path, before_json as beforeJson, after_json as afterJson FROM character_resource_changes WHERE character_id = ?')
+        .get(characterId) as { path: string; beforeJson: string; afterJson: string };
+      expect(auditRow.path).toBe('spellSlots.level1.used');
+      expect(JSON.parse(auditRow.beforeJson)).toBe(0);
+      expect(JSON.parse(auditRow.afterJson)).toBe(1);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('normalizes numeric spell slot paths to level keys', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    try {
+      const { characterId, roomId } = seedCharacter(db);
+      const { applyResourcePatch, getCharacterResources } = await import('../services/characterResourceService.js');
+
+      applyResourcePatch(db, roomId, {
+        characterId,
+        path: 'spellSlots.1',
+        before: 1,
+        after: 0,
+        reason: '再次施放侦测魔法',
+        ruleRefs: ['Spellcasting'],
+      }, 'ai_dm', 'ai');
+
+      const resources = getCharacterResources(db, characterId);
+      expect(resources.spellSlots.level1).toEqual({ total: 1, used: 1 });
+      expect(resources.spellSlots['1']).toBeUndefined();
+    } finally {
+      db.close();
+    }
+  });
+
   it('shortRest recovers hitDice→HP and longRest fullHP+halfHitDice', async () => {
     const db = createMemoryDb();
     migrate(db);

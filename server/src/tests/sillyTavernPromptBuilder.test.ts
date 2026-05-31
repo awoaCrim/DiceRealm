@@ -82,6 +82,7 @@ function buildPreview(overrides: Partial<Parameters<typeof buildSillyTavernPromp
   return buildSillyTavernPromptPreview({
     room,
     players,
+    objectiveLogs: [],
     publicLogs: [],
     actions,
     interactions: [],
@@ -273,6 +274,42 @@ describe('buildSillyTavernPromptPreview', () => {
     });
 
     expect(preview.promptBlocks[0]).toMatchObject({ identifier: 'nameOnlyPrompt', content: 'Name-only prompt content.' });
+  });
+
+  it('keeps readable prompt block names instead of exposing cryptic identifiers as titles', () => {
+    const preview = buildPreview({
+      presetPackage: withPreset({
+        prompts: [
+          {
+            identifier: 'plqGRxqxkIwGvcbkiYxIi',
+            name: '玩家自主权',
+            role: 'system',
+            content: '绝不代替玩家做出关键决定。在规则范围内，玩家拥有完全的自主权。'
+          },
+          {
+            identifier: 'mLCAugZZ91eSB65HPak_d',
+            role: 'system',
+            content: '战斗中严格遵循先攻顺序。每次攻击检定前明确说明 AC 和 DC。'
+          },
+          {
+            identifier: 'N9_JLOcQW1sQVP9O7j9Vf',
+            role: 'system',
+            content: 'NPC 拥有独立动机和目标，始终为自己的利益行动。'
+          }
+        ],
+        prompt_order: [{ order: [
+          { identifier: 'plqGRxqxkIwGvcbkiYxIi', enabled: true },
+          { identifier: 'mLCAugZZ91eSB65HPak_d', enabled: true },
+          { identifier: 'N9_JLOcQW1sQVP9O7j9Vf', enabled: true }
+        ] }]
+      })
+    });
+
+    expect(preview.promptBlocks.slice(0, 3).map((block) => block.displayName)).toEqual([
+      '玩家自主权',
+      '战斗规则',
+      'NPC自主性'
+    ]);
   });
 
   it('deduplicates repeated dndOutputContract runtime slots from prompt_order', () => {

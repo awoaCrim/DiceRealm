@@ -8,18 +8,20 @@ import * as api from './api';
 import type { CharacterBuilderOptions } from './types';
 
 const mockOptions: CharacterBuilderOptions = {
-  species: [{ id: 's-1', optionType: 'species', name: '人类', summary: '人类', ruleData: {}, prerequisites: {}, sourceRef: '' }],
-  classes: [{ id: 'c-1', optionType: 'class', name: '战士', summary: '战士', ruleData: {}, prerequisites: {}, sourceRef: '' }],
-  backgrounds: [{ id: 'b-1', optionType: 'background', name: '士兵', summary: '士兵', ruleData: {}, prerequisites: {}, sourceRef: '' }],
-  skills: [{ id: 'sk-1', optionType: 'skill', name: 'Athletics', summary: 'Athletics', ruleData: {}, prerequisites: {}, sourceRef: '' }],
-  equipment: [{ id: 'e-1', optionType: 'equipment', name: '长剑', summary: '长剑', ruleData: {}, prerequisites: {}, sourceRef: '' }],
-  spells: [{ id: 'sp-1', optionType: 'spell', name: '光亮术', summary: '照明戏法', ruleData: {}, prerequisites: {}, sourceRef: '' }],
+  species: [{ id: 's-1', optionType: 'species', name: '人类', summary: '人类', ruleData: { speedFt: 30, traits: ['多才多艺'] }, prerequisites: {}, sourceRef: '' }],
+  subSpecies: [{ id: 'ss-1', optionType: 'subspecies', name: '变体人类', summary: '变体人类', ruleData: { traits: ['任选专长'] }, prerequisites: {}, sourceRef: '' }],
+  classes: [{ id: 'c-1', optionType: 'class', name: '战士', summary: '战士', ruleData: { hitDie: 'd10', level1Features: ['战斗风格'] }, prerequisites: {}, sourceRef: '' }],
+  backgrounds: [{ id: 'b-1', optionType: 'background', name: '士兵', summary: '士兵', ruleData: { skillProficiencies: ['运动', '威吓'] }, prerequisites: {}, sourceRef: '' }],
+  skills: [{ id: 'sk-1', optionType: 'skill', name: 'Athletics', summary: 'Athletics', ruleData: { ability: '力量' }, prerequisites: {}, sourceRef: '' }],
+  equipment: [{ id: 'e-1', optionType: 'equipment', name: '长剑', summary: '长剑', ruleData: { damage: '1d8', damageType: '挥砍' }, prerequisites: {}, sourceRef: '' }],
+  spells: [{ id: 'sp-1', optionType: 'spell', name: '光亮术', summary: '照明戏法', ruleData: { level: 0, duration: '1小时' }, prerequisites: {}, sourceRef: '' }],
   languages: [{ id: 'l-1', optionType: 'language', name: '通用语', summary: '常见语言', ruleData: {}, prerequisites: {}, sourceRef: '' }],
   proficiencies: [{ id: 'p-1', optionType: 'proficiency', name: '盾牌熟练', summary: '可使用盾牌', ruleData: {}, prerequisites: {}, sourceRef: '' }]
 };
 
 const emptyOptions: CharacterBuilderOptions = {
   species: [],
+  subSpecies: [],
   classes: [],
   backgrounds: [],
   skills: [],
@@ -62,8 +64,12 @@ describe('CharacterBuilder', () => {
     await user.type(screen.getByLabelText('角色姓名'), '洛林');
     await user.click(screen.getByRole('button', { name: '下一步' }));
     await user.selectOptions(screen.getByLabelText('种族'), '人类');
+    expect(screen.getByText('速度')).toBeInTheDocument();
+    await user.selectOptions(screen.getByLabelText('子种族 / 血统'), '变体人类');
     await user.click(screen.getByRole('button', { name: '下一步' }));
     await user.selectOptions(screen.getByLabelText('职业'), '战士');
+    expect(screen.getByText('生命骰')).toBeInTheDocument();
+    await user.type(screen.getByLabelText('职业细节'), '防御战斗风格');
     await user.selectOptions(screen.getByLabelText('背景'), '士兵');
     await user.click(screen.getByRole('button', { name: /技能 \/ 熟练/ }));
     await user.click(screen.getByLabelText('Athletics'));
@@ -71,11 +77,16 @@ describe('CharacterBuilder', () => {
     await user.click(screen.getByLabelText('盾牌熟练'));
     await user.click(screen.getByRole('button', { name: /装备/ }));
     await user.click(screen.getByLabelText('长剑'));
+    expect(screen.getByText('伤害')).toBeInTheDocument();
+    expect(screen.getByText('1d8')).toBeInTheDocument();
     await user.click(screen.getByLabelText('光亮术'));
+    expect(screen.getByText('环阶')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '保存草稿' }));
 
     await waitFor(() => expect(api.saveCharacterBuilderDraft).toHaveBeenCalled());
     expect(api.saveCharacterBuilderDraft).toHaveBeenCalledWith('token-1', expect.objectContaining({
+      subSpecies: '变体人类',
+      classDetail: '防御战斗风格',
       spells: ['光亮术'],
       languages: ['通用语'],
       proficiencies: ['盾牌熟练']
@@ -98,8 +109,10 @@ describe('CharacterBuilder', () => {
     await user.type(screen.getByLabelText('角色姓名'), '米拉');
     await user.click(screen.getByRole('button', { name: /种族/ }));
     await user.type(screen.getByLabelText('自定义种族'), '自定义族群');
+    await user.type(screen.getByLabelText('自定义子种族 / 血统'), '星裔血统');
     await user.click(screen.getByRole('button', { name: /职业/ }));
     await user.type(screen.getByLabelText('自定义职业'), '星图师');
+    await user.type(screen.getByLabelText('职业细节'), '星盘传统');
     await user.type(screen.getByLabelText('自定义背景'), '失落学徒');
     await user.click(screen.getByRole('button', { name: /技能 \/ 熟练/ }));
     await user.type(screen.getByLabelText('自定义技能'), '调查');
@@ -114,11 +127,35 @@ describe('CharacterBuilder', () => {
     await waitFor(() => expect(api.saveCharacterBuilderDraft).toHaveBeenCalledWith('token-1', expect.objectContaining({
       name: '米拉',
       species: '自定义族群',
+      subSpecies: '星裔血统',
       className: '星图师',
+      classDetail: '星盘传统',
       background: '失落学徒',
       skills: ['调查'],
       equipment: ['黄铜罗盘'],
       languages: ['星界语']
+    })));
+  });
+
+  it('fills an editable random draft from available options', async () => {
+    const user = userEvent.setup();
+    render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={vi.fn()} setError={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: '随机角色' }));
+
+    expect(await screen.findByRole('dialog', { name: '角色创建向导' })).toBeInTheDocument();
+    expect(screen.getByText('已随机生成角色草稿，可继续修改后保存或确认。')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '保存草稿' }));
+
+    await waitFor(() => expect(api.saveCharacterBuilderDraft).toHaveBeenCalledWith('token-1', expect.objectContaining({
+      species: '人类',
+      subSpecies: '变体人类',
+      className: '战士',
+      background: '士兵',
+      skills: ['Athletics'],
+      equipment: ['长剑'],
+      languages: ['通用语'],
+      proficiencies: ['盾牌熟练']
     })));
   });
 
@@ -135,12 +172,42 @@ describe('CharacterBuilder', () => {
     await user.click(screen.getByRole('button', { name: '审核角色' }));
 
     expect(await screen.findByText('审核通过，可以确认角色。')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('审核通过');
+    expect(screen.getByRole('status')).toHaveTextContent('当前草稿可以确认角色。');
 
     await user.click(screen.getByRole('button', { name: '确认角色' }));
 
-    await waitFor(() => expect(api.confirmCharacterBuilderDraft).toHaveBeenCalledWith('token-1'));
-    expect(api.saveCharacterBuilderDraft).toHaveBeenCalledWith('token-1', expect.any(Object));
+    await waitFor(() => expect(api.confirmCharacterBuilderDraft).toHaveBeenCalledWith('token-1', expect.any(Object)));
+    expect(api.saveCharacterBuilderDraft).not.toHaveBeenCalled();
     expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('shows audit errors inside the modal', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.auditCharacterBuilderDraft).mockRejectedValueOnce(new Error('审核服务暂不可用'));
+
+    render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={vi.fn()} setError={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: '创建角色' }));
+    await user.click(screen.getByRole('button', { name: /复核确认/ }));
+    await user.click(screen.getByRole('button', { name: '审核角色' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('审核服务暂不可用');
+    expect(screen.getByRole('button', { name: '审核角色' })).toBeEnabled();
+  });
+
+  it('shows confirm errors inside the modal', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.confirmCharacterBuilderDraft).mockRejectedValueOnce(new Error('确认角色失败'));
+
+    render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={vi.fn()} setError={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: '创建角色' }));
+    await user.click(screen.getByRole('button', { name: /复核确认/ }));
+    await user.click(screen.getByRole('button', { name: '确认角色' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('确认角色失败');
+    expect(screen.getByRole('button', { name: '确认角色' })).toBeEnabled();
   });
 
   it('warns before closing when the modal has unsaved changes', async () => {

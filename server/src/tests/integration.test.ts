@@ -493,6 +493,65 @@ describe('DND AI-DM integration', () => {
     }
   });
 
+  it('lists existing rooms and deletes a room with its related data', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '可删除房间' })
+      });
+      expect(roomRes.status).toBe(200);
+      const room = await roomRes.json() as { roomId: string };
+
+      const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '玩家A' })
+      });
+      expect(playerRes.status).toBe(200);
+
+      const listRes = await fetch(`${base}/api/admin/rooms`);
+      expect(listRes.status).toBe(200);
+      const listPayload = await listRes.json() as { rooms: Array<{ id: string; name: string; playerCount: number; adminUrl: string }> };
+      expect(listPayload.rooms).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          id: room.roomId,
+          name: '可删除房间',
+          playerCount: 1,
+          adminUrl: `/admin/${room.roomId}`
+        })
+      ]));
+
+      const deleteRes = await fetch(`${base}/api/admin/rooms/${room.roomId}`, { method: 'DELETE' });
+      expect(deleteRes.status).toBe(200);
+      await expect(deleteRes.json()).resolves.toMatchObject({ ok: true, roomId: room.roomId });
+
+      const roomCount = db.prepare('SELECT COUNT(*) as count FROM rooms WHERE id = ?').get(room.roomId) as { count: number };
+      const playerCount = db.prepare('SELECT COUNT(*) as count FROM players WHERE room_id = ?').get(room.roomId) as { count: number };
+      const turnCount = db.prepare('SELECT COUNT(*) as count FROM turns WHERE room_id = ?').get(room.roomId) as { count: number };
+      const logCount = db.prepare('SELECT COUNT(*) as count FROM log_entries WHERE room_id = ?').get(room.roomId) as { count: number };
+      expect(roomCount.count).toBe(0);
+      expect(playerCount.count).toBe(0);
+      expect(turnCount.count).toBe(0);
+      expect(logCount.count).toBe(0);
+
+      const missingDeleteRes = await fetch(`${base}/api/admin/rooms/${room.roomId}`, { method: 'DELETE' });
+      expect(missingDeleteRes.status).toBe(404);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      db.close();
+    }
+  });
+
   it('does not create a global preset when saveGlobalPreset receives a missing id', () => {
     const db = createMemoryDb();
     migrate(db);
@@ -1975,6 +2034,24 @@ describe('DND AI-DM integration', () => {
       const state = await stateRes.json() as { character: { confirmed: boolean; sheet: { name: string } } };
       expect(state.character.confirmed).toBe(true);
       expect(state.character.sheet.name).toBe('洛林');
+
+      const directPlayerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '直确认玩家' })
+      });
+      const directPlayer = await directPlayerRes.json() as { token: string };
+      const directDraft = { ...fullDraft, name: '米拉', concept: '直接确认的角色草稿' };
+      const directConfirmRes = await fetch(`${base}/api/player/${directPlayer.token}/character-builder/confirm`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ draft: directDraft })
+      });
+      expect(directConfirmRes.status).toBe(200);
+      const directConfirm = await directConfirmRes.json() as { character: { confirmed: boolean; sheet: { name: string; concept: string } } };
+      expect(directConfirm.character.confirmed).toBe(true);
+      expect(directConfirm.character.sheet.name).toBe('米拉');
+      expect(directConfirm.character.sheet.concept).toBe('直接确认的角色草稿');
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       db.close();
@@ -2211,6 +2288,24 @@ describe('DND AI-DM integration', () => {
           after: 8,
           reason: '盗贼砍伤',
           ruleRefs: ['PHB p.194']
+        }],
+        suggestedStateChanges: [{
+          type: 'suggested_state_change',
+          changeType: 'update',
+          targetId: 'room:烛堡之门',
+          path: 'clues',
+          before: ['银色门缝泛着变化系魔法灵光'],
+          after: ['银色门缝泛着变化系魔法灵光，疑似需要银钥匙接触激活'],
+          reason: '侦测魔法揭示了更多细节',
+          ruleRefs: ['侦测魔法']
+        }, {
+          type: 'character_resource_change',
+          characterId: stubCharId,
+          path: 'spellSlots.1',
+          before: 2,
+          after: 1,
+          reason: '施放侦测魔法',
+          ruleRefs: ['PHB Spellcasting']
         }]
       };
       return { body: { choices: [{ message: { content: JSON.stringify(result) } }] } };
@@ -2238,7 +2333,7 @@ describe('DND AI-DM integration', () => {
       });
       const player = await playerRes.json() as { playerId: string; token: string };
 
-      // Set up confirmed character with resources HP 12/12, currency gp 100
+      // Set up confirmed character with resources HP 12/12, level 1 spell slots, currency gp 100
       const charRow = db.prepare(
         'SELECT c.id FROM characters c JOIN players p ON c.player_id = p.id WHERE p.token = ?'
       ).get(player.token) as { id: string };
@@ -2254,7 +2349,7 @@ describe('DND AI-DM integration', () => {
         resources: {
           hitPoints: { current: 12, max: 12, temp: 0 },
           hitDice: { total: 1, remaining: 1, die: 'd10' },
-          spellSlots: {},
+          spellSlots: { level1: { total: 2, used: 0 } },
           ammo: [],
           consumables: [],
           currency: { gp: 100, sp: 0, cp: 0 },
@@ -2285,12 +2380,15 @@ describe('DND AI-DM integration', () => {
       expect(processRes.status).toBe(200);
       const processResult = await processRes.json() as { result: { publicLog: string } };
       expect(processResult.result.publicLog).toContain('强盗挥刀砍中了你');
+      const generation = db.prepare('SELECT error FROM ai_generations WHERE room_id = ? ORDER BY created_at DESC LIMIT 1').get(room.roomId) as { error: string | null };
+      expect(generation.error).toBeNull();
 
       // Verify HP current = 8
       const charSheetAfter = db.prepare('SELECT sheet_json FROM characters WHERE id = ?').get(stubCharId) as { sheet_json: string };
-      const parsedAfter = JSON.parse(charSheetAfter.sheet_json) as { resources: { hitPoints: { current: number; max: number } } };
+      const parsedAfter = JSON.parse(charSheetAfter.sheet_json) as { resources: { hitPoints: { current: number; max: number }; spellSlots: { level1: { total: number; used: number } } } };
       expect(parsedAfter.resources.hitPoints.current).toBe(8);
       expect(parsedAfter.resources.hitPoints.max).toBe(12);
+      expect(parsedAfter.resources.spellSlots.level1).toEqual({ total: 2, used: 1 });
 
       // Verify audit change recorded
       const changesRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/character-resource-changes`);
@@ -2307,6 +2405,11 @@ describe('DND AI-DM integration', () => {
       expect(JSON.parse(hpChange!.afterJson)).toBe(8);
       expect(hpChange!.reason).toBe('盗贼砍伤');
       expect(JSON.parse(hpChange!.ruleRefsJson)).toEqual(['PHB p.194']);
+      const spellSlotChange = changesPayload.changes.find((c) => c.path === 'spellSlots.level1.used');
+      expect(spellSlotChange).toBeDefined();
+      expect(JSON.parse(spellSlotChange!.beforeJson)).toBe(0);
+      expect(JSON.parse(spellSlotChange!.afterJson)).toBe(1);
+      expect(spellSlotChange!.reason).toBe('施放侦测魔法');
 
       // --- Negative case: invalid characterId rejected, turn still succeeds ---
       const badCharStub = await createOpenAiStub(() => {
@@ -2989,7 +3092,7 @@ describe('DND AI-DM integration', () => {
     }
   });
 
-  it('previews editable AI-DM turn prompts and sends them without applying state changes', async () => {
+  it('previews editable AI-DM turn prompts and materializes them after sending', async () => {
     const db = createMemoryDb();
     migrate(db);
     seedBuiltinRules(db);
@@ -3052,6 +3155,10 @@ describe('DND AI-DM integration', () => {
       expect(preview.flatPrompt).toContain('## Character Status');
       expect(preview.flatPrompt).toContain('HP/AC/Proficiency');
       expect(preview.flatPrompt).toContain('I check the old door.');
+      expect(preview.flatPrompt.match(/Submitted actions in order/g) ?? []).toHaveLength(0);
+      expect(preview.flatPrompt.match(/## Current Turn Actions/g) ?? []).toHaveLength(1);
+      expect(preview.flatPrompt.match(/DND 输出契约/g) ?? []).toHaveLength(1);
+      expect(preview.flatPrompt).not.toMatch(/### [A-Za-z0-9_-]{16,}/);
       expect(preview.contextSections.some((section) => section.title === 'Character Status')).toBe(true);
       expect(stub.requests).toHaveLength(0);
       const turnReady = db.prepare('SELECT status FROM turns WHERE id = ?').get(turn.id) as { status: string };
@@ -3070,9 +3177,10 @@ describe('DND AI-DM integration', () => {
         body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId, flatPrompt: editedPrompt })
       });
       expect(sendRes.status).toBe(200);
-      const sent = await sendRes.json() as { responseText: string; suggestedStateChanges: Array<{ type: string }> };
+      const sent = await sendRes.json() as { responseText: string; suggestedStateChanges: Array<{ type: string }>; applied: boolean };
       expect(sent.responseText).toBe('The edited prompt was accepted.');
       expect(sent.suggestedStateChanges).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'character_resource_change' })]));
+      expect(sent.applied).toBe(true);
       expect(capturedPrompt).toContain('DM edit: make the door ominous.');
 
       const previewAudit = db.prepare('SELECT original_prompt as originalPrompt, edited_prompt as editedPrompt, response_text as responseText, status FROM ai_turn_previews WHERE id = ?')
@@ -3084,10 +3192,18 @@ describe('DND AI-DM integration', () => {
 
       const logsAfter = db.prepare('SELECT COUNT(*) as count FROM log_entries WHERE room_id = ?').get(room.roomId) as { count: number };
       const turnAfter = db.prepare('SELECT status FROM turns WHERE id = ?').get(turn.id) as { status: string };
+      const roomAfter = db.prepare('SELECT current_turn as currentTurn, status FROM rooms WHERE id = ?').get(room.roomId) as { currentTurn: number; status: string };
       const generationsAfter = db.prepare('SELECT COUNT(*) as count FROM ai_generations WHERE room_id = ?').get(room.roomId) as { count: number };
-      expect(logsAfter.count).toBe(logsBefore.count);
-      expect(turnAfter.status).toBe(turnReady.status);
-      expect(generationsAfter.count).toBe(0);
+      const materializedLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at DESC LIMIT 1')
+        .get(room.roomId, 'public') as { content: string };
+      const materializedObjectiveLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at DESC LIMIT 1')
+        .get(room.roomId, 'objective') as { content: string };
+      expect(logsAfter.count).toBe(logsBefore.count + 2);
+      expect(materializedLog.content).toBe('The edited prompt was accepted.');
+      expect(materializedObjectiveLog.content).toBe('The edited prompt was accepted.');
+      expect(turnAfter.status).toBe('complete');
+      expect(roomAfter).toMatchObject({ currentTurn: 2, status: 'waiting_for_actions' });
+      expect(generationsAfter.count).toBe(1);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await stub.close();
@@ -3130,127 +3246,6 @@ describe('DND AI-DM integration', () => {
       const preview = await previewRes.json() as { flatPrompt: string };
       expect(preview.flatPrompt).toContain('No confirmed character sheets yet');
       expect(preview.flatPrompt).toContain('Draft Characters');
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      db.close();
-    }
-  });
-
-  it('imports world book from remote URL and creates source record', async () => {
-    const db = createMemoryDb();
-    migrate(db);
-    seedBuiltinRules(db);
-
-    const worldBookJson = { entries: [{ uid: 1, key: 'URL测试', content: '从 URL 导入的测试世界书条目' }] };
-    let stubResponse = worldBookJson;
-    const stub = http.createServer((_req, res) => {
-      res.statusCode = 200;
-      res.setHeader('content-type', 'application/json');
-      res.end(JSON.stringify(stubResponse));
-    });
-    await new Promise<void>((resolve) => stub.listen(0, '127.0.0.1', () => resolve()));
-    const address = stub.address();
-    if (!address || typeof address === 'string') throw new Error('No stub port');
-    const stubUrl = `http://127.0.0.1:${address.port}`;
-
-    const app = createApp(db);
-    const server = app.listen(0);
-    const appAddress = server.address();
-    if (!appAddress || typeof appAddress === 'string') throw new Error('No test port');
-    const base = `http://127.0.0.1:${appAddress.port}`;
-
-    try {
-      // Import from URL
-      const importRes = await fetch(`${base}/api/admin/db/import-from-url`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ url: stubUrl, fallbackName: '远程世界书A' })
-      });
-      expect(importRes.status).toBe(200);
-      const importResult = await importRes.json() as { source: { fileHash: string; id: string }; sourceType: string; worldBook: { name: string } };
-      expect(importResult.sourceType).toBe('world_book');
-      expect(importResult.worldBook.name).toBe('远程世界书A');
-      expect(importResult.source.fileHash).toBeTruthy();
-      expect(importResult.source.fileHash.length).toBe(64);
-
-      // List sources
-      const listRes = await fetch(`${base}/api/admin/db/sources`);
-      expect(listRes.status).toBe(200);
-      const listResult = await listRes.json() as { sources: Array<{ id: string; fileHash: string; name: string }> };
-      expect(listResult.sources).toHaveLength(1);
-      expect(listResult.sources[0].name).toBe('远程世界书A');
-
-      // Check updates - no change
-      const checkRes = await fetch(`${base}/api/admin/db/sources/${importResult.source.id}/check-updates`, {
-        method: 'POST'
-      });
-      expect(checkRes.status).toBe(200);
-      const checkResult = await checkRes.json() as { hasUpdate: boolean };
-      expect(checkResult.hasUpdate).toBe(false);
-
-      // Modify stub response
-      stubResponse = { entries: [{ uid: 2, key: '更新测试', content: '更新后的内容' }] };
-      const checkRes2 = await fetch(`${base}/api/admin/db/sources/${importResult.source.id}/check-updates`, {
-        method: 'POST'
-      });
-      expect(checkRes2.status).toBe(200);
-      const checkResult2 = await checkRes2.json() as { hasUpdate: boolean; newHash?: string };
-      expect(checkResult2.hasUpdate).toBe(true);
-      expect(checkResult2.newHash).toBeTruthy();
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-      await new Promise<void>((resolve) => stub.close(() => resolve()));
-      db.close();
-    }
-  });
-
-  it('imports JS database code via admin endpoint', async () => {
-    const db = createMemoryDb();
-    migrate(db);
-    seedBuiltinRules(db);
-
-    const app = createApp(db);
-    const server = app.listen(0);
-    const address = server.address();
-    if (!address || typeof address === 'string') throw new Error('No test port');
-    const base = `http://127.0.0.1:${address.port}`;
-
-    try {
-      const jsCode = `module.exports = { entries: [{ uid: 1, key: 'JS测试', content: '从 JS 代码导入的世界书条目' }] };`;
-      const importRes = await fetch(`${base}/api/admin/db/import-js`, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ jsCode, name: 'JS世界书B' })
-      });
-      expect(importRes.status).toBe(200);
-      const importResult = await importRes.json() as {
-        source: { id: string; fileHash: string; sourceType: string; entryCount: number };
-        sourceType: string;
-        worldBook: { name: string };
-        preview: { entryTypes: Array<{ type: string; count: number }> };
-      };
-      expect(importResult.sourceType).toBe('world_book');
-      expect(importResult.worldBook.name).toBe('JS世界书B');
-      expect(importResult.source.fileHash).toBeTruthy();
-      expect(importResult.source.entryCount).toBe(1);
-      expect(importResult.preview.entryTypes).toEqual([{ type: 'world_book_entries', count: 1 }]);
-
-      // Verify source is listed
-      const listRes = await fetch(`${base}/api/admin/db/sources`);
-      expect(listRes.status).toBe(200);
-      const listResult = await listRes.json() as { sources: Array<{ id: string }> };
-      expect(listResult.sources).toHaveLength(1);
-
-      // Delete source using correct ID
-      const deleteRes = await fetch(`${base}/api/admin/db/sources/${importResult.source.id}`, { method: 'DELETE' });
-      expect(deleteRes.status).toBe(200);
-      const deleteResult = await deleteRes.json() as { ok: boolean };
-      expect(deleteResult.ok).toBe(true);
-
-      // Verify source list is empty
-      const listRes2 = await fetch(`${base}/api/admin/db/sources`);
-      const listResult2 = await listRes2.json() as { sources: Array<{ id: string }> };
-      expect(listResult2.sources).toHaveLength(0);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       db.close();

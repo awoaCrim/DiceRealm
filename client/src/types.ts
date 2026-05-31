@@ -1,10 +1,10 @@
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
-export type RoomStatus = 'setup' | 'waiting_for_actions' | 'processing' | 'waiting_for_interaction' | 'needs_admin_attention';
+export type RoomStatus = 'setup' | 'waiting_for_actions' | 'ready_to_resolve' | 'processing' | 'waiting_for_interaction' | 'needs_admin_attention';
 export type TurnStatus = 'open' | 'waiting_for_actions' | 'ready_to_resolve' | 'locked' | 'processing' | 'resolving' | 'waiting_for_interaction' | 'complete' | 'resolved' | 'needs_admin_attention';
 export type ActionStatus = 'submitted' | 'processing' | 'complete';
-export type VisibilityScope = 'public' | 'private' | 'admin';
+export type VisibilityScope = 'objective' | 'public' | 'private' | 'admin';
 export type InteractionStatus = 'pending_target' | 'ready_for_ai' | 'resolved';
 export type PromptBlockRole = 'system' | 'user' | 'assistant';
 export type PromptBlockPosition = 'before_world' | 'after_world' | 'before_actions' | 'after_actions' | 'final';
@@ -72,6 +72,16 @@ export interface Room {
   createdAt: string;
 }
 
+export interface RoomSummary {
+  id: string;
+  name: string;
+  currentTurn: number;
+  status: RoomStatus;
+  playerCount: number;
+  createdAt: string;
+  adminUrl: string;
+}
+
 export interface Player {
   id: string;
   roomId: string;
@@ -93,6 +103,7 @@ export interface CharacterBuilderOption {
 
 export interface CharacterBuilderOptions {
   species: CharacterBuilderOption[];
+  subSpecies: CharacterBuilderOption[];
   classes: CharacterBuilderOption[];
   backgrounds: CharacterBuilderOption[];
   skills: CharacterBuilderOption[];
@@ -106,7 +117,9 @@ export interface CharacterBuilderDraft {
   name: string;
   concept: string;
   species: string;
+  subSpecies: string;
   className: string;
+  classDetail: string;
   background: string;
   abilityScores: Record<'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha', number>;
   skills: string[];
@@ -134,7 +147,9 @@ export interface CharacterBuilderAudit {
 export interface CharacterSheet {
   name: string;
   species: string;
+  subSpecies?: string;
   className: string;
+  classDetail?: string;
   level: number;
   abilityScores: Record<'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha', number>;
   hitPoints: { current: number; max: number };
@@ -162,6 +177,7 @@ export interface CharacterRecord {
   draftSource: 'ai' | 'manual';
   confirmed: boolean;
   updatedAt: string;
+  resources?: CharacterResources;
 }
 
 export interface Turn {
@@ -193,7 +209,7 @@ export interface PlayerAction {
   text: string;
   submittedAt: string;
   status: ActionStatus;
-  actionType?: 'narrative' | 'exploration' | 'social' | 'combat' | 'ooc';
+  actionType?: 'narrative' | 'exploration' | 'social' | 'combat' | 'ooc' | 'in_character_action' | 'player_question' | 'meta_question' | 'observe' | 'wait' | 'skip' | 'ready' | 'follow' | 'combat_action';
   isHiddenRoll?: boolean;
 }
 
@@ -387,7 +403,7 @@ export type ResourceImportDraftStatus = 'pending' | 'approved' | 'rejected';
 export type ResourceImportSourceType = 'local_json' | 'phb_extraction' | 'sillytavern_worldbook' | 'sillytavern_preset' | 'remote_url' | 'manual';
 export type ResourceImportRuleset = '5e-2014' | '5e-2024' | 'homebrew' | 'unknown';
 export type ResourceImportVisibility = 'private' | 'campaign' | 'workspace' | 'public';
-export type CharacterOptionType = 'species' | 'class' | 'background' | 'skill' | 'equipment' | 'spell' | 'language' | 'proficiency';
+export type CharacterOptionType = 'species' | 'subspecies' | 'class' | 'background' | 'skill' | 'equipment' | 'spell' | 'language' | 'proficiency';
 
 export interface ResourceImportJob {
   id: string;
@@ -590,6 +606,7 @@ export interface PromptPreviewRuleMatch {
 
 export interface PromptPreviewBlock {
   identifier: string;
+  displayName?: string;
   source: 'st-preset' | 'runtime-slot' | 'dnd-contract' | 'native-preset';
   role: PromptBlockRole;
   content: string;
@@ -625,6 +642,8 @@ export interface AiTurnPromptSendResponse {
   responseText: string;
   suggestedStateChanges: JsonValue[];
   raw: JsonValue;
+  applied?: boolean;
+  resourceErrors?: string[];
 }
 
 export interface CharacterResourceChange {
@@ -790,13 +809,56 @@ export interface RemoteDbSource {
   id: string;
   url: string;
   name: string;
-  sourceType: 'world_book' | 'preset_package' | 'character_options' | 'rules_json' | 'unknown';
+  sourceType: 'world_book' | 'preset_package' | 'character_options' | 'rules_json' | 'table_plugin' | 'unknown';
   version: string;
   fileHash: string;
   fileSize: number;
   entryCount: number;
   lastCheckedAt: string;
   createdAt: string;
+}
+
+export interface RemoteDbSheet {
+  id: string;
+  sourceId: string;
+  uid: string;
+  name: string;
+  tableName: string;
+  note: string;
+  initNode: string;
+  updateNode: string;
+  insertNode: string;
+  deleteNode: string;
+  ddl: string;
+  exportEnabled: boolean;
+  orderIndex: number;
+  rawJson: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoomDbSourceBinding {
+  roomId: string;
+  sourceId: string;
+  enabled: boolean;
+  orderIndex: number;
+  createdAt: string;
+  source: RemoteDbSource;
+}
+
+export interface RemoteDbRow {
+  id: string;
+  roomId: string;
+  sheetId: string;
+  rowKey: string;
+  data: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RoomPluginDatabaseSnapshot {
+  source: RemoteDbSource;
+  sheets: Array<RemoteDbSheet & { rows: RemoteDbRow[] }>;
 }
 
 export interface AdminState {
@@ -807,6 +869,7 @@ export interface AdminState {
   interactions: InteractionRequest[];
   logs: LogEntry[];
   aiGenerations: AiGeneration[];
+  characters: CharacterRecord[];
   turnReadiness: TurnReadiness;
   globalConfig: GlobalConfigSnapshot;
   presets: PromptPreset[];

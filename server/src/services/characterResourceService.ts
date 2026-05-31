@@ -76,6 +76,10 @@ function getAtPath(obj: Record<string, unknown>, path: string): unknown {
   return current;
 }
 
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
 function setAtPath(obj: Record<string, unknown>, path: string, value: unknown): void {
   const parts = path.split('.');
   let current: Record<string, unknown> = obj;
@@ -135,6 +139,56 @@ function validateRange(path: string, value: number): void {
   }
 }
 
+function validateResourceValue(path: string, value: unknown): void {
+  if (path === 'conditions') {
+    if (!Array.isArray(value) || !value.every((item) => typeof item === 'string')) {
+      throw new Error('conditions must be an array of strings');
+    }
+    return;
+  }
+  if (/^(ammo|consumables)\.\d+\.name$/.test(path)) {
+    if (typeof value !== 'string') throw new Error(`${path} must be a string`);
+    return;
+  }
+  if (typeof value !== 'number') {
+    throw new Error(`${path} must be a number`);
+  }
+  validateRange(path, value);
+}
+
+function normalizeResourcePatchPath(resources: CharacterResources, patch: ResourcePatch): ResourcePatch {
+  const spellSlotLevelMatch = patch.path.match(/^spellSlots\.([a-zA-Z0-9_]+)$/);
+  if (!spellSlotLevelMatch || typeof patch.before !== 'number' || typeof patch.after !== 'number') {
+    return patch;
+  }
+
+  const rawLevel = spellSlotLevelMatch[1];
+  const level = /^\d+$/.test(rawLevel) ? `level${rawLevel}` : rawLevel;
+  const maxMentionedSlots = Math.max(patch.before, patch.after, 0);
+  resources.spellSlots ??= {};
+  let slot = resources.spellSlots[level];
+
+  if (!slot) {
+    slot = { total: maxMentionedSlots, used: 0 };
+    resources.spellSlots[level] = slot;
+  } else if (slot.total < maxMentionedSlots) {
+    slot.total = maxMentionedSlots;
+  }
+
+  const beforeAsUsed = slot.total - patch.before;
+  const afterAsUsed = slot.total - patch.after;
+  const looksLikeRemainingSlots = beforeAsUsed >= 0
+    && afterAsUsed >= 0
+    && slot.used === beforeAsUsed;
+
+  return {
+    ...patch,
+    path: `spellSlots.${level}.used`,
+    before: looksLikeRemainingSlots ? beforeAsUsed : patch.before,
+    after: looksLikeRemainingSlots ? afterAsUsed : patch.after,
+  };
+}
+
 // --- public API ---
 
 export function getCharacterResources(db: AppDatabase, characterId: string): CharacterResources {
@@ -159,64 +213,63 @@ export function applyResourcePatch(
   actorType: string,
   actorId: string
 ): CharacterResources {
+  const sheet = loadSheetJson(db, patch.characterId);
+  const resources = (sheet.resources as CharacterResources) || getDefaultResources(sheet);
+  const normalizedPatch = normalizeResourcePatchPath(resources, patch);
+
   // Validate path is whitelisted
-  if (!isValidPath(patch.path)) {
+  if (!isValidPath(normalizedPatch.path)) {
     throw new Error(`Invalid resource path: ${patch.path}`);
   }
 
-  const sheet = loadSheetJson(db, patch.characterId);
-  const resources = (sheet.resources as CharacterResources) || getDefaultResources(sheet);
-
   // Validate before matches current value
-  const currentValue = getAtPath(resources as unknown as Record<string, unknown>, patch.path);
-  if (currentValue !== patch.before) {
+  const currentValue = getAtPath(resources as unknown as Record<string, unknown>, normalizedPatch.path);
+  if (!sameJsonValue(currentValue, normalizedPatch.before)) {
     throw new Error(
-      `Before value mismatch for ${patch.path}: expected ${patch.before}, got ${JSON.stringify(currentValue)}`
+      `Before value mismatch for ${normalizedPatch.path}: expected ${normalizedPatch.before}, got ${JSON.stringify(currentValue)}`
     );
   }
 
   // Validate range for numeric paths
-  if (typeof patch.after === 'number') {
-    validateRange(patch.path, patch.after);
-  }
+  validateResourceValue(normalizedPatch.path, normalizedPatch.after);
 
   // Ensure hitPoints.current <= hitPoints.max
-  if (patch.path === 'hitPoints.current' && typeof patch.after === 'number') {
-    if (patch.after > resources.hitPoints.max) {
-      throw new Error(`hitPoints.current (${patch.after}) cannot exceed max (${resources.hitPoints.max})`);
+  if (normalizedPatch.path === 'hitPoints.current' && typeof normalizedPatch.after === 'number') {
+    if (normalizedPatch.after > resources.hitPoints.max) {
+      throw new Error(`hitPoints.current (${normalizedPatch.after}) cannot exceed max (${resources.hitPoints.max})`);
     }
   }
-  if (patch.path === 'hitPoints.max' && typeof patch.after === 'number') {
-    if (patch.after < resources.hitPoints.current) {
+  if (normalizedPatch.path === 'hitPoints.max' && typeof normalizedPatch.after === 'number') {
+    if (normalizedPatch.after < resources.hitPoints.current) {
       // Adjust current down to new max
-      resources.hitPoints.current = patch.after;
+      resources.hitPoints.current = normalizedPatch.after;
     }
   }
-  if (patch.path === 'hitDice.remaining' && typeof patch.after === 'number') {
-    if (patch.after > resources.hitDice.total) {
-      throw new Error(`hitDice.remaining (${patch.after}) cannot exceed total (${resources.hitDice.total})`);
+  if (normalizedPatch.path === 'hitDice.remaining' && typeof normalizedPatch.after === 'number') {
+    if (normalizedPatch.after > resources.hitDice.total) {
+      throw new Error(`hitDice.remaining (${normalizedPatch.after}) cannot exceed total (${resources.hitDice.total})`);
     }
   }
 
   // Apply the change
-  setAtPath(resources as unknown as Record<string, unknown>, patch.path, patch.after);
+  setAtPath(resources as unknown as Record<string, unknown>, normalizedPatch.path, normalizedPatch.after);
 
   // Persist
   sheet.resources = resources;
-  saveSheetJson(db, patch.characterId, sheet);
+  saveSheetJson(db, normalizedPatch.characterId, sheet);
 
   // Log the change via audit service
   recordResourceChange(db, {
     roomId,
-    characterId: patch.characterId,
+    characterId: normalizedPatch.characterId,
     actorType,
     actorId,
     changeType: 'resource_patch',
-    path: patch.path,
-    before: patch.before,
-    after: patch.after,
-    reason: patch.reason || '',
-    ruleRefs: patch.ruleRefs || [],
+    path: normalizedPatch.path,
+    before: normalizedPatch.before,
+    after: normalizedPatch.after,
+    reason: normalizedPatch.reason || '',
+    ruleRefs: normalizedPatch.ruleRefs || [],
   });
 
   return resources;

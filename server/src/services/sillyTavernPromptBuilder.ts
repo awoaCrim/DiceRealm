@@ -18,6 +18,7 @@ import { buildWorldBookScanText, matchResourceWorldBookEntries, renderResourceWo
 interface SillyTavernPromptBuilderInput {
   room: Room;
   players: Player[];
+  objectiveLogs: LogEntry[];
   publicLogs: LogEntry[];
   actions: PlayerAction[];
   interactions: InteractionRequest[];
@@ -28,12 +29,14 @@ interface SillyTavernPromptBuilderInput {
 
 interface StPromptDefinition {
   identifier: string;
+  displayName: string;
   role: string;
   content: string;
 }
 
 interface StPromptOrderItem {
   identifier: string;
+  displayName: string;
   enabled: boolean;
 }
 
@@ -51,20 +54,31 @@ function normalizeRole(role: unknown): PromptRole {
   return role === 'user' || role === 'assistant' || role === 'system' ? role : 'system';
 }
 
+function sanitizePromptContent(content: string): string {
+  return content
+    .replace('需要真实随机数时使用 diceRequests', '需要随机结果时声明 diceRequests，由系统内部自动掷骰')
+    .replace('AI 不直接掷骰，必须用 diceRequests 请求系统骰点。', '需要随机结果时用 diceRequests 让系统内部自动骰点，不要求玩家手动投掷。')
+    .replace('AI 只输出 suggestedStateChanges，由管理员或系统应用。', 'AI 只输出 suggestedStateChanges 或可校验的 characterResourceChanges，由系统应用合法变更。');
+}
+
 function readSyspromptContent(value: unknown): string {
   if (!isRecord(value)) return '';
-  return stringValue(value.content).trim();
+  return sanitizePromptContent(stringValue(value.content)).trim();
 }
 
 function readPromptDefinitions(openAiSettings: unknown): StPromptDefinition[] {
   if (!isRecord(openAiSettings) || !Array.isArray(openAiSettings.prompts)) return [];
   return openAiSettings.prompts
     .filter(isRecord)
-    .map((prompt) => ({
-      identifier: (stringValue(prompt.identifier) || stringValue(prompt.name)).trim(),
-      role: stringValue(prompt.role).trim(),
-      content: stringValue(prompt.content).trim()
-    }))
+    .map((prompt) => {
+      const identifier = (stringValue(prompt.identifier) || stringValue(prompt.name)).trim();
+      return {
+        identifier,
+        displayName: (stringValue(prompt.name) || identifier).trim(),
+        role: stringValue(prompt.role).trim(),
+        content: sanitizePromptContent(stringValue(prompt.content)).trim()
+      };
+    })
     .filter((prompt) => prompt.identifier.length > 0);
 }
 
@@ -74,10 +88,14 @@ function readPromptOrder(openAiSettings: unknown): StPromptOrderItem[] {
   if (!firstOrder || !Array.isArray(firstOrder.order)) return [];
   return firstOrder.order
     .filter(isRecord)
-    .map((item) => ({
-      identifier: (stringValue(item.identifier) || stringValue(item.name)).trim(),
-      enabled: item.enabled !== false
-    }))
+    .map((item) => {
+      const identifier = (stringValue(item.identifier) || stringValue(item.name)).trim();
+      return {
+        identifier,
+        displayName: (stringValue(item.name) || identifier).trim(),
+        enabled: item.enabled !== false
+      };
+    })
     .filter((item) => item.identifier.length > 0);
 }
 
@@ -91,22 +109,45 @@ function renderPublicLogs(logs: LogEntry[]): string {
   return logs.map((log) => `- ${log.title}: ${log.content}`).join('\n');
 }
 
+function renderObjectiveLogs(logs: LogEntry[]): string {
+  if (logs.length === 0) return '- No objective log yet.';
+  return logs.map((log) => `- ${log.title}: ${log.content}`).join('\n');
+}
+
 function renderPendingInteractions(interactions: InteractionRequest[]): string {
   if (interactions.length === 0) return '- None.';
   return interactions.map((interaction) => `- ${interaction.prompt}`).join('\n');
 }
+
+const runtimeOnlyPromptSlots = new Set([
+  'worldInfoBefore',
+  'worldInfoAfter',
+  'scenario',
+  'chatHistory',
+  'dndTurnState',
+  'dndPlayerActions',
+  'dndPendingInteractions',
+  'dndOutputContract'
+]);
+
+const skippedPromptSlots = new Set([
+  'charDescription',
+  'charPersonality',
+  'dialogueExamples',
+  'chatHistory'
+]);
 
 function buildSlots(input: SillyTavernPromptBuilderInput): { slots: Map<string, PromptPreviewSlot>; matches: ReturnType<typeof matchResourceWorldBookEntries> } {
   const scriptCard = input.scriptCard;
   const scanText = [
     buildWorldBookScanText({
       roomWorldInfo: input.room.worldInfo,
-      publicLogs: input.publicLogs,
+      publicLogs: [...input.objectiveLogs.slice(-4), ...input.publicLogs.slice(-4)],
       actions: input.actions,
       players: input.players
     }),
-    scriptCard?.description ?? '',
-    scriptCard?.scenario ?? ''
+    scriptCard?.name ?? '',
+    scriptCard?.description ?? ''
   ].join('\n\n');
   const matches = matchResourceWorldBookEntries(input.worldBookEntries, scanText);
   const turnState = [
@@ -114,15 +155,17 @@ function buildSlots(input: SillyTavernPromptBuilderInput): { slots: Map<string, 
     `Turn: ${input.room.currentTurn}`,
     `Status: ${input.room.status}`,
     `World: ${input.room.worldInfo}`,
-    'Public log so far:',
-    renderPublicLogs(input.publicLogs)
+    'Objective log so far (DM only, never reveal hidden facts to players):',
+    renderObjectiveLogs(input.objectiveLogs.slice(-8)),
+    'Public log so far (shared by every player):',
+    renderPublicLogs(input.publicLogs.slice(-8))
   ].join('\n');
   const slotValues: Array<[string, string, string]> = [
     ['main', 'st-sysprompt', readSyspromptContent(input.presetPackage?.sysprompt)],
-    ['worldInfoBefore', 'resource-world-book', renderResourceWorldBookMatches(matches, 'before')],
-    ['worldInfoAfter', 'resource-world-book', renderResourceWorldBookMatches(matches, 'after')],
-    ['charDescription', 'script-card', scriptCard?.description ?? ''],
-    ['charPersonality', 'script-card', scriptCard?.personality ?? ''],
+    ['worldInfoBefore', 'resource-world-book', renderResourceWorldBookMatches(matches, 'before', 6)],
+    ['worldInfoAfter', 'resource-world-book', renderResourceWorldBookMatches(matches, 'after', 4)],
+    ['charDescription', 'script-card', ''],
+    ['charPersonality', 'script-card', ''],
     ['scenario', 'script-card', scriptCard?.scenario ?? ''],
     ['dialogueExamples', 'script-card', scriptCard?.mesExample ?? ''],
     ['chatHistory', 'runtime', renderPublicLogs(input.publicLogs)],
@@ -144,10 +187,56 @@ function blockSource(identifier: string): PromptPreviewBlock['source'] {
   return identifier === 'dndOutputContract' ? 'dnd-contract' : 'runtime-slot';
 }
 
-function makeBlock(identifier: string, role: PromptRole, content: string, source: PromptPreviewBlock['source']): PromptPreviewBlock | null {
+const runtimeSlotNames: Record<string, string> = {
+  main: '主提示词',
+  worldInfoBefore: '世界书前置注入',
+  worldInfoAfter: '世界书后置注入',
+  charDescription: '角色描述',
+  charPersonality: '角色人格',
+  scenario: '场景',
+  dialogueExamples: '对话示例',
+  chatHistory: '公开日志',
+  dndTurnState: '当前回合状态',
+  dndPlayerActions: '玩家行动',
+  dndPendingInteractions: '待回应互动',
+  dndOutputContract: 'DND 输出契约'
+};
+
+function titleFromContent(content: string): string {
+  const firstLine = content
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^#+\s*/, '').trim())
+    .find(Boolean) ?? '';
+  if (firstLine.includes('绝不代替玩家') || firstLine.includes('玩家自主权')) return '玩家自主权';
+  if (firstLine.includes('先攻') || firstLine.includes('攻击检定') || firstLine.includes('AC') || firstLine.includes('DC')) return '战斗规则';
+  if (firstLine.includes('NPC') || firstLine.includes('独立动机')) return 'NPC自主性';
+  if (firstLine.includes('信息隔离') || firstLine.includes('私密')) return '信息隔离';
+  if (firstLine.includes('JSON') || firstLine.includes('输出格式')) return '输出格式';
+  return firstLine.length > 24 ? `${firstLine.slice(0, 24)}...` : firstLine;
+}
+
+function previewBlockName(identifier: string, content: string, displayName?: string): string {
+  const normalizedName = displayName?.trim();
+  if (normalizedName && normalizedName !== identifier) return normalizedName;
+  return runtimeSlotNames[identifier] ?? titleFromContent(content) ?? identifier;
+}
+
+function makeBlock(
+  identifier: string,
+  role: PromptRole,
+  content: string,
+  source: PromptPreviewBlock['source'],
+  displayName?: string,
+): PromptPreviewBlock | null {
   const trimmed = content.trim();
   if (!trimmed) return null;
-  return { identifier, role: identifier === 'dndOutputContract' ? 'system' : role, content: trimmed, source };
+  return {
+    identifier,
+    displayName: previewBlockName(identifier, trimmed, displayName),
+    role: identifier === 'dndOutputContract' ? 'system' : role,
+    content: trimmed,
+    source
+  };
 }
 
 export function buildSillyTavernPromptPreview(input: SillyTavernPromptBuilderInput): PromptPreviewResponse {
@@ -161,19 +250,20 @@ export function buildSillyTavernPromptPreview(input: SillyTavernPromptBuilderInp
   const definitionsByIdentifier = new Map(promptDefinitions.map((prompt) => [prompt.identifier, prompt]));
   const orderedItems = promptOrder.length > 0
     ? promptOrder.filter((item) => item.enabled)
-    : promptDefinitions.map((prompt) => ({ identifier: prompt.identifier, enabled: true }));
+    : promptDefinitions.map((prompt) => ({ identifier: prompt.identifier, displayName: prompt.displayName, enabled: true }));
   const { slots, matches } = buildSlots(input);
   const promptBlocks: PromptPreviewBlock[] = [];
   const usedRuntimeSlots = new Set<string>();
 
   for (const item of orderedItems) {
     if (item.identifier === 'dndOutputContract') continue;
+    if (skippedPromptSlots.has(item.identifier)) continue;
     const definition = definitionsByIdentifier.get(item.identifier);
     const slot = slots.get(item.identifier);
     const role = normalizeRole(definition?.role);
     if (item.identifier === 'main') {
-      const content = [definition?.content ?? '', slot?.content ?? ''].filter(Boolean).join('\n\n');
-      const block = makeBlock(item.identifier, role, content, 'st-preset');
+      const content = slot?.content || definition?.content || '';
+      const block = makeBlock(item.identifier, role, content, 'st-preset', item.displayName || definition?.displayName);
       if (block) promptBlocks.push(block);
       usedRuntimeSlots.add(item.identifier);
       continue;
@@ -185,8 +275,9 @@ export function buildSillyTavernPromptPreview(input: SillyTavernPromptBuilderInp
       usedRuntimeSlots.add(item.identifier);
       continue;
     }
+    if (runtimeOnlyPromptSlots.has(item.identifier)) continue;
     if (definition) {
-      const block = makeBlock(item.identifier, role, definition.content, 'st-preset');
+      const block = makeBlock(item.identifier, role, definition.content, 'st-preset', item.displayName || definition.displayName);
       if (block) promptBlocks.push(block);
     }
   }
@@ -202,6 +293,7 @@ export function buildSillyTavernPromptPreview(input: SillyTavernPromptBuilderInp
 
   promptBlocks.push({
     identifier: 'dndOutputContract',
+    displayName: runtimeSlotNames.dndOutputContract,
     role: 'system',
     source: 'dnd-contract',
     content: renderDndOutputContract().trim()
