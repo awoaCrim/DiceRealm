@@ -150,7 +150,7 @@ export function ResourceImportPanel({
         <div className="subcard">
           <h3>最近导入结果</h3>
           <p>{result.title}：{result.name}</p>
-          {result.warnings.length ? <ul>{result.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul> : <p className="muted">无 warnings。</p>}
+          {result.warnings.length ? <ul>{result.warnings.map((warning, index) => <li key={`${warning}-${index}`}>{warning}</li>)}</ul> : <p className="muted">无警告。</p>}
         </div>
       ) : null}
 

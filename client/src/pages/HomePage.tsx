@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createRoom, deleteRoom, listRooms } from '../api';
+import { formatIsoDateTime, roomStatusLabel } from '../displayLabels';
 import type { RoomSummary } from '../types';
 
 export function HomePage() {
@@ -75,7 +76,7 @@ export function HomePage() {
                 <div>
                   <strong>{room.name}</strong>
                   <p className="muted">
-                    第 {room.currentTurn} 回合 · {room.status} · {room.playerCount} 名玩家 · {new Date(room.createdAt).toLocaleString()}
+                    第 {room.currentTurn} 回合 · {roomStatusLabel(room.status)} · {room.playerCount} 名玩家 · 创建时间 {formatIsoDateTime(room.createdAt)}
                   </p>
                 </div>
                 <div className="button-row">

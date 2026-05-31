@@ -5,6 +5,7 @@ import { CharacterCard } from '../components/CharacterCard';
 import { PromptPreviewPanel } from '../components/PromptPreviewPanel';
 import { ResourceImportPanel } from '../components/ResourceImportPanel';
 import { GlobalResourceConfigPanel } from '../components/RoomResourceBindingsPanel';
+import { actorTypeLabel, dbSourceTypeLabel, formatFileSize, formatIsoDateTime, moduleCategoryLabel, npcAttitudeLabel, presetTypeLabel, promptBlockPositionLabel, promptRoleLabel, questStatusLabel, roomStatusLabel, sceneTypeLabel } from '../displayLabels';
 import type { AdminState, AiProviderConfig, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, CampaignLocation, CampaignNpc, CampaignQuest, CharacterResourceChange, EmbeddingProviderConfig, PresetTemplateMeta, PresetType, PromptBlock, PromptPreset, PromptPresetPackage, PromptPreviewResponse, RemoteDbRow, RemoteDbSheet, RemoteDbSource, RoomDbSourceBinding, SessionSummary, WorldBookEntry } from '../types';
 
 interface PromptPackageBlockView {
@@ -928,7 +929,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
     : readiness.roomStatus === 'waiting_for_interaction' || readiness.status === 'waiting_for_interaction'
       ? '提示：本回合正在等待玩家回应互动请求。目标玩家回应后，系统会回到可继续结算状态。'
       : actorsComplete
-        ? `提示：玩家行动已完成，但房间/回合状态尚未进入 ready_to_resolve（房间：${readiness.roomStatus ?? state.room.status}，回合：${readiness.status ?? 'unknown'}）。请检查状态异常，不要让玩家重复提交行动。`
+        ? `提示：玩家行动已完成，但房间/回合状态尚未进入“等待主持人结算”（房间：${roomStatusLabel(readiness.roomStatus ?? state.room.status)}，回合：${roomStatusLabel(readiness.status)}）。请检查状态异常，不要让玩家重复提交行动。`
         : '提示：所有必需玩家提交、跳过或被管理员排除后，才能生成提示词。';
   const actionsByPlayerId = new Map<string, typeof state.actions>();
   for (const action of state.actions) {
@@ -987,7 +988,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
     <main className="shell">
       <div className="page-header">
         <h1>{state.room.name}</h1>
-        <p className="muted">主持人控制台 · 第 {state.room.currentTurn} 回合 · {state.room.status}</p>
+        <p className="muted">主持人控制台 · 第 {state.room.currentTurn} 回合 · {roomStatusLabel(state.room.status)}</p>
       </div>
       <nav className="tabs" aria-label="管理页功能区">
         {adminTabs.map((tab) => (
@@ -1036,7 +1037,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                         <p className="muted">
                       {actionTypeLabel(action.actionType)} · {actionVisibilityLabel(action.visibility)} · {actionStatusLabel(action.status)}
                           {action.isHiddenRoll ? ' · 隐藏骰点' : ''}
-                          {action.submittedAt ? ` · ${action.submittedAt}` : ''}
+                          {action.submittedAt ? ` · 提交时间 ${formatIsoDateTime(action.submittedAt)}` : ''}
                         </p>
                       </div>
                     )) : <p className="muted">暂无行动。</p>}
@@ -1069,6 +1070,13 @@ export function AdminPage({ roomId }: { roomId: string }) {
               <button onClick={advance} disabled={aiTurnBusy || !readiness.ready}>{aiTurnBusy ? '处理中...' : '生成 AI 回合提示词'}</button>
             </div>
             <p className="muted">{readinessHint}</p>
+            <div className="subcard">
+              <h3>AI 输出长度</h3>
+              <p className="muted">
+                客观剧情最多 {narrativeLengthDraft.objectiveMax} 字 · 公开剧情最多 {narrativeLengthDraft.publicMax} 字 · 私人剧情每名玩家最多 {narrativeLengthDraft.privateMax} 字
+              </p>
+              <button type="button" onClick={() => setActiveTab('presets')}>调整 AI 输出长度</button>
+            </div>
             {aiTurnMessage ? <p>{aiTurnMessage}</p> : null}
             <h2>AI 错误</h2>
             {state.aiGenerations.filter((gen) => gen.error).map((gen) => <p key={gen.id}>{gen.error}</p>)}
@@ -1259,15 +1267,15 @@ export function AdminPage({ roomId }: { roomId: string }) {
             <h2>AI 接口</h2>
             <p className="muted">只配置模型服务连接，不包含 prompt、规则或约束内容。</p>
             <div className="form-grid">
-              <label>Provider
+              <label>服务类型
                 <select value={aiProviderConfig.provider} onChange={(event) => updateAiProviderConfig('provider', event.target.value)}>
-                  <option value="mock">mock</option>
-                  <option value="openai-compatible">openai-compatible</option>
+                  <option value="mock">本地模拟</option>
+                  <option value="openai-compatible">OpenAI 兼容接口</option>
                 </select>
               </label>
-              <label>API Base URL<input value={aiProviderConfig.baseUrl} onChange={(event) => updateAiProviderConfig('baseUrl', event.target.value)} /></label>
-              <label>API Key<input type="password" value={aiProviderConfig.apiKey} onChange={(event) => updateAiProviderConfig('apiKey', event.target.value)} /></label>
-              <label>Model<input value={aiProviderConfig.model} onChange={(event) => updateAiProviderConfig('model', event.target.value)} /></label>
+              <label>API 地址<input value={aiProviderConfig.baseUrl} onChange={(event) => updateAiProviderConfig('baseUrl', event.target.value)} /></label>
+              <label>API 密钥<input type="password" value={aiProviderConfig.apiKey} onChange={(event) => updateAiProviderConfig('apiKey', event.target.value)} /></label>
+              <label>模型<input value={aiProviderConfig.model} onChange={(event) => updateAiProviderConfig('model', event.target.value)} /></label>
             </div>
             <div className="button-row">
               <button onClick={persistAiProviderConfig}>保存 AI 接口</button>
@@ -1279,16 +1287,16 @@ export function AdminPage({ roomId }: { roomId: string }) {
                 <h3>Embedding 接口</h3>
                 <p className="muted">用于 5e 规则检索与规则向量索引。</p>
                 <div className="form-grid">
-                  <label>Provider
+                  <label>服务类型
                     <select value={embeddingProviderConfig.provider} onChange={(event) => updateEmbeddingProviderConfig('provider', event.target.value)}>
-                      <option value="mock">mock</option>
-                      <option value="openai-compatible">openai-compatible</option>
+                      <option value="mock">本地模拟</option>
+                      <option value="openai-compatible">OpenAI 兼容接口</option>
                     </select>
                   </label>
-                  <label>Base URL<input value={embeddingProviderConfig.baseUrl} onChange={(event) => updateEmbeddingProviderConfig('baseUrl', event.target.value)} /></label>
-                  <label>API Key<input type="password" value={embeddingProviderConfig.apiKey} onChange={(event) => updateEmbeddingProviderConfig('apiKey', event.target.value)} /></label>
-                  <label>Model<input value={embeddingProviderConfig.model} onChange={(event) => updateEmbeddingProviderConfig('model', event.target.value)} /></label>
-                  <label>Dimensions<input type="number" value={embeddingProviderConfig.dimensions} onChange={(event) => updateEmbeddingProviderConfig('dimensions', Number(event.target.value))} /></label>
+                  <label>API 地址<input value={embeddingProviderConfig.baseUrl} onChange={(event) => updateEmbeddingProviderConfig('baseUrl', event.target.value)} /></label>
+                  <label>API 密钥<input type="password" value={embeddingProviderConfig.apiKey} onChange={(event) => updateEmbeddingProviderConfig('apiKey', event.target.value)} /></label>
+                  <label>模型<input value={embeddingProviderConfig.model} onChange={(event) => updateEmbeddingProviderConfig('model', event.target.value)} /></label>
+                  <label>向量维度<input type="number" value={embeddingProviderConfig.dimensions} onChange={(event) => updateEmbeddingProviderConfig('dimensions', Number(event.target.value))} /></label>
                 </div>
                 <div className="button-row">
                   <button onClick={persistEmbeddingProviderConfig}>保存 Embedding 接口</button>
@@ -1353,11 +1361,11 @@ export function AdminPage({ roomId }: { roomId: string }) {
                   <div className="subcard" key={change.id}>
                     <strong>{change.path}</strong>
                     <p>{formatChangeValue(change.before)} → {formatChangeValue(change.after)}</p>
-                    <p className="muted">{change.characterId} · {change.reason} · {change.actorType} · {change.createdAt}</p>
+                    <p className="muted">{change.characterId} · {change.reason} · {actorTypeLabel(change.actorType)} · {formatIsoDateTime(change.createdAt)}</p>
                     {!change.revertedAt ? (
                       <button onClick={() => rollbackChange(change.id, 'admin-1')}>回滚</button>
                     ) : (
-                      <p className="muted">已于 {change.revertedAt} 回滚</p>
+                      <p className="muted">已于 {formatIsoDateTime(change.revertedAt)} 回滚</p>
                     )}
                   </div>
                 ))}
@@ -1383,7 +1391,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                   <strong>最近摘要</strong>
                   {summaries.map((s) => (
                     <div className="subcard" key={s.id}>
-                      <p className="muted">回合 {s.turnStart}-{s.turnEnd} · {s.createdAt}</p>
+                      <p className="muted">回合 {s.turnStart}-{s.turnEnd} · {formatIsoDateTime(s.createdAt)}</p>
                       <p>{s.summary}</p>
                       {(() => {
                         const suggestedQuests = parseJsonArrayText(s.questUpdatesJson);
@@ -1430,17 +1438,17 @@ export function AdminPage({ roomId }: { roomId: string }) {
                 <strong>任务</strong>
                 {quests.map((q) => (
                   <div className="subcard" key={q.id}>
-                    <strong>{q.title}</strong> <span className="muted">[{q.status}]</span>
+                    <strong>{q.title}</strong> <span className="muted">[{questStatusLabel(q.status)}]</span>
                     <p>{q.description}</p>
                   </div>
                 ))}
                 <label>标题<input value={questDraft.title} onChange={(e) => setQuestDraft({ ...questDraft, title: e.target.value })} placeholder="新任务" /></label>
                 <label>状态
                   <select value={questDraft.status} onChange={(e) => setQuestDraft({ ...questDraft, status: e.target.value as CampaignQuest['status'] })}>
-                    <option value="active">active</option>
-                    <option value="in_progress">in_progress</option>
-                    <option value="completed">completed</option>
-                    <option value="failed">failed</option>
+                    <option value="active">待推进</option>
+                    <option value="in_progress">进行中</option>
+                    <option value="completed">已完成</option>
+                    <option value="failed">失败</option>
                   </select>
                 </label>
                 <label>描述<input value={questDraft.description} onChange={(e) => setQuestDraft({ ...questDraft, description: e.target.value })} /></label>
@@ -1451,7 +1459,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                 <strong>NPC</strong>
                 {npcs.map((n) => (
                   <div className="subcard" key={n.id}>
-                    <strong>{n.name}</strong> <span className="muted">({n.role}, {n.attitude})</span>
+                    <strong>{n.name}</strong> <span className="muted">({n.role}，{npcAttitudeLabel(n.attitude)})</span>
                     <p>{n.notes} [{n.location}]</p>
                   </div>
                 ))}
@@ -1459,10 +1467,10 @@ export function AdminPage({ roomId }: { roomId: string }) {
                 <label>角色<input value={npcDraft.role} onChange={(e) => setNpcDraft({ ...npcDraft, role: e.target.value })} placeholder="商人/守卫/盗贼" /></label>
                 <label>态度
                   <select value={npcDraft.attitude} onChange={(e) => setNpcDraft({ ...npcDraft, attitude: e.target.value as CampaignNpc['attitude'] })}>
-                    <option value="friendly">friendly</option>
-                    <option value="neutral">neutral</option>
-                    <option value="hostile">hostile</option>
-                    <option value="unknown">unknown</option>
+                    <option value="friendly">友好</option>
+                    <option value="neutral">中立</option>
+                    <option value="hostile">敌对</option>
+                    <option value="unknown">未知</option>
                   </select>
                 </label>
                 <label>备注<input value={npcDraft.notes} onChange={(e) => setNpcDraft({ ...npcDraft, notes: e.target.value })} /></label>
@@ -1526,8 +1534,8 @@ export function AdminPage({ roomId }: { roomId: string }) {
                 <div className="subcard" key={source.id}>
                   <strong>{source.name}</strong>
                   <p className="muted">
-                    类型：{source.sourceType} · 版本：{source.version || '--'} · 哈希：{source.fileHash.substring(0, 12)}... · {source.sourceType === 'table_plugin' ? '表数量' : '条目数'}：{source.entryCount} · 大小：{source.fileSize} bytes
-                    {source.lastCheckedAt ? ` · 上次检查：${source.lastCheckedAt}` : ''}
+                    类型：{dbSourceTypeLabel(source.sourceType)} · 版本：{source.version || '--'} · 哈希：{source.fileHash.substring(0, 12)}... · {source.sourceType === 'table_plugin' ? '表数量' : '条目数'}：{source.entryCount} · 大小：{formatFileSize(source.fileSize)}
+                    {source.lastCheckedAt ? ` · 上次检查：${formatIsoDateTime(source.lastCheckedAt)}` : ''}
                   </p>
                   {source.sourceType === 'table_plugin' ? (
                     <div className="button-row">
@@ -1646,7 +1654,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                 {enabledPresetPackageBlocks.length ? enabledPresetPackageBlocks.map((block, index) => (
                   <div className="subcard" key={`${block.identifier}-enabled-${index}`}>
                     <strong>{block.name}</strong>
-                    <p className="muted">{block.role} · ID: {block.identifier}</p>
+                    <p className="muted">{promptRoleLabel(block.role)} · ID: {block.identifier}</p>
                     <pre>{promptPackageBlockContent(block)}</pre>
                   </div>
                 )) : <p className="muted">没有启用块。</p>}
@@ -1656,7 +1664,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                 {disabledPresetPackageBlocks.length ? disabledPresetPackageBlocks.map((block, index) => (
                   <div className="subcard" key={`${block.identifier}-disabled-${index}`}>
                     <strong>{block.name}</strong>
-                    <p className="muted">{block.role} · ID: {block.identifier}</p>
+                    <p className="muted">{promptRoleLabel(block.role)} · ID: {block.identifier}</p>
                     <pre>{promptPackageBlockContent(block)}</pre>
                   </div>
                 )) : <p className="muted">没有禁用块。</p>}
@@ -1671,7 +1679,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
           <h3>高级：旧原生预设模板</h3>
           <p className="muted">这部分是旧 prompt 系统。存在资源预设包时，它不是最终 prompt 的主要来源。</p>
           {activePresetType ? (
-            <p>当前激活模板类型：<strong>{activePresetType}</strong></p>
+            <p>当前激活模板类型：<strong>{presetTypeLabel(activePresetType)}</strong></p>
           ) : (
             <p className="muted">未使用预设模板（使用默认预设）。</p>
           )}
@@ -1711,7 +1719,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
           <div className="subcard" key={preset.id}>
             <h3>{preset.name}{preset.isActive ? '（当前启用）' : ''}</h3>
             <p className="muted">{preset.description || '暂无描述。'}</p>
-            <p>提示词块：{preset.blocks.length}{preset.presetType ? ` · 类型：${preset.presetType}` : ''}{preset.isTemplate ? ' (模板)' : ''}</p>
+            <p>提示词块：{preset.blocks.length}{preset.presetType ? ` · 类型：${presetTypeLabel(preset.presetType)}` : ''}{preset.isTemplate ? '（模板）' : ''}</p>
             <div className="button-row">
               <button onClick={() => startEditingPreset(preset)}>编辑预设</button>
               {!preset.isActive ? <button onClick={() => usePreset(preset.id)}>启用预设</button> : null}
@@ -1736,9 +1744,9 @@ export function AdminPage({ roomId }: { roomId: string }) {
                   <button className="collapsible-header" type="button" onClick={() => togglePresetBlock(block, index)}>
                     <span>{expanded ? '收起' : '展开'} · {block.name || '未命名提示词块'}</span>
                     <span className="meta-row">
-                      {block.position} · {block.role} · {block.enabled ? '启用' : '停用'} · 排序 {block.orderIndex}
-                      {block.category ? ` · ${block.category}` : ''}
-                      {block.sceneType ? ` · 场景: ${block.sceneType}` : ''}
+                      {promptBlockPositionLabel(block.position)} · {promptRoleLabel(block.role)} · {block.enabled ? '启用' : '停用'} · 排序 {block.orderIndex}
+                      {block.category ? ` · ${moduleCategoryLabel(block.category)}` : ''}
+                      {block.sceneType ? ` · 场景：${sceneTypeLabel(block.sceneType)}` : ''}
                     </span>
                   </button>
                   {expanded ? (

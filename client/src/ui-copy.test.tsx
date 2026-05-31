@@ -425,6 +425,8 @@ describe('中文界面文案', () => {
     expect(await screen.findByRole('heading', { name: '已有房间' })).toBeInTheDocument();
     expect(screen.getByText('烛堡之门')).toBeInTheDocument();
     expect(screen.getByText(/第 2 回合/)).toBeInTheDocument();
+    expect(screen.getByText(/等待玩家行动/)).toBeInTheDocument();
+    expect(screen.getByText(/创建时间 2026-05-30 00:00/)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '进入房间' })).toHaveAttribute('href', '/admin/room-1');
     expect(screen.getByRole('button', { name: '删除' })).toBeInTheDocument();
   });
@@ -446,21 +448,36 @@ describe('中文界面文案', () => {
       <>
         <CharacterCard character={null} />
         <TurnPanel currentTurn={2} status="waiting_for_actions" submittedPlayers={[]} waitingPlayers={[]} />
-        <LogList title="公开日志" logs={[]} />
+        <TurnPanel currentTurn={3} status="open" submittedPlayers={[]} waitingPlayers={['阿瑞']} />
+        <LogList title="公开日志" logs={[{
+          id: 'log-short-time',
+          roomId: 'room-1',
+          turnId: 'turn-1',
+          visibilityScope: 'public',
+          playerId: null,
+          title: '开场',
+          content: '队伍抵达路口。',
+          createdAt: '2026-05-30T00:00:00.000Z'
+        }]} />
       </>
     );
 
     expect(screen.getByText('角色卡')).toBeInTheDocument();
     expect(screen.getByText('暂无角色。')).toBeInTheDocument();
     expect(screen.getByText('第 2 回合')).toBeInTheDocument();
-    expect(screen.getByText('状态：')).toBeInTheDocument();
+    expect(screen.getAllByText('状态：')).toHaveLength(2);
     expect(screen.getByText('等待行动')).toBeInTheDocument();
-    expect(screen.getByText('请提交本回合行动；已提交后等待其他玩家。')).toBeInTheDocument();
-    expect(screen.getByText('已提交')).toBeInTheDocument();
-    expect(screen.getByText('暂无玩家提交。')).toBeInTheDocument();
-    expect(screen.getByText('等待中')).toBeInTheDocument();
+    expect(screen.getByText('第 3 回合')).toBeInTheDocument();
+    expect(screen.getByText('等待玩家行动')).toBeInTheDocument();
+    expect(screen.getAllByText('请提交本回合行动；已提交后等待其他玩家。')).toHaveLength(2);
+    expect(screen.getAllByText('已提交')).toHaveLength(2);
+    expect(screen.getAllByText('暂无玩家提交。')).toHaveLength(2);
+    expect(screen.getAllByText('等待中')).toHaveLength(2);
     expect(screen.getByText('所有玩家都已提交。')).toBeInTheDocument();
-    expect(screen.getByText('暂无记录。')).toBeInTheDocument();
+    expect(screen.getByText('开场')).toBeInTheDocument();
+    expect(screen.getByText('队伍抵达路口。')).toBeInTheDocument();
+    expect(screen.getByText('2026-05-30 00:00')).toBeInTheDocument();
+    expect(screen.queryByText('暂无记录。')).not.toBeInTheDocument();
   });
 
   it('角色卡默认折叠并在弹窗展示完整内容', async () => {
@@ -515,7 +532,19 @@ describe('中文界面文案', () => {
       warnings: []
     }} />);
 
+    expect(screen.getByText('构建模式：原生预设')).toBeInTheDocument();
     expect(screen.getByText('5e 规则命中')).toBeInTheDocument();
+    expect(screen.getByText('战斗 · 匹配分 1 · 命中方式：关键词')).toBeInTheDocument();
+    expect(screen.queryByText(/score/)).not.toBeInTheDocument();
+    expect(screen.getByText('上下文槽位')).toBeInTheDocument();
+    expect(screen.getByText('世界书命中')).toBeInTheDocument();
+    expect(screen.getByText('提示词块')).toBeInTheDocument();
+    expect(screen.getByText('无上下文槽位。')).toBeInTheDocument();
+    expect(screen.getByText('无世界书命中。')).toBeInTheDocument();
+    expect(screen.getByText('无提示词块。')).toBeInTheDocument();
+    expect(screen.queryByText('slots')).not.toBeInTheDocument();
+    expect(screen.queryByText('worldBookMatches')).not.toBeInTheDocument();
+    expect(screen.queryByText('promptBlocks')).not.toBeInTheDocument();
     expect(screen.getByText('攻击检定')).toBeInTheDocument();
     expect(screen.getByText('攻击时掷 d20 对抗 AC。')).toBeInTheDocument();
   });
@@ -539,7 +568,9 @@ describe('中文界面文案', () => {
     }} />);
 
     expect(screen.getByText('玩家自主权')).toBeInTheDocument();
+    expect(screen.getByText(/ST 预设 · 系统/)).toBeInTheDocument();
     expect(screen.getByText(/ID: plqGRxqxkIwGvcbkiYxIi/)).toBeInTheDocument();
+    expect(screen.queryByText(/st-preset/)).not.toBeInTheDocument();
   });
 
   it('玩家页展示本轮规则摘要', async () => {
@@ -621,6 +652,7 @@ describe('中文界面文案', () => {
     expect(await screen.findByText('本回合已提交')).toBeInTheDocument();
     expect(screen.getByText('观察道路两侧的林线。')).toBeInTheDocument();
     expect(screen.getByText(/观察 · 公开 · 已提交/)).toBeInTheDocument();
+    expect(screen.getByText(/提交时间 2026-05-30 00:00/)).toBeInTheDocument();
     expect(screen.getByText('再次提交会替换你本回合的行动。')).toBeInTheDocument();
   });
 
@@ -780,14 +812,18 @@ describe('中文界面文案', () => {
     expect(screen.getByText('玩家')).toBeInTheDocument();
     expect(screen.getAllByText('客观剧情').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '公开剧情' })).toBeInTheDocument();
+    expect(screen.getByText(/主持人控制台 · 第 1 回合 · 等待玩家行动/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'AI 输出长度' })).toBeInTheDocument();
+    expect(screen.getByText(/客观剧情最多 300 字 · 公开剧情最多 300 字 · 私人剧情每名玩家最多 150 字/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '调整 AI 输出长度' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'AI 接口' }));
     expect(screen.getByRole('heading', { name: 'AI 接口' })).toBeInTheDocument();
     expect(screen.getByText('只配置模型服务连接，不包含 prompt、规则或约束内容。')).toBeInTheDocument();
-    expect(screen.getAllByText('Provider')[0]).toBeInTheDocument();
-    expect(screen.getByText('API Base URL')).toBeInTheDocument();
-    expect(screen.getAllByText('API Key')[0]).toBeInTheDocument();
-    expect(screen.getAllByText('Model')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('服务类型')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('API 地址')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('API 密钥')[0]).toBeInTheDocument();
+    expect(screen.getAllByText('模型')[0]).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '保存 AI 接口' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '测试连接' })).toBeInTheDocument();
 
@@ -806,6 +842,17 @@ describe('中文界面文案', () => {
     expect(screen.getByRole('button', { name: '保存剧情长度硬上限' })).toBeInTheDocument();
     expect(screen.getByText('默认强约束预设（当前启用）')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '预览 AI 请求' })).toBeInTheDocument();
+  });
+
+  it('总览页可以直接跳转到 AI 输出长度配置', async () => {
+    const user = userEvent.setup();
+    render(<AdminPage roomId="room-1" />);
+
+    await user.click(await screen.findByRole('button', { name: '调整 AI 输出长度' }));
+
+    expect(screen.getByRole('heading', { name: 'Prompt 配置' })).toBeInTheDocument();
+    expect(screen.getByText('AI 输出剧情长度')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '保存剧情长度硬上限' })).toBeInTheDocument();
   });
 
   it('管理页行动区按玩家折叠展示行动', async () => {
@@ -860,6 +907,8 @@ describe('中文界面文案', () => {
     expect(screen.getByText('行动详情：再次使用侦测魔法')).toBeVisible();
     expect(screen.getByText(/探索行动 · 公开 · 已提交/)).toBeVisible();
     expect(screen.getByText(/角色行动 · 公开 · 已提交/)).toBeVisible();
+    expect(screen.getByText(/提交时间 2026-05-30 00:00/)).toBeVisible();
+    expect(screen.getByText(/提交时间 2026-05-30 00:01/)).toBeVisible();
   });
 
   it('总览页先生成可编辑 AI 回合提示词，再发送给 AI', async () => {
@@ -1028,7 +1077,8 @@ describe('中文界面文案', () => {
 
     expect(await screen.findByText('等待玩家行动：2 / 2 已完成')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成 AI 回合提示词' })).toBeDisabled();
-    expect(screen.getByText(/玩家行动已完成，但房间\/回合状态尚未进入 ready_to_resolve/)).toBeInTheDocument();
+    expect(screen.getByText(/玩家行动已完成，但房间\/回合状态尚未进入“等待主持人结算”/)).toBeInTheDocument();
+    expect(screen.getByText(/房间：等待玩家行动，回合：等待玩家行动/)).toBeInTheDocument();
     expect(screen.getByText(/不要让玩家重复提交行动/)).toBeInTheDocument();
   });
 
@@ -1126,6 +1176,10 @@ describe('中文界面文案', () => {
     await user.click(screen.getByRole('button', { name: '编辑预设' }));
 
     expect(screen.getByRole('button', { name: /核心规则/ })).toBeInTheDocument();
+    expect(screen.getByText(/世界信息前 · 系统 · 启用 · 排序 10/)).toBeInTheDocument();
+    expect(screen.getByText(/最终输出前 · 系统 · 启用 · 排序 100/)).toBeInTheDocument();
+    expect(screen.queryByText(/before_world/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/final · system/)).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue('核心规则内容')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /核心规则/ }));
@@ -1140,6 +1194,19 @@ describe('中文界面文案', () => {
 
     await user.click(screen.getByRole('button', { name: '新增提示词块' }));
     expect(screen.getByDisplayValue('新的约束内容。')).toBeInTheDocument();
+  });
+
+  it('Prompt 配置页用中文展示旧模板类型', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getActivePresetType).mockResolvedValueOnce({ presetType: 'rules_strict' });
+
+    render(<AdminPage roomId="room-1" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Prompt 配置' }));
+
+    expect(await screen.findByText('当前激活模板类型：')).toBeInTheDocument();
+    expect(screen.getByText('规则严格')).toBeInTheDocument();
+    expect(screen.queryByText('rules_strict')).not.toBeInTheDocument();
   });
 
   it('非总览标签页操作失败时显示统一错误提示', async () => {
@@ -1170,11 +1237,11 @@ describe('中文界面文案', () => {
 
     const embeddingCard = screen.getByRole('heading', { name: 'Embedding 接口' }).closest('.subcard') as HTMLElement;
     expect(embeddingCard).toBeInTheDocument();
-    expect(within(embeddingCard).getByText('Provider')).toBeInTheDocument();
-    expect(within(embeddingCard).getByText('Base URL')).toBeInTheDocument();
-    expect(within(embeddingCard).getByText('API Key')).toBeInTheDocument();
-    expect(within(embeddingCard).getByText('Model')).toBeInTheDocument();
-    expect(within(embeddingCard).getByText('Dimensions')).toBeInTheDocument();
+    expect(within(embeddingCard).getByText('服务类型')).toBeInTheDocument();
+    expect(within(embeddingCard).getByText('API 地址')).toBeInTheDocument();
+    expect(within(embeddingCard).getByText('API 密钥')).toBeInTheDocument();
+    expect(within(embeddingCard).getByText('模型')).toBeInTheDocument();
+    expect(within(embeddingCard).getByText('向量维度')).toBeInTheDocument();
     expect(within(embeddingCard).getByRole('button', { name: '保存 Embedding 接口' })).toBeInTheDocument();
     expect(within(embeddingCard).getByRole('button', { name: '测试 Embedding' })).toBeInTheDocument();
     expect(within(embeddingCard).getByRole('button', { name: '重建规则向量索引' })).toBeInTheDocument();
@@ -1211,12 +1278,12 @@ describe('中文界面文案', () => {
     render(<AdminPage roomId="room-1" />);
 
     await user.click(await screen.findByRole('button', { name: 'AI 接口' }));
-    await user.selectOptions(screen.getAllByLabelText('Provider')[0], 'openai-compatible');
-    await user.clear(screen.getByLabelText('API Base URL'));
-    await user.type(screen.getByLabelText('API Base URL'), 'https://example.test/v1');
-    await user.type(screen.getAllByLabelText('API Key')[0], 'test-key');
-    await user.clear(screen.getAllByLabelText('Model')[0]);
-    await user.type(screen.getAllByLabelText('Model')[0], 'test-model');
+    await user.selectOptions(screen.getAllByLabelText('服务类型')[0], 'openai-compatible');
+    await user.clear(screen.getAllByLabelText('API 地址')[0]);
+    await user.type(screen.getAllByLabelText('API 地址')[0], 'https://example.test/v1');
+    await user.type(screen.getAllByLabelText('API 密钥')[0], 'test-key');
+    await user.clear(screen.getAllByLabelText('模型')[0]);
+    await user.type(screen.getAllByLabelText('模型')[0], 'test-model');
 
     const expectedConfig = {
       provider: 'openai-compatible',
@@ -1264,19 +1331,19 @@ describe('中文界面文案', () => {
     render(<AdminPage roomId="room-1" />);
 
     await user.click(await screen.findByRole('button', { name: 'AI 接口' }));
-    expect(screen.getAllByLabelText('Provider')[0]).toHaveValue('mock');
-    expect(screen.getByLabelText('API Base URL')).toHaveValue('https://api.openai.com/v1');
-    expect(screen.getAllByLabelText('Model')[0]).toHaveValue('gpt-4o-mini');
+    expect(screen.getAllByLabelText('服务类型')[0]).toHaveValue('mock');
+    expect(screen.getAllByLabelText('API 地址')[0]).toHaveValue('https://api.openai.com/v1');
+    expect(screen.getAllByLabelText('模型')[0]).toHaveValue('gpt-4o-mini');
 
     vi.mocked(api.getGlobalAiProviderConfig).mockImplementationOnce(() => staleProviderPromise);
     roomUpdate?.();
 
-    await user.selectOptions(screen.getAllByLabelText('Provider')[0], 'openai-compatible');
-    await user.clear(screen.getByLabelText('API Base URL'));
-    await user.type(screen.getByLabelText('API Base URL'), savedConfig.baseUrl);
-    await user.type(screen.getAllByLabelText('API Key')[0], savedConfig.apiKey);
-    await user.clear(screen.getAllByLabelText('Model')[0]);
-    await user.type(screen.getAllByLabelText('Model')[0], savedConfig.model);
+    await user.selectOptions(screen.getAllByLabelText('服务类型')[0], 'openai-compatible');
+    await user.clear(screen.getAllByLabelText('API 地址')[0]);
+    await user.type(screen.getAllByLabelText('API 地址')[0], savedConfig.baseUrl);
+    await user.type(screen.getAllByLabelText('API 密钥')[0], savedConfig.apiKey);
+    await user.clear(screen.getAllByLabelText('模型')[0]);
+    await user.type(screen.getAllByLabelText('模型')[0], savedConfig.model);
     await user.click(screen.getByRole('button', { name: '保存 AI 接口' }));
 
     expect(await screen.findByText('AI 接口已保存。')).toBeInTheDocument();
@@ -1288,10 +1355,10 @@ describe('中文界面文案', () => {
       model: 'stale-model'
     });
 
-    await waitFor(() => expect(screen.getByLabelText('API Base URL')).toHaveValue(savedConfig.baseUrl));
-    expect(screen.getAllByLabelText('Provider')[0]).toHaveValue(savedConfig.provider);
-    expect(screen.getAllByLabelText('API Key')[0]).toHaveValue(savedConfig.apiKey);
-    expect(screen.getAllByLabelText('Model')[0]).toHaveValue(savedConfig.model);
+    await waitFor(() => expect(screen.getAllByLabelText('API 地址')[0]).toHaveValue(savedConfig.baseUrl));
+    expect(screen.getAllByLabelText('服务类型')[0]).toHaveValue(savedConfig.provider);
+    expect(screen.getAllByLabelText('API 密钥')[0]).toHaveValue(savedConfig.apiKey);
+    expect(screen.getAllByLabelText('模型')[0]).toHaveValue(savedConfig.model);
   });
 
   it('角色卡文件导入结束后清空文件输入以支持重试', async () => {
@@ -1326,6 +1393,8 @@ describe('中文界面文案', () => {
     await waitFor(() => expect(api.importSillyTavernScriptCard).toHaveBeenCalledWith({ name: '导入角色' }));
     expect(onImported).toHaveBeenCalled();
     expect(input.value).toBe('');
+    expect(screen.getByText('无警告。')).toBeInTheDocument();
+    expect(screen.queryByText('无 warnings。')).not.toBeInTheDocument();
   });
 
   it('未保存的全局主剧本卡选择不会被父级旧配置刷新覆盖，保存后调用全局配置 API', async () => {
@@ -1540,6 +1609,7 @@ describe('中文界面文案', () => {
     expect(screen.queryByRole('button', { name: '查询变更' })).not.toBeInTheDocument();
     expect(screen.getByText(/10.*→.*12/)).toBeInTheDocument();
     expect(screen.getByText(/短休恢复/)).toBeInTheDocument();
+    expect(screen.getByText(/玩家 · 2026-05-30 00:00/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '回滚' })).toBeInTheDocument();
   });
 
@@ -1609,6 +1679,8 @@ describe('中文界面文案', () => {
     expect(screen.getByText('最近骰点')).toBeInTheDocument();
     expect(screen.getByText(/攻击检定/)).toBeInTheDocument();
     expect(screen.getByText(/匕首伤害/)).toBeInTheDocument();
+    expect(screen.getByText(/洛林 · 2026-05-30 00:00/)).toBeInTheDocument();
+    expect(screen.getByText(/DM · 2026-05-30 00:01/)).toBeInTheDocument();
   });
 
   it('管理员台战役记忆页展示战役记忆子区域', async () => {
@@ -1659,8 +1731,9 @@ describe('中文界面文案', () => {
     expect(screen.getByText('角色建议')).toBeInTheDocument();
     expect(screen.getByText(/救援矿工/)).toBeInTheDocument();
     expect(screen.getByText('调查矿井')).toBeInTheDocument();
-    expect(screen.getByText(/\[in_progress\]/)).toBeInTheDocument();
+    expect(screen.getByText(/\[进行中\]/)).toBeInTheDocument();
     expect(screen.getByText('格拉克')).toBeInTheDocument();
+    expect(screen.getByText(/地精首领，敌对/)).toBeInTheDocument();
     expect(screen.getByText('废弃矿井')).toBeInTheDocument();
 
     // CRUD: save quest
@@ -1714,14 +1787,30 @@ describe('中文界面文案', () => {
     expect(screen.getByText('队伍击败地精，发现秘密通道。')).toBeInTheDocument();
     expect(screen.getByText('任务')).toBeInTheDocument();
     expect(screen.getByText('调查矿井')).toBeInTheDocument();
-    expect(screen.getByText(/\[in_progress\]/)).toBeInTheDocument();
+    expect(screen.getByText(/\[进行中\]/)).toBeInTheDocument();
     expect(screen.getByText('已知 NPC')).toBeInTheDocument();
     expect(screen.getByText('格拉克')).toBeInTheDocument();
+    expect(screen.getByText(/地精首领，敌对/)).toBeInTheDocument();
     expect(screen.getByText('矿井入口')).toBeInTheDocument();
   });
 
   it('数据库标签页展示数据库管理子区域', async () => {
     const user = userEvent.setup();
+    vi.mocked(api.listDbSources).mockResolvedValueOnce({
+      sources: [{
+        id: 'src-table',
+        url: 'https://example.test/table.js',
+        name: '怪物状态表',
+        sourceType: 'table_plugin',
+        version: 'v1',
+        fileHash: 'abcdef1234567890',
+        fileSize: 2048,
+        entryCount: 3,
+        lastCheckedAt: '2026-05-30T00:00:00.000Z',
+        createdAt: '2026-05-30T00:00:00.000Z'
+      }]
+    });
+    vi.mocked(api.listDbSourceSheets).mockResolvedValueOnce({ sheets: [] });
     render(<AdminPage roomId="room-1" />);
 
     await user.click(await screen.findByRole('button', { name: '数据库插件' }));
@@ -1736,5 +1825,12 @@ describe('中文界面文案', () => {
     // Source list section
     expect(screen.getByRole('heading', { name: '已接入数据源' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '刷新列表' })).toBeInTheDocument();
+    expect(await screen.findByText('怪物状态表')).toBeInTheDocument();
+    expect(screen.getByText(/类型：表格数据库插件/)).toBeInTheDocument();
+    expect(screen.getByText(/表数量：3/)).toBeInTheDocument();
+    expect(screen.getByText(/大小：2.0 KB/)).toBeInTheDocument();
+    expect(screen.getByText(/上次检查：2026-05-30 00:00/)).toBeInTheDocument();
+    expect(screen.queryByText(/table_plugin/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/2048 bytes/)).not.toBeInTheDocument();
   });
 });

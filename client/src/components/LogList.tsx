@@ -1,3 +1,4 @@
+import { formatIsoDateTime } from '../displayLabels';
 import type { LogEntry } from '../types';
 
 export function LogList({ title, logs }: { title: string; logs: LogEntry[] }) {
@@ -9,7 +10,7 @@ export function LogList({ title, logs }: { title: string; logs: LogEntry[] }) {
         <article className="log-entry" key={log.id}>
           <strong>{log.title}</strong>
           <p>{log.content}</p>
-          <small className="muted">{new Date(log.createdAt).toLocaleString()}</small>
+          <small className="muted">{formatIsoDateTime(log.createdAt)}</small>
         </article>
       ))}
     </section>

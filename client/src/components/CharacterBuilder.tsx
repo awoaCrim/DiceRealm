@@ -100,6 +100,32 @@ const steps: Array<{ id: BuilderStepId; label: string }> = [
   { id: 'review', label: '复核确认' }
 ];
 
+const auditFieldLabels: Record<string, string> = {
+  name: '角色姓名',
+  concept: '角色概念',
+  species: '种族',
+  subSpecies: '子种族 / 血统',
+  className: '职业',
+  classDetail: '职业细节',
+  background: '背景',
+  abilityScores: '属性值',
+  skills: '技能',
+  equipment: '装备',
+  spells: '法术 / 能力',
+  languages: '语言',
+  proficiencies: '工具 / 武器 / 护甲熟练',
+  personality: '性格',
+  ideal: '理想',
+  bond: '牵绊',
+  flaw: '缺点',
+  notes: '背景摘要'
+};
+
+function auditFieldLabel(field: string | undefined): string {
+  if (!field) return '字段';
+  return auditFieldLabels[field] ?? field;
+}
+
 function toggleItem(arr: string[], item: string): string[] {
   return arr.includes(item) ? arr.filter(i => i !== item) : [...arr, item];
 }
@@ -706,7 +732,7 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
                 <p>{audit.valid ? '当前草稿可以确认角色。' : '请修正以下问题后再确认角色。'}</p>
                 {audit.issues.length > 0 ? (
                   <ul>
-                    {audit.issues.map((issue, idx) => <li key={idx}>{issue.field}: {issue.message}</li>)}
+                    {audit.issues.map((issue, idx) => <li key={idx}>{auditFieldLabel(issue.field)}：{issue.message}</li>)}
                   </ul>
                 ) : null}
               </div>

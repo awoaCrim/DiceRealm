@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CharacterBuilder } from './components/CharacterBuilder';
 import * as api from './api';
-import type { CharacterBuilderOptions } from './types';
+import type { CharacterBuilderDraft, CharacterBuilderOptions } from './types';
 
 const mockOptions: CharacterBuilderOptions = {
   species: [{ id: 's-1', optionType: 'species', name: '人类', summary: '人类', ruleData: { speedFt: 30, traits: ['多才多艺'] }, prerequisites: {}, sourceRef: '' }],
@@ -29,6 +29,27 @@ const emptyOptions: CharacterBuilderOptions = {
   spells: [],
   languages: [],
   proficiencies: []
+};
+
+const validDraft: CharacterBuilderDraft = {
+  name: '洛林',
+  concept: '',
+  species: '人类',
+  subSpecies: '变体人类',
+  className: '战士',
+  classDetail: '',
+  background: '士兵',
+  abilityScores: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 },
+  skills: [],
+  equipment: [],
+  spells: [],
+  languages: [],
+  proficiencies: [],
+  personality: '',
+  ideal: '',
+  bond: '',
+  flaw: '',
+  notes: ''
 };
 
 vi.mock('./api', () => ({
@@ -215,6 +236,31 @@ describe('CharacterBuilder', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('审核服务暂不可用');
     expect(screen.getByRole('button', { name: '审核角色' })).toBeEnabled();
+  });
+
+  it('renders audit issue field labels in Chinese', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.auditCharacterBuilderDraft).mockResolvedValueOnce({
+      draft: validDraft,
+      audit: {
+        valid: false,
+        issues: [
+          { field: 'abilityScores', message: '属性总值不符合当前规则。' },
+          { field: 'className', message: '请选择职业。' }
+        ]
+      }
+    });
+
+    render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={vi.fn()} setError={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: '创建角色' }));
+    await user.click(screen.getByRole('button', { name: /复核确认/ }));
+    await user.click(screen.getByRole('button', { name: '审核角色' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('属性值：属性总值不符合当前规则。');
+    expect(screen.getByRole('status')).toHaveTextContent('职业：请选择职业。');
+    expect(screen.queryByText(/abilityScores/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/className/)).not.toBeInTheDocument();
   });
 
   it('shows confirm errors inside the modal', async () => {

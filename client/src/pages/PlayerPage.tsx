@@ -4,6 +4,7 @@ import { CharacterBuilder } from '../components/CharacterBuilder';
 import { CharacterCard } from '../components/CharacterCard';
 import { LogList } from '../components/LogList';
 import { TurnPanel } from '../components/TurnPanel';
+import { formatIsoDateTime, npcAttitudeLabel, questStatusLabel } from '../displayLabels';
 import type { PlayerVisibleState } from '../types';
 
 type PlayerActionType = 'in_character_action' | 'player_question' | 'meta_question' | 'observe' | 'wait' | 'skip' | 'ready' | 'follow' | 'combat_action' | 'narrative' | 'exploration' | 'social' | 'combat' | 'ooc';
@@ -263,7 +264,7 @@ export function PlayerPage({ token }: { token: string }) {
                     <strong>任务</strong>
                     {state.quests.filter((q) => q.status === 'active' || q.status === 'in_progress').map((q) => (
                       <div className="subcard" key={q.id}>
-                        <strong>{q.title}</strong> <span className="muted">[{q.status}]</span>
+                        <strong>{q.title}</strong> <span className="muted">[{questStatusLabel(q.status)}]</span>
                         <p>{q.description}</p>
                       </div>
                     ))}
@@ -274,7 +275,7 @@ export function PlayerPage({ token }: { token: string }) {
                     <strong>已知 NPC</strong>
                     {state.npcs.map((n) => (
                       <div className="subcard" key={n.id}>
-                        <strong>{n.name}</strong> <span className="muted">({n.role}, {n.attitude})</span>
+                        <strong>{n.name}</strong> <span className="muted">({n.role}，{npcAttitudeLabel(n.attitude)})</span>
                         {n.location ? <p className="muted">{n.location}</p> : null}
                       </div>
                     ))}
@@ -317,7 +318,7 @@ export function PlayerPage({ token }: { token: string }) {
                   <p>{state.currentAction.text}</p>
                   <p className="muted">
                     {actionTypeLabel(state.currentAction.actionType)} · {actionVisibilityLabel(state.currentAction.visibility)} · {actionStatusLabel(state.currentAction.status)}
-                    {state.currentAction.submittedAt ? ` · ${state.currentAction.submittedAt}` : ''}
+                    {state.currentAction.submittedAt ? ` · 提交时间 ${formatIsoDateTime(state.currentAction.submittedAt)}` : ''}
                   </p>
                   <p className="muted">
                     {canSubmitAction ? '再次提交会替换你本回合的行动。' : '当前回合已锁定，不能再修改本次行动。'}
@@ -571,7 +572,7 @@ export function PlayerPage({ token }: { token: string }) {
               {state.recentDiceLogs.map((log) => (
                 <div className="subcard" key={log.id}>
                   <p>{log.reason}：{log.die} [{log.values.join(', ')}] + {log.modifier} = {log.total}{log.success !== undefined ? (log.success ? ' (成功)' : ' (失败)') : ''}</p>
-                  <p className="muted">{log.playerName} · {log.createdAt}</p>
+                  <p className="muted">{log.playerName} · {formatIsoDateTime(log.createdAt)}</p>
                 </div>
               ))}
             </section>
