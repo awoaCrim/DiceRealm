@@ -53,6 +53,7 @@ import type {
 } from './types';
 
 const REQUEST_TIMEOUT_MS = 15000;
+const AI_TURN_SEND_TIMEOUT_MS = 120000;
 const DEV_BACKEND_PORT = '3000';
 
 function eventSourceUrl(path: string): string {
@@ -63,9 +64,10 @@ function eventSourceUrl(path: string): string {
   return path;
 }
 
-async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
+async function jsonRequest<T>(url: string, init?: RequestInit, options: { timeoutMs?: number; timeoutLabel?: string } = {}): Promise<T> {
+  const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const controller = new AbortController();
-  const timeoutId = globalThis.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, {
       ...init,
@@ -87,7 +89,9 @@ async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
     return response.json() as Promise<T>;
   } catch (err: unknown) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('请求已被前端超时取消：后端 15 秒内没有响应，请确认服务是否仍在运行。');
+      const seconds = Math.round(timeoutMs / 1000);
+      const target = options.timeoutLabel ?? '后端';
+      throw new Error(`请求已被前端超时取消：${target} ${seconds} 秒内没有响应，请确认服务是否仍在运行。`);
     }
     throw err;
   } finally {
@@ -116,10 +120,6 @@ export function addPlayer(roomId: string, name: string) {
 
 export function getAdminState(roomId: string) {
   return jsonRequest<AdminState>(`/api/admin/rooms/${roomId}`);
-}
-
-export function processTurn(roomId: string) {
-  return jsonRequest<{ result: unknown }>(`/api/admin/rooms/${roomId}/process-turn`, { method: 'POST' });
 }
 
 export function getGlobalConfig() {
@@ -200,6 +200,21 @@ export function sendAiTurnPreview(roomId: string, previewId: string, flatPrompt:
   return jsonRequest<AiTurnPromptSendResponse>('/api/admin/ai/send-preview', {
     method: 'POST',
     body: JSON.stringify({ roomId, previewId, flatPrompt })
+  }, {
+    timeoutMs: AI_TURN_SEND_TIMEOUT_MS,
+    timeoutLabel: 'AI 回合生成'
+  });
+}
+
+export interface AiTurnApplyOptions {
+  confirmedSuggestedStateChangeIndexes?: number[];
+  confirmedCharacterResourceChangeIndexes?: number[];
+}
+
+export function applyAiTurnPreview(roomId: string, previewId: string, options: AiTurnApplyOptions = {}) {
+  return jsonRequest<AiTurnPromptSendResponse>('/api/admin/ai/apply-preview', {
+    method: 'POST',
+    body: JSON.stringify({ roomId, previewId, ...options })
   });
 }
 
@@ -364,10 +379,10 @@ export function getPlayerState(token: string) {
   return jsonRequest<PlayerVisibleState>(`/api/player/${token}/state`);
 }
 
-export function submitAction(token: string, text: string, actionType?: string, isHiddenRoll?: boolean) {
+export function submitAction(token: string, text: string, actionType?: string, isHiddenRoll?: boolean, visibility?: 'public' | 'private' | 'dm_only') {
   return jsonRequest<{ ok: true }>(`/api/player/${token}/actions`, {
     method: 'POST',
-    body: JSON.stringify({ text, ...(actionType ? { actionType } : {}), ...(isHiddenRoll !== undefined ? { isHiddenRoll } : {}) })
+    body: JSON.stringify({ text, ...(actionType ? { actionType } : {}), ...(visibility ? { visibility } : {}), ...(isHiddenRoll !== undefined ? { isHiddenRoll } : {}) })
   });
 }
 
@@ -409,32 +424,54 @@ export function rollbackCharacterResourceChange(roomId: string, changeId: string
   return jsonRequest<RollbackResponse>(`/api/admin/rooms/${roomId}/character-resource-changes/${changeId}/rollback`, { method: 'POST', body: JSON.stringify({ adminId }) });
 }
 
-export function adminDiceRoll(roomId: string, input: { die: string; modifier?: number; dc?: number; reason?: string }) {
-  return jsonRequest<{ values: number[]; modifier: number; total: number; success?: boolean }>(`/api/admin/rooms/${roomId}/dice/roll`, { method: 'POST', body: JSON.stringify(input) });
+export interface AdminCombatant {
+  id: string;
+  characterId: string | null;
+  npcId: string | null;
+  name: string;
+  initiative: number | null;
+  hp: { current: number; max: number };
+  ac: number;
+  isPlayer: boolean;
+  conditions: string[];
 }
 
-export function startCombat(roomId: string, input: { participants: Array<{ name: string; hp: number; ac?: number; initiativeModifier?: number }> }) {
-  return jsonRequest<{ id: string; roomId: string; participants: Array<{ id: string; name: string; hp: number; maxHp: number; ac: number; initiative: number | null; isNpc: boolean }>; currentTurnIndex: number; round: number; status: string }>(`/api/admin/rooms/${roomId}/combat/start`, { method: 'POST', body: JSON.stringify(input) });
+export interface AdminCombatState {
+  id: string;
+  roomId: string;
+  round: number;
+  currentTurn: number;
+  combatants: AdminCombatant[];
+  status: 'active' | 'paused' | 'ended';
+  startedAt: string;
+}
+
+export function adminDiceRoll(roomId: string, input: { diceType: string; modifier?: number; dc?: number; reason: string }) {
+  return jsonRequest<{ values: number[]; modifier: number; total: number; success: boolean | null; diceLog: { id: string } }>(`/api/admin/rooms/${roomId}/dice/roll`, { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function startCombat(roomId: string, input: { combatants: Array<{ characterId?: string | null; npcId?: string | null; name: string; hp?: number; ac?: number; dexMod?: number }> }) {
+  return jsonRequest<{ combatState: AdminCombatState }>(`/api/admin/rooms/${roomId}/combat/start`, { method: 'POST', body: JSON.stringify(input) });
 }
 
 export function rollCombatInitiative(roomId: string, combatId: string) {
-  return jsonRequest<{ id: string; participants: Array<{ id: string; name: string; hp: number; maxHp: number; ac: number; initiative: number | null; isNpc: boolean }>; currentTurnIndex: number; round: number; status: string }>(`/api/admin/rooms/${roomId}/combat/${combatId}/initiative`, { method: 'POST' });
+  return jsonRequest<{ combatState: AdminCombatState }>(`/api/admin/rooms/${roomId}/combat/roll-initiative`, { method: 'POST', body: JSON.stringify({ combatId }) });
 }
 
-export function combatAttack(roomId: string, input: { combatId: string; attackerId: string; targetId: string; attackBonus?: number; damageDice?: string; damageBonus?: number }) {
-  return jsonRequest<{ hit: boolean; attackRoll?: { values: number[]; modifier: number; total: number }; damage?: { dice: string; bonus: number; total: number }; newHp?: number }>(`/api/admin/rooms/${roomId}/combat/attack`, { method: 'POST', body: JSON.stringify(input) });
+export function combatAttack(roomId: string, input: { combatId: string; attackerIndex: number; targetIndex: number; weaponDie?: string }) {
+  return jsonRequest<{ combatState: AdminCombatState; hit: boolean; criticalHit: boolean; criticalMiss: boolean; attackRoll: number; attackTotal: number; damageTotal?: number }>(`/api/admin/rooms/${roomId}/combat/attack`, { method: 'POST', body: JSON.stringify(input) });
 }
 
 export function combatNextTurn(roomId: string, combatId: string) {
-  return jsonRequest<{ id: string; participants: Array<{ id: string; name: string; hp: number; maxHp: number; ac: number; initiative: number | null; isNpc: boolean }>; currentTurnIndex: number; round: number; status: string }>(`/api/admin/rooms/${roomId}/combat/${combatId}/next-turn`, { method: 'POST' });
+  return jsonRequest<{ combatState: AdminCombatState }>(`/api/admin/rooms/${roomId}/combat/next-turn`, { method: 'POST', body: JSON.stringify({ combatId }) });
 }
 
 export function getCombatState(roomId: string) {
-  return jsonRequest<{ id: string; roomId: string; participants: Array<{ id: string; name: string; hp: number; maxHp: number; ac: number; initiative: number | null; isNpc: boolean }>; currentTurnIndex: number; round: number; status: string }>(`/api/admin/rooms/${roomId}/combat`);
+  return jsonRequest<{ combatState: AdminCombatState }>(`/api/admin/rooms/${roomId}/combat`);
 }
 
 export function getDiceLogs(roomId: string) {
-  return jsonRequest<{ logs: Array<{ id: string; roomId: string; playerName: string; die: string; values: number[]; modifier: number; total: number; reason: string; success?: boolean; createdAt: string }> }>(`/api/admin/rooms/${roomId}/dice/logs`);
+  return jsonRequest<{ logs: Array<{ id: string; roomId: string; turnId: string | null; combatId: string | null; characterId: string | null; diceType: string; values: number[]; modifier: number; total: number; dc: number | null; success: boolean | null; isPublic: boolean; reason: string; createdAt: string }> }>(`/api/admin/rooms/${roomId}/dice-logs`);
 }
 
 export function listSessionSummaries(roomId: string) {

@@ -7,6 +7,7 @@ import { seedBuiltinRules } from '../db/seedRules.js';
 import { defaultAiConfig, renderDndOutputContract } from '../services/aiContextBuilder.js';
 import { GlobalConfigResourceError, normalizeAiProviderConfig, saveGlobalPreset } from '../services/globalConfigService.js';
 import { createResourceImportJob, reviewResourceImportDraft } from '../services/resourceReviewService.js';
+import type { AiTurnResult } from '../domain/types.js';
 
 type PromptPreviewPayload = {
   mode: 'native' | 'sillytavern-compatible';
@@ -19,9 +20,28 @@ type PromptPreviewPayload = {
   warnings: string[];
 };
 
+function aiTurnResult(overrides: Partial<AiTurnResult>): AiTurnResult {
+  return {
+    objectiveLog: overrides.objectiveLog ?? overrides.publicLog ?? '',
+    publicLog: overrides.publicLog ?? '',
+    privateUpdatesByPlayer: overrides.privateUpdatesByPlayer ?? {},
+    ruleResults: overrides.ruleResults ?? [],
+    interactionRequests: overrides.interactionRequests ?? [],
+    diceRequests: overrides.diceRequests ?? [],
+    suggestedStateChanges: overrides.suggestedStateChanges ?? [],
+    characterResourceChanges: overrides.characterResourceChanges ?? [],
+    diceResults: overrides.diceResults
+  };
+}
+
 function occurrenceCount(text: string, needle: string): number {
   return text.split(needle).length - 1;
 }
+
+const legacyProcessTurnInit = {
+  method: 'POST',
+  headers: { 'x-test-allow-legacy-process-turn': '1' }
+};
 
 type OpenAiStubResponse = { status?: number; statusText?: string; body?: unknown; rawBody?: string };
 
@@ -306,7 +326,7 @@ describe('DND AI-DM integration', () => {
     const db = createMemoryDb();
     migrate(db);
     seedBuiltinRules(db);
-    const resultJson = { publicLog: 'Runtime stub public log.', privateUpdatesByPlayer: {}, ruleResults: ['stub rule'], interactionRequests: [] };
+    const resultJson = aiTurnResult({ publicLog: 'Runtime stub public log.', ruleResults: ['stub rule'] });
     const stub = await createOpenAiStub((body) => {
       expect(body.model).toBe('runtime-model');
       return { body: { choices: [{ message: { content: JSON.stringify(resultJson) } }] } };
@@ -342,7 +362,7 @@ describe('DND AI-DM integration', () => {
         body: JSON.stringify({ text: 'I test the runtime provider.' })
       });
 
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(200);
       expect(stub.requests).toHaveLength(1);
       const generation = db.prepare('SELECT provider, output FROM ai_generations WHERE room_id = ?').get(room.roomId) as { provider: string; output: string };
@@ -406,11 +426,151 @@ describe('DND AI-DM integration', () => {
         body: JSON.stringify({ text: 'I watch the shadows.' })
       });
 
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(200);
       const adminRes = await fetch(`${base}/api/admin/rooms/${room.roomId}`);
       const adminText = await adminRes.text();
       expect(adminText).toContain('The party');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      db.close();
+    }
+  });
+
+  it('keeps one current action per player and rejects edits after the turn is ready', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Action Gate Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+
+      const ariRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Ari' })
+      });
+      const ari = await ariRes.json() as { token: string };
+
+      const boRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Bo' })
+      });
+      const bo = await boRes.json() as { token: string };
+
+      const firstAriAction = await fetch(`${base}/api/player/${ari.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'I inspect the old door.' })
+      });
+      expect(firstAriAction.status).toBe(200);
+
+      const editedAriAction = await fetch(`${base}/api/player/${ari.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'I listen at the old door instead.' })
+      });
+      expect(editedAriAction.status).toBe(200);
+
+      const ariRow = db.prepare('SELECT id FROM players WHERE token = ?').get(ari.token) as { id: string };
+      const turn = db.prepare('SELECT id FROM turns WHERE room_id = ? AND number = 1').get(room.roomId) as { id: string };
+      const ariActions = db.prepare('SELECT text FROM actions WHERE turn_id = ? AND player_id = ?').all(turn.id, ariRow.id) as Array<{ text: string }>;
+      expect(ariActions).toEqual([{ text: 'I listen at the old door instead.' }]);
+
+      const boAction = await fetch(`${base}/api/player/${bo.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'I watch the hallway.' })
+      });
+      expect(boAction.status).toBe(200);
+
+      const readyRoom = db.prepare('SELECT status FROM rooms WHERE id = ?').get(room.roomId) as { status: string };
+      const readyTurn = db.prepare('SELECT status FROM turns WHERE id = ?').get(turn.id) as { status: string };
+      expect(readyRoom.status).toBe('ready_to_resolve');
+      expect(readyTurn.status).toBe('ready_to_resolve');
+
+      const lateEdit = await fetch(`${base}/api/player/${ari.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'I change my mind after everyone is ready.' })
+      });
+      expect(lateEdit.status).toBe(409);
+      const lateEditPayload = await lateEdit.json() as { error: string; roomStatus: string; turnStatus: string };
+      expect(lateEditPayload).toMatchObject({
+        error: 'ACTIONS_CLOSED',
+        roomStatus: 'ready_to_resolve',
+        turnStatus: 'ready_to_resolve'
+      });
+
+      const ariActionAfterLateEdit = db.prepare('SELECT text FROM actions WHERE turn_id = ? AND player_id = ?').all(turn.id, ariRow.id) as Array<{ text: string }>;
+      expect(ariActionAfterLateEdit).toEqual([{ text: 'I listen at the old door instead.' }]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      db.close();
+    }
+  });
+
+  it('omits incomplete current actions from legacy prompt preview and points admins to turn preview', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Legacy Preview Gate Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+
+      const ariRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Ari' })
+      });
+      const ari = await ariRes.json() as { token: string };
+      await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Bo' })
+      });
+
+      const actionRes = await fetch(`${base}/api/player/${ari.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'I search the locked chest.' })
+      });
+      expect(actionRes.status).toBe(200);
+
+      const previewRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/ai-prompt-preview`);
+      expect(previewRes.status).toBe(200);
+      const preview = await previewRes.json() as PromptPreviewPayload;
+      expect(preview.prompt).not.toContain('I search the locked chest.');
+      expect(preview.prompt).toContain('- No submitted actions yet.');
+      expect(preview.warnings).toContain('此配置预览不会包含未完成回合的当前行动；可发送给 AI 的回合提示词只能在所有必需玩家完成后通过 AI-DM 回合调试生成。');
+
+      const turnPreviewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(turnPreviewRes.status).toBe(409);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       db.close();
@@ -934,8 +1094,9 @@ describe('DND AI-DM integration', () => {
       const turn = db.prepare('SELECT id FROM turns WHERE room_id = ? AND number = ?').get(room.roomId, 1) as { id: string };
       db.prepare('INSERT INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run('failing-action', room.roomId, turn.id, player.playerId, 'I cross the bridge.', new Date().toISOString(), 'submitted');
+      await fetch(`${base}/api/admin/rooms/${room.roomId}`);
 
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(500);
       const roomRow = db.prepare('SELECT status FROM rooms WHERE id = ?').get(room.roomId) as { status: string };
       const turnRow = db.prepare('SELECT status FROM turns WHERE id = ?').get(turn.id) as { status: string };
@@ -948,6 +1109,35 @@ describe('DND AI-DM integration', () => {
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await stub.close();
+      db.close();
+    }
+  });
+
+  it('disables legacy process-turn unless test compatibility is explicitly requested', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Legacy Disabled Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      expect(processRes.status).toBe(410);
+      const payload = await processRes.json() as { error: string; message: string };
+      expect(payload.error).toBe('PROCESS_TURN_DISABLED');
+      expect(payload.message).toContain('/api/admin/ai/turn-preview');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
       db.close();
     }
   });
@@ -982,7 +1172,7 @@ describe('DND AI-DM integration', () => {
       });
       db.prepare('UPDATE rooms SET status = ? WHERE id = ?').run('processing', room.roomId);
 
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(409);
       const generationCount = db.prepare('SELECT COUNT(*) as count FROM ai_generations WHERE room_id = ?').get(room.roomId) as { count: number };
       expect(generationCount.count).toBe(0);
@@ -1022,12 +1212,12 @@ describe('DND AI-DM integration', () => {
       });
       db.prepare('UPDATE turns SET status = ? WHERE room_id = ? AND number = ?').run('processing', room.roomId, 1);
 
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(409);
       const generationCount = db.prepare('SELECT COUNT(*) as count FROM ai_generations WHERE room_id = ?').get(room.roomId) as { count: number };
       expect(generationCount.count).toBe(0);
       const roomStatus = db.prepare('SELECT status FROM rooms WHERE id = ?').get(room.roomId) as { status: string };
-      expect(roomStatus.status).toBe('waiting_for_actions');
+      expect(roomStatus.status).toBe('ready_to_resolve');
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       db.close();
@@ -1138,7 +1328,7 @@ describe('DND AI-DM integration', () => {
       const preview = await previewRes.json() as PromptPreviewPayload;
       expect(preview.mode).toBe('sillytavern-compatible');
       expect(preview.prompt).toContain('Imported main prompt.');
-      expect(preview.slots.some((slot) => slot.key === 'charDescription' && slot.content.includes('keeper knows Candlekeep'))).toBe(true);
+      expect(preview.slots.some((slot) => slot.key === 'scenario' && slot.content.includes('The gate is sealed.'))).toBe(true);
       expect(preview.worldBookMatches.some((match) => match.content.includes('silver key') && match.keys.includes('Candlekeep'))).toBe(true);
       expect(preview.prompt).toContain('The gate needs a silver key.');
       expect(preview.prompt).toContain('# DND 输出契约');
@@ -1158,7 +1348,7 @@ describe('DND AI-DM integration', () => {
     const db = createMemoryDb();
     migrate(db);
     seedBuiltinRules(db);
-    const resultJson = { publicLog: 'ST runtime public log.', privateUpdatesByPlayer: {}, ruleResults: ['st rule'], interactionRequests: [] };
+    const resultJson = aiTurnResult({ publicLog: 'ST runtime public log.', ruleResults: ['st rule'] });
     const stub = await createOpenAiStub(() => ({
       body: { choices: [{ message: { content: JSON.stringify(resultJson) } }] }
     }));
@@ -1230,7 +1420,7 @@ describe('DND AI-DM integration', () => {
       });
       expect(actionRes.status).toBe(200);
 
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(200);
       expect(stub.requests).toHaveLength(1);
       const capturedPrompt = stub.requests[0].messages.find((message: { role: string; content: string }) => message.role === 'user')?.content as string;
@@ -1309,8 +1499,9 @@ describe('DND AI-DM integration', () => {
       const config = await configRes.json() as { presets: Array<{ id: string; blocks: Array<{ content: string }> }> };
       const defaultPreset = config.presets.find((preset) => preset.id === 'default-global-preset');
       const blockContents = defaultPreset?.blocks.map((block) => block.content) ?? [];
-      expect(defaultPreset?.blocks).toHaveLength(6);
+      expect(defaultPreset?.blocks).toHaveLength(7);
       expect(blockContents).toContain(defaultAiConfig.coreRules);
+      expect(blockContents.some((content) => content.includes('剧情字数硬上限'))).toBe(true);
       expect(blockContents.some((content) => content.includes('毒化缺失默认预设'))).toBe(false);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -1471,7 +1662,7 @@ describe('DND AI-DM integration', () => {
     let capturedPrompt = '';
     const stub = await createOpenAiStub((body) => {
       capturedPrompt = body.messages?.find((message: { role?: string; content?: string }) => message.role === 'user')?.content ?? '';
-      return { body: { choices: [{ message: { content: JSON.stringify({ publicLog: 'Resolved from captured prompt.', privateUpdatesByPlayer: {}, ruleResults: [], interactionRequests: [] }) } }] } };
+      return { body: { choices: [{ message: { content: JSON.stringify(aiTurnResult({ publicLog: 'Resolved from captured prompt.' })) } }] } };
     });
     const app = createApp(db);
     const server = app.listen(0);
@@ -1522,8 +1713,9 @@ describe('DND AI-DM integration', () => {
       const turn = db.prepare('SELECT id FROM turns WHERE room_id = ? AND number = ?').get(room.roomId, 1) as { id: string };
       db.prepare('INSERT INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run('runtime-action', room.roomId, turn.id, player.playerId, 'I follow the runtime script.', new Date().toISOString(), 'submitted');
+      await fetch(`${base}/api/admin/rooms/${room.roomId}`);
 
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(200);
       expect(capturedPrompt).toContain('核心约束：处理回合来自全局预设。');
       expect(capturedPrompt).toContain('输出格式：处理回合默认预设 JSON。');
@@ -1758,7 +1950,7 @@ describe('DND AI-DM integration', () => {
       });
       expect(actionRes.status).toBe(200);
 
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(200);
 
       const stateRes = await fetch(`${base}/api/player/${player.token}/state`);
@@ -2276,11 +2468,8 @@ describe('DND AI-DM integration', () => {
     let stubCharId = '';
 
     const happyStub = await createOpenAiStub(() => {
-      const result = {
+      const result = aiTurnResult({
         publicLog: '强盗挥刀砍中了你，造成4点伤害。',
-        privateUpdatesByPlayer: {},
-        ruleResults: [],
-        interactionRequests: [],
         characterResourceChanges: [{
           characterId: stubCharId,
           path: 'hitPoints.current',
@@ -2307,7 +2496,7 @@ describe('DND AI-DM integration', () => {
           reason: '施放侦测魔法',
           ruleRefs: ['PHB Spellcasting']
         }]
-      };
+      });
       return { body: { choices: [{ message: { content: JSON.stringify(result) } }] } };
     });
 
@@ -2376,7 +2565,7 @@ describe('DND AI-DM integration', () => {
       expect(actionRes.status).toBe(200);
 
       // Process turn
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(200);
       const processResult = await processRes.json() as { result: { publicLog: string } };
       expect(processResult.result.publicLog).toContain('强盗挥刀砍中了你');
@@ -2413,11 +2602,8 @@ describe('DND AI-DM integration', () => {
 
       // --- Negative case: invalid characterId rejected, turn still succeeds ---
       const badCharStub = await createOpenAiStub(() => {
-        const result = {
+        const result = aiTurnResult({
           publicLog: '测试非法角色ID。',
-          privateUpdatesByPlayer: {},
-          ruleResults: [],
-          interactionRequests: [],
           characterResourceChanges: [{
             characterId: 'nonexistent-char-id',
             path: 'hitPoints.current',
@@ -2426,7 +2612,7 @@ describe('DND AI-DM integration', () => {
             reason: '非法角色',
             ruleRefs: ['PHB p.194']
           }]
-        };
+        });
         return { body: { choices: [{ message: { content: JSON.stringify(result) } }] } };
       });
 
@@ -2478,7 +2664,7 @@ describe('DND AI-DM integration', () => {
         body: JSON.stringify({ text: '我攻击非法目标。' })
       });
 
-      const badProcessRes = await fetch(`${base}/api/admin/rooms/${badRoom.roomId}/process-turn`, { method: 'POST' });
+      const badProcessRes = await fetch(`${base}/api/admin/rooms/${badRoom.roomId}/process-turn`, legacyProcessTurnInit);
       // Turn should still succeed (invalid patches are logged, not thrown)
       expect(badProcessRes.status).toBe(200);
 
@@ -2497,11 +2683,8 @@ describe('DND AI-DM integration', () => {
       // --- Negative case: invalid before value rejected ---
       let badBeforeCharId = '';
       const badBeforeStub = await createOpenAiStub(() => {
-        const result = {
+        const result = aiTurnResult({
           publicLog: '测试非法 before 值。',
-          privateUpdatesByPlayer: {},
-          ruleResults: [],
-          interactionRequests: [],
           characterResourceChanges: [{
             characterId: badBeforeCharId,
             path: 'hitPoints.current',
@@ -2510,7 +2693,7 @@ describe('DND AI-DM integration', () => {
             reason: '错误before',
             ruleRefs: ['PHB p.194']
           }]
-        };
+        });
         return { body: { choices: [{ message: { content: JSON.stringify(result) } }] } };
       });
 
@@ -2564,7 +2747,7 @@ describe('DND AI-DM integration', () => {
         body: JSON.stringify({ text: '我攻击带着错误before的敌人。' })
       });
 
-      const badBeforeProcessRes = await fetch(`${base}/api/admin/rooms/${badBeforeRoom.roomId}/process-turn`, { method: 'POST' });
+      const badBeforeProcessRes = await fetch(`${base}/api/admin/rooms/${badBeforeRoom.roomId}/process-turn`, legacyProcessTurnInit);
       // Turn should still succeed
       expect(badBeforeProcessRes.status).toBe(200);
 
@@ -2599,19 +2782,17 @@ describe('DND AI-DM integration', () => {
     let diceCharId = '';
 
     const stub = await createOpenAiStub(() => {
-      const result = {
+      const result = aiTurnResult({
         publicLog: '你尝试推开沉重的石门。',
-        privateUpdatesByPlayer: {},
-        ruleResults: [],
-        interactionRequests: [],
         diceRequests: [{
           characterId: diceCharId,
           type: 'abilityCheck',
           ability: 'str',
           dc: 15,
+          modifier: null,
           reason: '推开石门'
         }]
-      };
+      });
       return { body: { choices: [{ message: { content: JSON.stringify(result) } }] } };
     });
 
@@ -2672,7 +2853,7 @@ describe('DND AI-DM integration', () => {
       });
       expect(actionRes.status).toBe(200);
 
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(200);
       const processResult = await processRes.json() as { result: { publicLog: string } };
 
@@ -2713,6 +2894,109 @@ describe('DND AI-DM integration', () => {
       // The total should be plausible: d20 + modifier (str 15 → mod +2)
       expect(genOutput.diceResults![0].total).toBeGreaterThanOrEqual(3); // min roll 1 + mod 2
       expect(genOutput.diceResults![0].total).toBeLessThanOrEqual(22); // max roll 20 + mod 2
+
+      const playerStateRes = await fetch(`${base}/api/player/${player.token}/state`);
+      const playerState = await playerStateRes.json() as { recentDiceLogs?: Array<{ die: string; reason: string; playerName: string; createdAt: string }> };
+      expect(playerState.recentDiceLogs?.[0]).toMatchObject({
+        die: 'abilityCheck',
+        reason: '推开石门',
+        playerName: '掷骰玩家'
+      });
+      expect(playerState.recentDiceLogs?.[0].createdAt).toBeTruthy();
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await stub.close();
+      db.close();
+    }
+  });
+
+  it('ignores AI dice requests with characterId outside the current room', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    const stub = await createOpenAiStub(() => ({
+      body: {
+        choices: [{
+          message: {
+            content: JSON.stringify(aiTurnResult({
+              publicLog: '你尝试检查门锁。',
+              diceRequests: [{
+                characterId: 'not-in-this-room',
+                type: 'skillCheck',
+                ability: 'dex',
+                skill: 'sleight-of-hand',
+                dc: 15,
+                modifier: null,
+                reason: '检查门锁'
+              }]
+            }))
+          }
+        }]
+      }
+    }));
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Invalid Dice Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+      const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Rogue' })
+      });
+      const player = await playerRes.json() as { token: string };
+
+      await fetch(`${base}/api/admin/config/ai-provider`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai-compatible', baseUrl: stub.baseUrl, apiKey: 'dice-key', model: 'dice-model' })
+      });
+
+      const actionRes = await fetch(`${base}/api/player/${player.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '我检查门锁。' })
+      });
+      expect(actionRes.status).toBe(200);
+
+      const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(previewRes.status).toBe(200);
+      const preview = await previewRes.json() as { previewId: string; flatPrompt: string };
+
+      const sendRes = await fetch(`${base}/api/admin/ai/send-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId, flatPrompt: preview.flatPrompt })
+      });
+      expect(sendRes.status).toBe(200);
+      const sent = await sendRes.json() as { warnings: string[] };
+      expect(sent.warnings).toContain("diceRequests[0].characterId 'not-in-this-room' 不属于当前房间，已忽略该骰点请求。");
+
+      const applyRes = await fetch(`${base}/api/admin/ai/apply-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId })
+      });
+      expect(applyRes.status).toBe(200);
+      const applied = await applyRes.json() as { warnings: string[] };
+      expect(applied.warnings).toContain("diceRequests[0].characterId 'not-in-this-room' 不属于当前房间，已忽略该骰点请求。");
+
+      const diceLogCount = db.prepare('SELECT COUNT(*) as count FROM dice_logs WHERE room_id = ?').get(room.roomId) as { count: number };
+      expect(diceLogCount.count).toBe(0);
+      const publicLogs = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND visibility_scope = ?').all(room.roomId, 'public') as Array<{ content: string }>;
+      expect(publicLogs.map((log) => log.content).join('\n')).not.toContain('系统骰点');
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await stub.close();
@@ -2864,7 +3148,7 @@ describe('DND AI-DM integration', () => {
     seedBuiltinRules(db);
 
     let callCount = 0;
-    const normalResult = { publicLog: '战斗开始', privateUpdatesByPlayer: {}, ruleResults: [], interactionRequests: [] };
+    const normalResult = aiTurnResult({ publicLog: '战斗开始' });
     const summaryJson = {
       summary: '队伍击败地精，发现秘密通道。',
       questUpdates: [{ title: '调查矿井', status: 'in_progress', description: '' }],
@@ -2941,7 +3225,7 @@ describe('DND AI-DM integration', () => {
         });
         expect(actionRes.status).toBe(200);
 
-        const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+        const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
         expect(processRes.status).toBe(200);
       }
 
@@ -2949,18 +3233,21 @@ describe('DND AI-DM integration', () => {
       const summaryCount = db.prepare('SELECT COUNT(*) as count FROM session_summaries').get() as { count: number };
       expect(summaryCount.count).toBe(1);
 
-      // Verify quest/npc/location upsert
+      // Verify summary suggestions are archived, but do not automatically become long-term campaign facts.
       const questCount = db.prepare('SELECT COUNT(*) as count FROM campaign_quests').get() as { count: number };
-      expect(questCount.count).toBe(1);
-      const quest = db.prepare('SELECT title, status FROM campaign_quests WHERE room_id = ?').get(room.roomId) as { title: string; status: string };
-      expect(quest.title).toBe('调查矿井');
-      expect(quest.status).toBe('in_progress');
+      expect(questCount.count).toBe(0);
 
       const npcCount = db.prepare('SELECT COUNT(*) as count FROM campaign_npcs').get() as { count: number };
-      expect(npcCount.count).toBe(1);
+      expect(npcCount.count).toBe(0);
 
       const locationCount = db.prepare('SELECT COUNT(*) as count FROM campaign_locations').get() as { count: number };
-      expect(locationCount.count).toBe(1);
+      expect(locationCount.count).toBe(0);
+
+      const summaryRow = db.prepare('SELECT quest_updates_json as questUpdatesJson, npc_updates_json as npcUpdatesJson, location_updates_json as locationUpdatesJson FROM session_summaries WHERE room_id = ?')
+        .get(room.roomId) as { questUpdatesJson: string; npcUpdatesJson: string; locationUpdatesJson: string };
+      expect(JSON.parse(summaryRow.questUpdatesJson)).toEqual(summaryJson.questUpdates);
+      expect(JSON.parse(summaryRow.npcUpdatesJson)).toEqual(summaryJson.npcUpdates);
+      expect(JSON.parse(summaryRow.locationUpdatesJson)).toEqual(summaryJson.locationUpdates);
 
       // Verify ai_generations has summary generation record (5 turn gens + 1 summary gen = 6)
       const aiGenCount = db.prepare('SELECT COUNT(*) as count FROM ai_generations WHERE room_id = ?').get(room.roomId) as { count: number };
@@ -2971,12 +3258,11 @@ describe('DND AI-DM integration', () => {
       expect(previewRes.status).toBe(200);
       const preview = await previewRes.json() as { prompt: string };
       expect(preview.prompt).toContain('# 战役记忆');
-      expect(preview.prompt).toContain('## 进行中任务');
-      expect(preview.prompt).toContain('调查矿井');
-      expect(preview.prompt).toContain('## 已知 NPC');
-      expect(preview.prompt).toContain('格拉克');
-      expect(preview.prompt).toContain('## 已探索地点');
-      expect(preview.prompt).toContain('废弃矿井');
+      expect(preview.prompt).toContain('## 最近事件');
+      expect(preview.prompt).toContain('队伍击败地精，发现秘密通道。');
+      expect(preview.prompt).not.toContain('## 进行中任务');
+      expect(preview.prompt).not.toContain('## 已知 NPC');
+      expect(preview.prompt).not.toContain('## 已探索地点');
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await stub.close();
@@ -3062,6 +3348,7 @@ describe('DND AI-DM integration', () => {
       const turn1 = db.prepare('SELECT id FROM turns WHERE room_id = ? AND number = ?').get(room.roomId, 1) as { id: string };
       db.prepare('INSERT INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run('turn-1-action', room.roomId, turn1.id, player.playerId, 'I open the door.', new Date().toISOString(), 'submitted');
+      await fetch(`${base}/api/admin/rooms/${room.roomId}`);
       const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -3076,6 +3363,7 @@ describe('DND AI-DM integration', () => {
       db.prepare('UPDATE rooms SET current_turn = ? WHERE id = ?').run(2, room.roomId);
       db.prepare('INSERT INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run('turn-2-action', room.roomId, turn2Id, player.playerId, 'I listen.', new Date().toISOString(), 'submitted');
+      await fetch(`${base}/api/admin/rooms/${room.roomId}`);
 
       const sendRes = await fetch(`${base}/api/admin/ai/send-preview`, {
         method: 'POST',
@@ -3097,26 +3385,25 @@ describe('DND AI-DM integration', () => {
     migrate(db);
     seedBuiltinRules(db);
     let capturedPrompt = '';
+    let stubCharId = '';
     const stub = await createOpenAiStub((body) => {
       capturedPrompt = body.messages?.find((message: { role?: string; content?: string }) => message.role === 'user')?.content ?? '';
       return {
         body: {
           choices: [{
             message: {
-              content: JSON.stringify({
+              content: JSON.stringify(aiTurnResult({
                 publicLog: 'The edited prompt was accepted.',
-                privateUpdatesByPlayer: {},
                 ruleResults: ['No conflict.'],
-                interactionRequests: [],
                 characterResourceChanges: [{
-                  characterId: 'char-1',
+                  characterId: stubCharId,
                   path: 'hitPoints.current',
                   before: 12,
                   after: 10,
                   reason: 'test suggestion',
                   ruleRefs: []
                 }]
-              })
+              }))
             }
           }]
         }
@@ -3141,9 +3428,33 @@ describe('DND AI-DM integration', () => {
         body: JSON.stringify({ name: 'Ari' })
       });
       const player = await playerRes.json() as { playerId: string };
+      const charRow = db.prepare(
+        'SELECT c.id FROM characters c JOIN players p ON c.player_id = p.id WHERE p.id = ?'
+      ).get(player.playerId) as { id: string };
+      stubCharId = charRow.id;
+      const sheet = {
+        name: 'Ari',
+        species: '人类',
+        className: '战士',
+        level: 1,
+        abilityScores: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 },
+        hitPoints: { current: 12, max: 12 },
+        resources: {
+          hitPoints: { current: 12, max: 12, temp: 0 },
+          hitDice: { total: 1, remaining: 1, die: 'd10' },
+          spellSlots: {},
+          ammo: [],
+          consumables: [],
+          currency: { gp: 0, sp: 0, cp: 0 },
+          conditions: []
+        }
+      };
+      db.prepare('UPDATE characters SET confirmed = 1, sheet_json = ? WHERE id = ?')
+        .run(JSON.stringify(sheet), stubCharId);
       const turn = db.prepare('SELECT id, status FROM turns WHERE room_id = ? AND number = ?').get(room.roomId, 1) as { id: string; status: string };
       db.prepare('INSERT INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run('preview-action', room.roomId, turn.id, player.playerId, 'I check the old door.', new Date().toISOString(), 'submitted');
+      await fetch(`${base}/api/admin/rooms/${room.roomId}`);
 
       const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
         method: 'POST',
@@ -3180,7 +3491,7 @@ describe('DND AI-DM integration', () => {
       const sent = await sendRes.json() as { responseText: string; suggestedStateChanges: Array<{ type: string }>; applied: boolean };
       expect(sent.responseText).toBe('The edited prompt was accepted.');
       expect(sent.suggestedStateChanges).toEqual(expect.arrayContaining([expect.objectContaining({ type: 'character_resource_change' })]));
-      expect(sent.applied).toBe(true);
+      expect(sent.applied).toBe(false);
       expect(capturedPrompt).toContain('DM edit: make the door ominous.');
 
       const previewAudit = db.prepare('SELECT original_prompt as originalPrompt, edited_prompt as editedPrompt, response_text as responseText, status FROM ai_turn_previews WHERE id = ?')
@@ -3190,10 +3501,33 @@ describe('DND AI-DM integration', () => {
       expect(previewAudit.responseText).toBe('The edited prompt was accepted.');
       expect(previewAudit.status).toBe('sent');
 
+      const logsAfterSend = db.prepare('SELECT COUNT(*) as count FROM log_entries WHERE room_id = ?').get(room.roomId) as { count: number };
+      const turnAfterSend = db.prepare('SELECT status FROM turns WHERE id = ?').get(turn.id) as { status: string };
+      const roomAfterSend = db.prepare('SELECT current_turn as currentTurn, status FROM rooms WHERE id = ?').get(room.roomId) as { currentTurn: number; status: string };
+      const generationsAfterSend = db.prepare('SELECT COUNT(*) as count FROM ai_generations WHERE room_id = ?').get(room.roomId) as { count: number };
+      expect(logsAfterSend.count).toBe(logsBefore.count);
+      expect(turnAfterSend.status).toBe('ready_to_resolve');
+      expect(roomAfterSend).toMatchObject({ currentTurn: 1, status: 'ready_to_resolve' });
+      expect(generationsAfterSend.count).toBe(0);
+
+      const applyRes = await fetch(`${base}/api/admin/ai/apply-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomId: room.roomId,
+          previewId: preview.previewId,
+          confirmedCharacterResourceChangeIndexes: [0]
+        })
+      });
+      expect(applyRes.status).toBe(200);
+      const applied = await applyRes.json() as { applied: boolean };
+      expect(applied.applied).toBe(true);
+
       const logsAfter = db.prepare('SELECT COUNT(*) as count FROM log_entries WHERE room_id = ?').get(room.roomId) as { count: number };
       const turnAfter = db.prepare('SELECT status FROM turns WHERE id = ?').get(turn.id) as { status: string };
       const roomAfter = db.prepare('SELECT current_turn as currentTurn, status FROM rooms WHERE id = ?').get(room.roomId) as { currentTurn: number; status: string };
       const generationsAfter = db.prepare('SELECT COUNT(*) as count FROM ai_generations WHERE room_id = ?').get(room.roomId) as { count: number };
+      const resourceChangesAfter = db.prepare('SELECT COUNT(*) as count FROM character_resource_changes WHERE room_id = ?').get(room.roomId) as { count: number };
       const materializedLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at DESC LIMIT 1')
         .get(room.roomId, 'public') as { content: string };
       const materializedObjectiveLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at DESC LIMIT 1')
@@ -3204,6 +3538,368 @@ describe('DND AI-DM integration', () => {
       expect(turnAfter.status).toBe('complete');
       expect(roomAfter).toMatchObject({ currentTurn: 2, status: 'waiting_for_actions' });
       expect(generationsAfter.count).toBe(1);
+      expect(resourceChangesAfter.count).toBe(1);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await stub.close();
+      db.close();
+    }
+  });
+
+  it('ignores private AI updates keyed by player name and only writes playerId-keyed private logs', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    let validPlayerId = '';
+    const stub = await createOpenAiStub(() => ({
+      body: {
+        choices: [{
+          message: {
+            content: JSON.stringify(aiTurnResult({
+              publicLog: 'The scene remains quiet.',
+              privateUpdatesByPlayer: {
+                '托恩': 'This name-keyed secret must not be written.',
+                [validPlayerId]: 'This playerId-keyed secret is valid.'
+              }
+            }))
+          }
+        }]
+      }
+    }));
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Private Routing Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+      const ariRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '托恩' })
+      });
+      const ari = await ariRes.json() as { playerId: string; token: string };
+      validPlayerId = ari.playerId;
+      const boRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '托恩' })
+      });
+      const bo = await boRes.json() as { token: string };
+
+      await fetch(`${base}/api/player/${ari.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '我是谁？' })
+      });
+      await fetch(`${base}/api/player/${bo.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '观察四周' })
+      });
+
+      const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(previewRes.status).toBe(200);
+      const preview = await previewRes.json() as { previewId: string; flatPrompt: string };
+
+      await fetch(`${base}/api/admin/config/ai-provider`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai-compatible', baseUrl: stub.baseUrl, apiKey: 'preview-key', model: 'preview-model' })
+      });
+
+      const sendRes = await fetch(`${base}/api/admin/ai/send-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId, flatPrompt: preview.flatPrompt })
+      });
+      expect(sendRes.status).toBe(200);
+      const sent = await sendRes.json() as { warnings: string[] };
+      expect(sent.warnings).toContain('privateUpdatesByPlayer.托恩 未使用有效 playerId，已忽略。');
+
+      const applyRes = await fetch(`${base}/api/admin/ai/apply-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId })
+      });
+      expect(applyRes.status).toBe(200);
+      const applied = await applyRes.json() as { warnings: string[] };
+      expect(applied.warnings).toContain('privateUpdatesByPlayer.托恩 未使用有效 playerId，已忽略。');
+
+      const privateLogs = db.prepare('SELECT player_id as playerId, content FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at ASC')
+        .all(room.roomId, 'private') as Array<{ playerId: string; content: string }>;
+      expect(privateLogs).toEqual([{
+        playerId: validPlayerId,
+        content: 'This playerId-keyed secret is valid.'
+      }]);
+      expect(JSON.stringify(privateLogs)).not.toContain('name-keyed secret');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await stub.close();
+      db.close();
+    }
+  });
+
+  it('ignores AI interaction requests that do not use playerId references', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    let sourcePlayerId = '';
+    let targetPlayerId = '';
+    const stub = await createOpenAiStub(() => ({
+      body: {
+        choices: [{
+          message: {
+            content: JSON.stringify(aiTurnResult({
+              publicLog: 'A player choice is needed.',
+              interactionRequests: [
+                {
+                  sourcePlayerId: '托恩',
+                  targetPlayerId: '托恩',
+                  type: 'confirm',
+                  prompt: 'This name-keyed interaction must be ignored.'
+                },
+                {
+                  sourcePlayerId,
+                  targetPlayerId,
+                  type: 'confirm',
+                  prompt: 'Do you accept the offered rope?'
+                }
+              ]
+            }))
+          }
+        }]
+      }
+    }));
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Interaction Routing Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+      const sourceRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '托恩' })
+      });
+      const source = await sourceRes.json() as { playerId: string; token: string };
+      sourcePlayerId = source.playerId;
+      const targetRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '托恩' })
+      });
+      const target = await targetRes.json() as { playerId: string; token: string };
+      targetPlayerId = target.playerId;
+
+      await fetch(`${base}/api/player/${source.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '我把绳子递给同伴。' })
+      });
+      await fetch(`${base}/api/player/${target.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '我等待对方行动。' })
+      });
+
+      const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(previewRes.status).toBe(200);
+      const preview = await previewRes.json() as { previewId: string; flatPrompt: string };
+
+      await fetch(`${base}/api/admin/config/ai-provider`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai-compatible', baseUrl: stub.baseUrl, apiKey: 'preview-key', model: 'preview-model' })
+      });
+
+      const sendRes = await fetch(`${base}/api/admin/ai/send-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId, flatPrompt: preview.flatPrompt })
+      });
+      expect(sendRes.status).toBe(200);
+      const sent = await sendRes.json() as { warnings: string[] };
+      expect(sent.warnings).toEqual(expect.arrayContaining([
+        'interactionRequests[0].sourcePlayerId 未使用有效 playerId，已忽略该互动请求。',
+        'interactionRequests[0].targetPlayerId 未使用有效 playerId，已忽略该互动请求。'
+      ]));
+
+      const applyRes = await fetch(`${base}/api/admin/ai/apply-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId })
+      });
+      expect(applyRes.status).toBe(200);
+      const applied = await applyRes.json() as { warnings: string[] };
+      expect(applied.warnings).toEqual(expect.arrayContaining([
+        'interactionRequests[0].sourcePlayerId 未使用有效 playerId，已忽略该互动请求。',
+        'interactionRequests[0].targetPlayerId 未使用有效 playerId，已忽略该互动请求。'
+      ]));
+
+      const interactions = db.prepare('SELECT source_player_id as sourcePlayerId, target_player_id as targetPlayerId, prompt FROM interaction_requests WHERE room_id = ?')
+        .all(room.roomId) as Array<{ sourcePlayerId: string; targetPlayerId: string; prompt: string }>;
+      expect(interactions).toEqual([{
+        sourcePlayerId,
+        targetPlayerId,
+        prompt: 'Do you accept the offered rope?'
+      }]);
+      expect(JSON.stringify(interactions)).not.toContain('name-keyed interaction');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await stub.close();
+      db.close();
+    }
+  });
+
+  it('keeps the current turn waiting while AI interaction requests need player response', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    let sourcePlayerId = '';
+    let targetPlayerId = '';
+    const stub = await createOpenAiStub(() => {
+      const result = aiTurnResult({
+        objectiveLog: '需要目标玩家确认是否接受绳子。',
+        publicLog: '同伴递出绳子，等待回应。',
+        interactionRequests: [{
+          sourcePlayerId,
+          targetPlayerId,
+          type: 'consent',
+          prompt: '你是否接受递来的绳子？'
+        }]
+      });
+      return { body: { choices: [{ message: { content: JSON.stringify(result) } }] } };
+    });
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Interaction State Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+      const sourceRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'A' })
+      });
+      const source = await sourceRes.json() as { playerId: string; token: string };
+      sourcePlayerId = source.playerId;
+      const targetRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'B' })
+      });
+      const target = await targetRes.json() as { playerId: string; token: string };
+      targetPlayerId = target.playerId;
+
+      await fetch(`${base}/api/player/${source.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '我把绳子递给B。' })
+      });
+      await fetch(`${base}/api/player/${target.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '我等待对方行动。' })
+      });
+      await fetch(`${base}/api/admin/config/ai-provider`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai-compatible', baseUrl: stub.baseUrl, apiKey: 'preview-key', model: 'preview-model' })
+      });
+
+      const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(previewRes.status).toBe(200);
+      const preview = await previewRes.json() as { previewId: string; flatPrompt: string };
+      const sendRes = await fetch(`${base}/api/admin/ai/send-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId, flatPrompt: preview.flatPrompt })
+      });
+      expect(sendRes.status).toBe(200);
+      const applyRes = await fetch(`${base}/api/admin/ai/apply-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId })
+      });
+      expect(applyRes.status).toBe(200);
+
+      const roomState = db.prepare('SELECT current_turn as currentTurn, status FROM rooms WHERE id = ?')
+        .get(room.roomId) as { currentTurn: number; status: string };
+      const turnState = db.prepare('SELECT id, status FROM turns WHERE room_id = ? AND number = 1')
+        .get(room.roomId) as { id: string; status: string };
+      const nextTurn = db.prepare('SELECT id FROM turns WHERE room_id = ? AND number = 2').get(room.roomId);
+      expect(roomState).toEqual({ currentTurn: 1, status: 'waiting_for_interaction' });
+      expect(turnState.status).toBe('waiting_for_interaction');
+      expect(nextTurn).toBeUndefined();
+
+      const lockedActionRes = await fetch(`${base}/api/player/${target.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '我先做下一步行动。' })
+      });
+      expect(lockedActionRes.status).toBe(409);
+      const lockedAction = await lockedActionRes.json() as { error: string; roomStatus: string; turnStatus: string };
+      expect(lockedAction.error).toBe('ACTIONS_CLOSED');
+      expect(lockedAction.roomStatus).toBe('waiting_for_interaction');
+      expect(lockedAction.turnStatus).toBe('waiting_for_interaction');
+
+      const interaction = db.prepare('SELECT id, status FROM interaction_requests WHERE room_id = ?')
+        .get(room.roomId) as { id: string; status: string };
+      expect(interaction.status).toBe('pending_target');
+      const responseRes = await fetch(`${base}/api/player/${target.token}/interactions/${interaction.id}/respond`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ response: '我接受绳子。' })
+      });
+      expect(responseRes.status).toBe(200);
+
+      const readyRoom = db.prepare('SELECT status FROM rooms WHERE id = ?').get(room.roomId) as { status: string };
+      const readyTurn = db.prepare('SELECT status FROM turns WHERE id = ?').get(turnState.id) as { status: string };
+      expect(readyRoom.status).toBe('ready_to_resolve');
+      expect(readyTurn.status).toBe('ready_to_resolve');
+
+      const followupPreviewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(followupPreviewRes.status).toBe(200);
+      const followupPreview = await followupPreviewRes.json() as { flatPrompt: string };
+      expect(followupPreview.flatPrompt).toContain('status=ready_for_ai');
+      expect(followupPreview.flatPrompt).toContain('targetResponse=我接受绳子。');
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await stub.close();
@@ -3237,6 +3933,7 @@ describe('DND AI-DM integration', () => {
       const turn = db.prepare('SELECT id FROM turns WHERE room_id = ? AND number = ?').get(room.roomId, 1) as { id: string };
       db.prepare('INSERT INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run('draft-action', room.roomId, turn.id, player.playerId, 'I look around.', new Date().toISOString(), 'submitted');
+      await fetch(`${base}/api/admin/rooms/${room.roomId}`);
       const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -3257,19 +3954,17 @@ describe('DND AI-DM integration', () => {
     migrate(db);
     seedBuiltinRules(db);
 
-    const resultJson = {
+    const resultJson = aiTurnResult({
       publicLog: '艾拉尝试潜行穿过走廊。',
-      privateUpdatesByPlayer: {},
-      ruleResults: [],
-      interactionRequests: [],
       diceRequests: [{
         type: 'skillCheck' as const,
         ability: 'dex' as const,
         skill: 'stealth',
         dc: 12,
+        modifier: null,
         reason: '潜行检定'
       }]
-    };
+    });
 
     const stub = await createOpenAiStub(() => ({
       body: { choices: [{ message: { content: JSON.stringify(resultJson) } }] }
@@ -3321,7 +4016,7 @@ describe('DND AI-DM integration', () => {
       });
 
       // Process turn
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(200);
 
       // Verify dice logs were created
@@ -3396,21 +4091,19 @@ describe('DND AI-DM integration', () => {
       ).run(npcId, room.roomId, '守卫队长', 20, 20, 16, 14, 12, 14, 10, 12, 10, now);
 
       // Build result JSON with characterId for hidden roll routing
-      const resultJson = {
+      const resultJson = aiTurnResult({
         publicLog: '洛林试图说服守卫放行。',
-        privateUpdatesByPlayer: {},
-        ruleResults: [],
-        interactionRequests: [],
         diceRequests: [{
           characterId: charRow.id,
           type: 'skillCheck' as const,
           ability: 'cha' as const,
           skill: 'persuasion',
           dc: 15,
+          modifier: null,
           reason: '说服检定（守卫）',
           isHidden: true
         }]
-      };
+      });
 
       stub = await createOpenAiStub(() => ({
         body: { choices: [{ message: { content: JSON.stringify(resultJson) } }] }
@@ -3428,7 +4121,7 @@ describe('DND AI-DM integration', () => {
       });
 
       // Process turn
-      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, { method: 'POST' });
+      const processRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/process-turn`, legacyProcessTurnInit);
       expect(processRes.status).toBe(200);
 
       // Verify hidden dice log was created

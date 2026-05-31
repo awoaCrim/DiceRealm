@@ -5,6 +5,7 @@ export type RoomStatus = 'setup' | 'waiting_for_actions' | 'ready_to_resolve' | 
 export type TurnStatus = 'open' | 'waiting_for_actions' | 'ready_to_resolve' | 'locked' | 'processing' | 'resolving' | 'waiting_for_interaction' | 'complete' | 'resolved' | 'needs_admin_attention';
 export type ActionStatus = 'submitted' | 'processing' | 'complete';
 export type VisibilityScope = 'objective' | 'public' | 'private' | 'admin';
+export type ActionVisibility = 'public' | 'private' | 'dm_only';
 export type InteractionStatus = 'pending_target' | 'ready_for_ai' | 'resolved';
 export type PromptBlockRole = 'system' | 'user' | 'assistant';
 export type PromptBlockPosition = 'before_world' | 'after_world' | 'before_actions' | 'after_actions' | 'final';
@@ -191,6 +192,7 @@ export interface Turn {
 
 export interface TurnReadiness {
   turnId: string | null;
+  roomStatus: RoomStatus | null;
   status: TurnStatus | null;
   requiredActorIds: string[];
   submittedActorIds: string[];
@@ -210,6 +212,7 @@ export interface PlayerAction {
   submittedAt: string;
   status: ActionStatus;
   actionType?: 'narrative' | 'exploration' | 'social' | 'combat' | 'ooc' | 'in_character_action' | 'player_question' | 'meta_question' | 'observe' | 'wait' | 'skip' | 'ready' | 'follow' | 'combat_action';
+  visibility?: ActionVisibility;
   isHiddenRoll?: boolean;
 }
 
@@ -264,7 +267,7 @@ export interface PlayerVisibleState {
   recentDiceLogs?: DiceLogEntry[];
   campaignSummary?: SessionSummary | null;
   quests?: CampaignQuest[];
-  npcs?: CampaignNpc[];
+  npcs?: Array<Omit<CampaignNpc, 'notes'>>;
 }
 
 export interface CharacterResources {
@@ -644,6 +647,7 @@ export interface AiTurnPromptSendResponse {
   raw: JsonValue;
   applied?: boolean;
   resourceErrors?: string[];
+  warnings?: string[];
 }
 
 export interface CharacterResourceChange {
@@ -757,11 +761,12 @@ export interface DiceLogsResponse {
 export interface CombatParticipant {
   id: string;
   name: string;
-  hp: number;
-  maxHp: number;
-  ac: number;
+  hp: number | null;
+  maxHp: number | null;
+  ac: number | null;
   initiative: number | null;
   isNpc: boolean;
+  healthLabel: 'healthy' | 'injured' | 'bloodied' | 'defeated' | 'unknown';
 }
 
 export interface CombatState {
@@ -770,7 +775,7 @@ export interface CombatState {
   participants: CombatParticipant[];
   currentTurnIndex: number;
   round: number;
-  status: 'active' | 'ended';
+  status: 'active' | 'paused' | 'ended';
 }
 
 export interface CombatStartInput {

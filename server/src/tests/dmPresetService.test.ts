@@ -36,6 +36,7 @@ describe('DM Preset Service', () => {
     for (const template of PRESET_TEMPLATES) {
       expect(template.type).toBeTruthy();
       expect(template.blocks.length).toBeGreaterThan(0);
+      expect(template.blocks.some((block) => block.name === '剧情字数限制' && block.content.includes('objectiveLog：最多 300'))).toBe(true);
       for (const block of template.blocks) {
         expect(block.category).toBeTruthy();
         expect(block.content).toBeTruthy();

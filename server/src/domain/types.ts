@@ -2,6 +2,7 @@ export type RoomStatus = 'setup' | 'waiting_for_actions' | 'ready_to_resolve' | 
 export type TurnStatus = 'open' | 'waiting_for_actions' | 'ready_to_resolve' | 'locked' | 'processing' | 'resolving' | 'waiting_for_interaction' | 'complete' | 'resolved' | 'needs_admin_attention';
 export type ActionStatus = 'submitted' | 'processing' | 'complete';
 export type VisibilityScope = 'objective' | 'public' | 'private' | 'admin';
+export type ActionVisibility = 'public' | 'private' | 'dm_only';
 export type InteractionStatus = 'pending_target' | 'ready_for_ai' | 'resolved';
 export type PromptBlockRole = 'system' | 'user' | 'assistant';
 export type PromptBlockPosition = 'before_world' | 'after_world' | 'before_actions' | 'after_actions' | 'final';
@@ -302,6 +303,7 @@ export interface AiTurnPromptSendResponse {
   raw: AiTurnResult;
   applied?: boolean;
   resourceErrors?: string[];
+  warnings?: string[];
 }
 
 export interface Room {
@@ -390,6 +392,7 @@ export interface PlayerAction {
   submittedAt: string;
   status: ActionStatus;
   actionType?: 'narrative' | 'exploration' | 'social' | 'combat' | 'ooc' | 'in_character_action' | 'player_question' | 'meta_question' | 'observe' | 'wait' | 'skip' | 'ready' | 'follow' | 'combat_action';
+  visibility?: ActionVisibility;
   isHiddenRoll?: boolean;
 }
 
@@ -628,11 +631,11 @@ export interface PlayerVisibleState {
   ruleSummaries: RuleSummary[];
   resources?: CharacterResources;
   recentChanges?: Array<{ id: string; changeType: string; path: string; before: unknown; after: unknown; reason: string; createdAt: string }>;
-  combatState?: CombatState;
-  recentDiceLogs?: DiceLog[];
+  combatState?: PlayerVisibleCombatState;
+  recentDiceLogs?: PlayerVisibleDiceLog[];
   campaignSummary?: SessionSummary | null;
   quests?: CampaignQuest[];
-  npcs?: CampaignNpc[];
+  npcs?: Array<Omit<CampaignNpc, 'notes'>>;
 }
 
 export interface AdminState {
@@ -711,6 +714,8 @@ export interface AiTurnResult {
     modifier?: number | null;
     advantage?: 'advantage' | 'disadvantage' | 'none';
     reason: string;
+    publicReason?: string;
+    objectiveReason?: string;
     isHidden?: boolean;
   }>;
   diceResults?: Array<DiceLog>;
@@ -738,6 +743,26 @@ export interface CombatState {
   startedAt: string;
 }
 
+export interface PlayerVisibleCombatParticipant {
+  id: string;
+  name: string;
+  hp: number | null;
+  maxHp: number | null;
+  ac: number | null;
+  initiative: number | null;
+  isNpc: boolean;
+  healthLabel: 'healthy' | 'injured' | 'bloodied' | 'defeated' | 'unknown';
+}
+
+export interface PlayerVisibleCombatState {
+  id: string;
+  roomId: string;
+  participants: PlayerVisibleCombatParticipant[];
+  currentTurnIndex: number;
+  round: number;
+  status: CombatState['status'];
+}
+
 export interface DiceLog {
   id: string;
   roomId: string;
@@ -752,7 +777,22 @@ export interface DiceLog {
   success: boolean | null;
   isPublic: boolean;
   reason: string;
+  publicReason?: string;
+  objectiveReason?: string;
   timestamp: string;
+}
+
+export interface PlayerVisibleDiceLog {
+  id: string;
+  roomId: string;
+  playerName: string;
+  die: string;
+  values: number[];
+  modifier: number;
+  total: number;
+  reason: string;
+  success?: boolean;
+  createdAt: string;
 }
 
 export interface SessionSummary {

@@ -1,6 +1,6 @@
 import type { AiProviderConfig, AiTurnResult } from '../domain/types.js';
 
-const AI_PROVIDER_TIMEOUT_MS = 30_000;
+const AI_PROVIDER_TIMEOUT_MS = 120_000;
 const AI_PROVIDER_ERROR_BODY_MAX_CHARS = 1000;
 
 export interface AiProvider {
@@ -110,6 +110,51 @@ const requiredAiTurnFields = [
   'suggestedStateChanges',
   'characterResourceChanges'
 ];
+
+export const aiTurnLengthLimits = {
+  objectiveLog: 300,
+  publicLog: 300,
+  privateUpdate: 150,
+  ruleResult: 120,
+  interactionRequest: 120,
+  suggestedStateChangeReason: 120,
+  characterResourceChangeReason: 80,
+  diceRequestReason: 80
+} as const;
+
+function textLength(value: string): number {
+  return Array.from(value.trim()).length;
+}
+
+function pushLengthWarning(warnings: string[], label: string, value: string, max: number): void {
+  const current = textLength(value);
+  if (current > max) warnings.push(`${label} 长度 ${current}/${max}，超过上限。`);
+}
+
+export function validateAiTurnResultLengthWarnings(result: AiTurnResult): string[] {
+  const warnings: string[] = [];
+  pushLengthWarning(warnings, 'objectiveLog', result.objectiveLog ?? '', aiTurnLengthLimits.objectiveLog);
+  pushLengthWarning(warnings, 'publicLog', result.publicLog, aiTurnLengthLimits.publicLog);
+  for (const [playerId, content] of Object.entries(result.privateUpdatesByPlayer)) {
+    pushLengthWarning(warnings, `privateUpdatesByPlayer.${playerId}`, content, aiTurnLengthLimits.privateUpdate);
+  }
+  for (const [index, item] of result.ruleResults.entries()) {
+    pushLengthWarning(warnings, `ruleResults[${index}]`, item, aiTurnLengthLimits.ruleResult);
+  }
+  for (const [index, item] of result.interactionRequests.entries()) {
+    pushLengthWarning(warnings, `interactionRequests[${index}].prompt`, item.prompt, aiTurnLengthLimits.interactionRequest);
+  }
+  for (const [index, item] of (result.suggestedStateChanges ?? []).entries()) {
+    if (typeof item.reason === 'string') pushLengthWarning(warnings, `suggestedStateChanges[${index}].reason`, item.reason, aiTurnLengthLimits.suggestedStateChangeReason);
+  }
+  for (const [index, item] of (result.characterResourceChanges ?? []).entries()) {
+    pushLengthWarning(warnings, `characterResourceChanges[${index}].reason`, item.reason, aiTurnLengthLimits.characterResourceChangeReason);
+  }
+  for (const [index, item] of (result.diceRequests ?? []).entries()) {
+    pushLengthWarning(warnings, `diceRequests[${index}].reason`, item.reason, aiTurnLengthLimits.diceRequestReason);
+  }
+  return warnings;
+}
 
 function hasAnyField(value: Record<string, unknown>, keys: string[]): boolean {
   return keys.some((key) => key in value);

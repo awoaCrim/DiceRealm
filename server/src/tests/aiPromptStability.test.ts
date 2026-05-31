@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { buildTurnPrompt, renderDndOutputContract } from '../services/aiContextBuilder.js';
-import { validateAiTurnResult } from '../services/aiProvider.js';
+import { buildTurnPrompt, renderDndOutputContract, sanitizePublicDiceReason } from '../services/aiContextBuilder.js';
+import { validateAiTurnResult, validateAiTurnResultLengthWarnings } from '../services/aiProvider.js';
 import { matchWorldBookEntries } from '../services/worldBookService.js';
 import type { Player, PlayerAction, Room, WorldBookEntry } from '../domain/types.js';
 
@@ -59,6 +59,15 @@ describe('AI-DM prompt stability', () => {
     expect(renderDndOutputContract()).toContain('JSON 字段必须包含 objectiveLog、publicLog、privateUpdatesByPlayer、ruleResults、interactionRequests、diceRequests、suggestedStateChanges、characterResourceChanges');
   });
 
+  it('includes default narrative length limits in the output contract', () => {
+    const contract = renderDndOutputContract();
+
+    expect(contract).toContain('objectiveLog 最多 300 个中文字符');
+    expect(contract).toContain('publicLog 最多 300 个中文字符');
+    expect(contract).toContain('privateUpdatesByPlayer 每名玩家最多 150 个中文字符');
+    expect(contract).toContain('超过上限属于格式错误');
+  });
+
   it('accepts empty characterResourceChanges and diceRequests arrays', () => {
     const parsed = validateAiTurnResult({
       objectiveLog: '',
@@ -87,6 +96,34 @@ describe('AI-DM prompt stability', () => {
     }, { strictRequiredFields: true })).toThrow(/characterResourceChanges/);
   });
 
+  it('reports hard length limit warnings after parsing AI JSON', () => {
+    const parsed = validateAiTurnResult({
+      objectiveLog: '客'.repeat(301),
+      publicLog: '公'.repeat(301),
+      privateUpdatesByPlayer: { tk: '私'.repeat(151) },
+      ruleResults: ['规'.repeat(121)],
+      interactionRequests: [],
+      diceRequests: [{ type: 'skillCheck', reason: '骰'.repeat(81) }],
+      suggestedStateChanges: [{ reason: '状'.repeat(121) }],
+      characterResourceChanges: [{
+        characterId: 'char-1',
+        path: 'hitPoints.current',
+        before: 10,
+        after: 8,
+        reason: '资'.repeat(81),
+        ruleRefs: []
+      }]
+    }, { strictRequiredFields: true });
+
+    expect(validateAiTurnResultLengthWarnings(parsed)).toEqual(expect.arrayContaining([
+      'objectiveLog 长度 301/300，超过上限。',
+      'publicLog 长度 301/300，超过上限。',
+      'privateUpdatesByPlayer.tk 长度 151/150，超过上限。',
+      'ruleResults[0] 长度 121/120，超过上限。',
+      'diceRequests[0].reason 长度 81/80，超过上限。'
+    ]));
+  });
+
   it('includes action type next to submitted actions', () => {
     const prompt = buildTurnPrompt({
       room,
@@ -99,12 +136,51 @@ describe('AI-DM prompt stability', () => {
       interactions: []
     });
 
-    expect(prompt).toContain('tk [player_question]: 我是谁？');
-    expect(prompt).toContain('wk [observe]: 观察四周');
+    expect(prompt).toContain('tk [player_question, private]: 我是谁？');
+    expect(prompt).toContain('wk [observe, public]: 观察四周');
+  });
+
+  it('shows explicit action order and infers legacy narrative action types in prompt summaries', () => {
+    const prompt = buildTurnPrompt({
+      room,
+      players,
+      publicLogs: [],
+      actions: [
+        action({ playerId: 'wk', text: '观察四周', actionType: 'narrative', submittedAt: '2026-05-31T00:00:04.000Z' }),
+        action({ playerId: 'tk', text: '我是谁？', actionType: 'narrative', submittedAt: '2026-05-31T00:00:03.000Z' })
+      ],
+      interactions: []
+    });
+
+    expect(prompt).toContain('1. tk [player_question, private]: 我是谁？');
+    expect(prompt).toContain('2. wk [observe, public]: 观察四周');
+    expect(prompt.indexOf('1. tk [player_question, private]: 我是谁？')).toBeLessThan(prompt.indexOf('2. wk [observe, public]: 观察四周'));
+  });
+
+  it('contains private routing and public dice safety rules', () => {
+    const contract = renderDndOutputContract();
+
+    expect(contract).toContain('Private Update Routing');
+    expect(contract).toContain('key 必须是 playerId');
+    expect(contract).toContain('player_question/meta_question 默认只回复给提交者');
+    expect(contract).toContain('diceRequests.reason/publicReason 如果会进入公开日志，必须使用玩家安全描述');
+    expect(contract).toContain('不要写“发现地精伏兵失败”');
+  });
+
+  it('warns against expanding wait actions into invented posture or thoughts', () => {
+    expect(renderDndOutputContract()).toContain('“静观其变”只表示原地等待/观察');
   });
 
   it('tells the AI to use system-computed modifiers for character dice requests', () => {
     expect(renderDndOutputContract()).toContain('modifier 使用 null');
+  });
+
+  it('sanitizes public dice reasons that mention hidden ambushers', () => {
+    const reason = sanitizePublicDiceReason('发现林线中的地精伏兵');
+
+    expect(reason).toContain('隐藏威胁');
+    expect(reason).not.toContain('地精');
+    expect(reason).not.toContain('伏兵');
   });
 
   it('does not inject unrelated future campaign worldbook constants', () => {

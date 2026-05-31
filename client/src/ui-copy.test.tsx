@@ -56,6 +56,7 @@ vi.mock('./api', () => ({
     characters: [],
     turnReadiness: {
       turnId: 'turn-1',
+      roomStatus: 'ready_to_resolve',
       status: 'ready_to_resolve',
       requiredActorIds: [],
       submittedActorIds: [],
@@ -185,7 +186,48 @@ vi.mock('./api', () => ({
   sendAiTurnPreview: vi.fn(async () => ({
     responseText: 'AI narration result',
     suggestedStateChanges: [{ type: 'dice_request', reason: 'attack roll' }],
-    raw: { publicLog: 'AI narration result', privateUpdatesByPlayer: {}, ruleResults: [], interactionRequests: [] }
+    raw: {
+      objectiveLog: 'DM objective note',
+      publicLog: 'AI narration result',
+      privateUpdatesByPlayer: { 'player-1': 'Private clue' },
+      ruleResults: [],
+      interactionRequests: [],
+      diceRequests: [{ type: 'skillCheck', reason: 'attack roll' }],
+      suggestedStateChanges: [{ type: 'dice_request', reason: 'attack roll' }],
+      characterResourceChanges: [{
+        characterId: 'char-1',
+        path: 'hitPoints.current',
+        before: 12,
+        after: 10,
+        reason: 'damage',
+        ruleRefs: []
+      }]
+    },
+    applied: false,
+    warnings: ['publicLog 长度 320/300，超过上限。']
+  })),
+  applyAiTurnPreview: vi.fn(async () => ({
+    responseText: 'AI narration result',
+    suggestedStateChanges: [{ type: 'dice_request', reason: 'attack roll' }],
+    raw: {
+      objectiveLog: 'DM objective note',
+      publicLog: 'AI narration result',
+      privateUpdatesByPlayer: { 'player-1': 'Private clue' },
+      ruleResults: [],
+      interactionRequests: [],
+      diceRequests: [{ type: 'skillCheck', reason: 'attack roll' }],
+      suggestedStateChanges: [{ type: 'dice_request', reason: 'attack roll' }],
+      characterResourceChanges: [{
+        characterId: 'char-1',
+        path: 'hitPoints.current',
+        before: 12,
+        after: 10,
+        reason: 'damage',
+        ruleRefs: []
+      }]
+    },
+    applied: true,
+    warnings: ['publicLog 长度 320/300，超过上限。']
   })),
   getGlobalAiProviderConfig: vi.fn(async () => ({
     provider: 'mock',
@@ -284,8 +326,8 @@ vi.mock('./api', () => ({
     id: 'combat-1',
     roomId: 'room-1',
     participants: [
-      { id: 'c-1', name: '洛林', hp: 28, maxHp: 28, ac: 18, initiative: 12, isNpc: false },
-      { id: 'c-2', name: '哥布林', hp: 7, maxHp: 7, ac: 15, initiative: 18, isNpc: true }
+      { id: 'c-1', name: '洛林', hp: 28, maxHp: 28, ac: 18, initiative: 12, isNpc: false, healthLabel: 'healthy' },
+      { id: 'c-2', name: '哥布林', hp: null, maxHp: null, ac: null, initiative: 18, isNpc: true, healthLabel: 'healthy' }
     ],
     currentTurnIndex: 0,
     round: 1,
@@ -295,8 +337,8 @@ vi.mock('./api', () => ({
     id: 'combat-1',
     roomId: 'room-1',
     participants: [
-      { id: 'c-1', name: '洛林', hp: 28, maxHp: 28, ac: 18, initiative: 12, isNpc: false },
-      { id: 'c-2', name: '哥布林', hp: 7, maxHp: 7, ac: 15, initiative: 18, isNpc: true }
+      { id: 'c-1', name: '洛林', hp: 28, maxHp: 28, ac: 18, initiative: 12, isNpc: false, healthLabel: 'healthy' },
+      { id: 'c-2', name: '哥布林', hp: null, maxHp: null, ac: null, initiative: 18, isNpc: true, healthLabel: 'healthy' }
     ],
     currentTurnIndex: 0,
     round: 1,
@@ -307,8 +349,8 @@ vi.mock('./api', () => ({
     id: 'combat-1',
     roomId: 'room-1',
     participants: [
-      { id: 'c-1', name: '洛林', hp: 28, maxHp: 28, ac: 18, initiative: 12, isNpc: false },
-      { id: 'c-2', name: '哥布林', hp: 7, maxHp: 7, ac: 15, initiative: 18, isNpc: true }
+      { id: 'c-1', name: '洛林', hp: 28, maxHp: 28, ac: 18, initiative: 12, isNpc: false, healthLabel: 'healthy' },
+      { id: 'c-2', name: '哥布林', hp: null, maxHp: null, ac: null, initiative: 18, isNpc: true, healthLabel: 'healthy' }
     ],
     currentTurnIndex: 1,
     round: 2,
@@ -318,8 +360,8 @@ vi.mock('./api', () => ({
     id: 'combat-1',
     roomId: 'room-1',
     participants: [
-      { id: 'c-1', name: '洛林', hp: 28, maxHp: 28, ac: 18, initiative: 12, isNpc: false },
-      { id: 'c-2', name: '哥布林', hp: 7, maxHp: 7, ac: 15, initiative: 18, isNpc: true }
+      { id: 'c-1', name: '洛林', hp: 28, maxHp: 28, ac: 18, initiative: 12, isNpc: false, healthLabel: 'healthy' },
+      { id: 'c-2', name: '哥布林', hp: null, maxHp: null, ac: null, initiative: 18, isNpc: true, healthLabel: 'healthy' }
     ],
     currentTurnIndex: 0,
     round: 1,
@@ -339,6 +381,12 @@ vi.mock('./api', () => ({
   updateLocation: vi.fn(async () => ({ location: { id: 'l-1', roomId: 'room-1', name: '废弃矿井', description: '', notes: '', updatedAt: '2026-05-30T00:00:00.000Z' } })),
   // DB Management Center mocks
   listDbSources: vi.fn(async () => ({ sources: [] })),
+  listDbSourceSheets: vi.fn(async () => ({ sheets: [] })),
+  listRoomDbSourceBindings: vi.fn(async () => ({ bindings: [] })),
+  putRoomDbSourceBindings: vi.fn(async () => ({ bindings: [] })),
+  listRoomDbSheets: vi.fn(async () => ({ sheets: [] })),
+  listRoomDbRows: vi.fn(async () => ({ rows: [] })),
+  putRoomDbRow: vi.fn(async () => ({ row: {} })),
   checkDbSourceUpdates: vi.fn(async () => ({ hasUpdate: false })),
   updateDbSource: vi.fn(async () => ({ source: { id: 'src-1', url: '', name: 'World A', sourceType: 'world_book', version: '', fileHash: 'newhash', fileSize: 100, entryCount: 5, lastCheckedAt: '', createdAt: '' }, sourceType: 'world_book', worldBook: { name: 'World A', id: 'wb-1' }, draftsCount: 0 })),
   deleteDbSource: vi.fn(async () => ({ ok: true as const }))
@@ -532,20 +580,13 @@ describe('中文界面文案', () => {
     expect(await screen.findByText('行动类型')).toBeInTheDocument();
     const select = screen.getByLabelText('行动类型') as HTMLSelectElement;
     expect(select).toBeInTheDocument();
-    await user.selectOptions(select, 'exploration');
-    expect(screen.getByText('具体行动')).toBeInTheDocument();
-    expect(screen.getByText('潜行')).toBeInTheDocument();
-    expect(screen.getByText('开锁')).toBeInTheDocument();
+    await user.selectOptions(select, 'observe');
+    expect((screen.getByLabelText('行动类型') as HTMLSelectElement).value).toBe('observe');
+    expect(screen.queryByText('具体行动')).not.toBeInTheDocument();
     expect(screen.getByText('隐藏骰点（仅玩家本人可见）')).toBeInTheDocument();
 
-    // Switch to social
-    await user.selectOptions(select, 'social');
-    expect(screen.getByText('说服')).toBeInTheDocument();
-    expect(screen.getByText('交易')).toBeInTheDocument();
-
-    // Select a specific social action and see DC hint
-    await user.selectOptions(screen.getByLabelText('具体行动') as HTMLSelectElement, 'persuade');
-    expect(screen.getByText('预计 DC: DC 15 (魅力)')).toBeInTheDocument();
+    await user.selectOptions(select, 'player_question');
+    expect((screen.getByLabelText('行动类型') as HTMLSelectElement).value).toBe('player_question');
   });
 
   it('玩家没有确认角色时展示角色创建向导', async () => {
@@ -620,10 +661,9 @@ describe('中文界面文案', () => {
     expect(screen.getByRole('button', { name: 'AI 接口' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '角色资源' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '战役记忆' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '资源配置' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '数据库' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '预设' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '世界书' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '剧本/世界书' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '数据库插件' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Prompt 配置' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'AI 约束' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '检定战斗' })).not.toBeInTheDocument();
 
@@ -641,22 +681,21 @@ describe('中文界面文案', () => {
     expect(screen.getByRole('button', { name: '保存 AI 接口' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '测试连接' })).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '资源配置' }));
+    await user.click(screen.getByRole('button', { name: '剧本/世界书' }));
     expect(screen.getByText('全局资源库 / 导入')).toBeInTheDocument();
     expect(screen.getByText('全局资源配置')).toBeInTheDocument();
     expect(screen.queryByText('房间资源绑定')).not.toBeInTheDocument();
     expect(screen.getByText('导入 ST 角色卡为剧本卡')).toBeInTheDocument();
     expect(screen.getByText('ST 兼容预设包')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: '预设' }));
-    expect(screen.getByText('预设管理')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Prompt 配置' }));
+    expect(screen.getByRole('heading', { name: 'Prompt 配置' })).toBeInTheDocument();
+    expect(screen.getByText('AI 输出剧情长度')).toBeInTheDocument();
+    expect(screen.getByText('客观剧情最多字数')).toBeInTheDocument();
+    expect(screen.queryByText('客观剧情最少字数')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '保存剧情长度硬上限' })).toBeInTheDocument();
     expect(screen.getByText('默认强约束预设（当前启用）')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '预览 AI 请求' })).toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: '世界书' }));
-    expect(screen.getByRole('heading', { name: '世界书' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '创建世界书' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '添加世界书条目' })).toBeInTheDocument();
   });
 
   it('管理页行动区按玩家折叠展示行动', async () => {
@@ -709,14 +748,15 @@ describe('中文界面文案', () => {
 
     expect(screen.getByText('行动详情：调查银色门缝')).toBeVisible();
     expect(screen.getByText('行动详情：再次使用侦测魔法')).toBeVisible();
-    expect(screen.getByText(/exploration · submitted/)).toBeVisible();
-    expect(screen.getByText(/narrative · submitted/)).toBeVisible();
+    expect(screen.getByText(/exploration · public · submitted/)).toBeVisible();
+    expect(screen.getByText(/narrative · public · submitted/)).toBeVisible();
   });
 
   it('总览页先生成可编辑 AI 回合提示词，再发送给 AI', async () => {
     const user = userEvent.setup();
     vi.mocked(api.createAiTurnPreview).mockClear();
     vi.mocked(api.sendAiTurnPreview).mockClear();
+    vi.mocked(api.applyAiTurnPreview).mockClear();
     render(<AdminPage roomId="room-1" />);
 
     await user.click(await screen.findByRole('button', { name: '生成 AI 回合提示词' }));
@@ -734,9 +774,32 @@ describe('中文界面文案', () => {
       'preview-1',
       expect.stringContaining('DM extra note')
     ));
-    expect(await screen.findByText('AI narration result')).toBeInTheDocument();
-    expect(screen.getByText(/attack roll/)).toBeInTheDocument();
-    expect(screen.getByText('AI 已返回并推进回合；客观剧情、公开剧情、玩家私人剧情和可应用的玩家状态已写入系统。')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText('AI narration result').length).toBeGreaterThan(0));
+    expect(screen.getByText('长度警告')).toBeInTheDocument();
+    expect(screen.getByText('publicLog 长度 320/300，超过上限。')).toBeInTheDocument();
+    expect(screen.getByText('待确认内容')).toBeInTheDocument();
+    expect(screen.getAllByText('客观剧情').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('公开剧情').length).toBeGreaterThan(0);
+    expect(screen.getByText('私人剧情')).toBeInTheDocument();
+    expect(screen.getByText('系统骰点请求')).toBeInTheDocument();
+    expect(screen.getByText('角色资源变更')).toBeInTheDocument();
+    expect(screen.getByText('原始 JSON')).toBeInTheDocument();
+    expect(screen.getByText('DM objective note')).toBeInTheDocument();
+    expect(screen.getByText('Private clue')).toBeInTheDocument();
+    expect(screen.getAllByText(/attack roll/).length).toBeGreaterThan(0);
+    expect(screen.getByText('AI 已返回，尚未写入系统。请检查下方待确认内容，最终确认后才会应用。')).toBeInTheDocument();
+    const suggestedChangeCheckbox = screen.getByRole('checkbox', { name: /确认应用建议状态变更 #1/ });
+    const resourceChangeCheckbox = screen.getByRole('checkbox', { name: /确认应用角色资源变更 #1/ });
+    expect(suggestedChangeCheckbox).not.toBeChecked();
+    expect(resourceChangeCheckbox).not.toBeChecked();
+    await user.click(suggestedChangeCheckbox);
+    await user.click(resourceChangeCheckbox);
+    await user.click(screen.getByRole('button', { name: '最终确认并应用' }));
+    await waitFor(() => expect(api.applyAiTurnPreview).toHaveBeenCalledWith('room-1', 'preview-1', {
+      confirmedSuggestedStateChangeIndexes: [0],
+      confirmedCharacterResourceChangeIndexes: [0]
+    }));
+    expect(await screen.findByText('已应用：客观剧情、公开剧情、玩家私人剧情和已确认的可应用状态已写入系统。')).toBeInTheDocument();
   });
 
   it('总览页在回合未就绪时禁用生成提示词并显示缺席玩家', async () => {
@@ -749,6 +812,7 @@ describe('中文界面文案', () => {
       ],
       turnReadiness: {
         turnId: 'turn-1',
+        roomStatus: 'waiting_for_actions',
         status: 'open',
         requiredActorIds: ['player-1', 'player-2'],
         submittedActorIds: ['player-1'],
@@ -768,11 +832,37 @@ describe('中文界面文案', () => {
     expect(screen.getByText('提示：所有必需玩家提交、跳过或被管理员排除后，才能生成提示词。')).toBeInTheDocument();
   });
 
+  it('总览页在玩家都完成但状态未同步时显示具体原因', async () => {
+    const baseState = await api.getAdminState('room-1');
+    vi.mocked(api.getAdminState).mockResolvedValueOnce({
+      ...baseState,
+      turnReadiness: {
+        ...baseState.turnReadiness,
+        turnId: 'turn-1',
+        roomStatus: 'waiting_for_actions',
+        status: 'open',
+        requiredActorIds: ['player-1', 'player-2'],
+        submittedActorIds: ['player-1', 'player-2'],
+        skippedActorIds: [],
+        excludedActorIds: [],
+        completedActorIds: ['player-1', 'player-2'],
+        missingActorIds: [],
+        ready: false
+      }
+    });
+
+    render(<AdminPage roomId="room-1" />);
+
+    expect(await screen.findByText('等待玩家行动：2 / 2 已完成')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '生成 AI 回合提示词' })).toBeDisabled();
+    expect(screen.getByText(/玩家行动已完成，但房间\/回合状态尚未进入 ready_to_resolve/)).toBeInTheDocument();
+  });
+
   it('资源配置标签页展示资源导入与审核入口', async () => {
     const user = userEvent.setup();
     render(<AdminPage roomId="room-1" />);
 
-    await user.click(await screen.findByRole('button', { name: '资源配置' }));
+    await user.click(await screen.findByRole('button', { name: '剧本/世界书' }));
 
     expect(await screen.findByText('资源导入与审核')).toBeInTheDocument();
     expect(screen.getByText('导入 PHB、世界书或规则数据库抽取 JSON；只有批准后的草稿会进入稳定目录。')).toBeInTheDocument();
@@ -782,12 +872,12 @@ describe('中文界面文案', () => {
     const user = userEvent.setup();
     render(<AdminPage roomId="room-1" />);
 
-    await user.click(await screen.findByRole('button', { name: '资源配置' }));
+    await user.click(await screen.findByRole('button', { name: '剧本/世界书' }));
     const scriptSelect = screen.getAllByRole('combobox')[0] as HTMLSelectElement;
 
     await user.selectOptions(scriptSelect, 'script-2');
     await user.click(screen.getByRole('button', { name: 'AI 接口' }));
-    await user.click(screen.getByRole('button', { name: '资源配置' }));
+    await user.click(screen.getByRole('button', { name: '剧本/世界书' }));
 
     expect((screen.getAllByRole('combobox')[0] as HTMLSelectElement).value).toBe('script-2');
   });
@@ -796,8 +886,8 @@ describe('中文界面文案', () => {
     const user = userEvent.setup();
     render(<AdminPage roomId="room-1" />);
 
-    await screen.findByRole('button', { name: '预设' });
-    await user.click(screen.getByRole('button', { name: '预设' }));
+    await screen.findByRole('button', { name: 'Prompt 配置' });
+    await user.click(screen.getByRole('button', { name: 'Prompt 配置' }));
     await user.click(screen.getByRole('button', { name: '编辑预设' }));
 
     expect(screen.getByRole('button', { name: /核心规则/ })).toBeInTheDocument();
@@ -828,7 +918,7 @@ describe('中文界面文案', () => {
 
     expect(await screen.findByRole('alert')).toHaveTextContent('连接失败');
 
-    await user.click(screen.getByRole('button', { name: '预设' }));
+    await user.click(screen.getByRole('button', { name: 'Prompt 配置' }));
     await user.click(screen.getByRole('button', { name: '预览 AI 请求' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('预览失败');
@@ -1255,8 +1345,8 @@ describe('中文界面文案', () => {
         id: 'combat-1',
         roomId: 'room-1',
         participants: [
-          { id: 'c-1', name: '洛林', hp: 28, maxHp: 28, ac: 18, initiative: 12, isNpc: false },
-          { id: 'c-2', name: '哥布林', hp: 7, maxHp: 7, ac: 15, initiative: 18, isNpc: true }
+          { id: 'c-1', name: '洛林', hp: 28, maxHp: 28, ac: 18, initiative: 12, isNpc: false, healthLabel: 'healthy' },
+          { id: 'c-2', name: '哥布林', hp: null, maxHp: null, ac: null, initiative: 18, isNpc: true, healthLabel: 'healthy' }
         ],
         currentTurnIndex: 0,
         round: 1,
@@ -1278,8 +1368,7 @@ describe('中文界面文案', () => {
     expect(screen.getByText(/哥布林/)).toBeInTheDocument();
     const lorinMatches = screen.getAllByText(/洛林/);
     expect(lorinMatches.length).toBeGreaterThanOrEqual(2);
-    // HP bars
-    expect(screen.getByText('HP: 7/7')).toBeInTheDocument();
+    expect(screen.getByText('状态：状态良好')).toBeInTheDocument();
     expect(screen.getByText('HP: 28/28')).toBeInTheDocument();
     // Dice logs
     expect(screen.getByText('最近骰点')).toBeInTheDocument();
@@ -1305,7 +1394,10 @@ describe('中文界面文案', () => {
       summaries: [{
         id: 's-1', roomId: 'room-1', turnStart: 1, turnEnd: 5,
         summary: '队伍进入废弃矿井，击败了一群地精。',
-        questUpdatesJson: '[]', npcUpdatesJson: '[]', locationUpdatesJson: '[]', characterUpdatesJson: '[]',
+        questUpdatesJson: JSON.stringify([{ title: '救援矿工', status: 'in_progress', description: '矿工被困。' }]),
+        npcUpdatesJson: JSON.stringify([{ name: '格拉克', role: '地精首领', attitude: 'hostile', notes: '被击败逃跑。', location: '矿井入口' }]),
+        locationUpdatesJson: JSON.stringify([{ name: '废弃矿井', description: '地精占据的矿井。' }]),
+        characterUpdatesJson: JSON.stringify([{ characterId: 'char-1', update: '受伤但仍可行动。' }]),
         createdAt: '2026-05-30T00:00:00.000Z'
       }]
     });
@@ -1325,6 +1417,12 @@ describe('中文界面文案', () => {
     await user.click(screen.getByRole('button', { name: '加载记忆' }));
 
     expect(await screen.findByText('队伍进入废弃矿井，击败了一群地精。')).toBeInTheDocument();
+    expect(screen.getByText('摘要建议（不会自动写入长期记忆）')).toBeInTheDocument();
+    expect(screen.getByText('任务建议')).toBeInTheDocument();
+    expect(screen.getByText('NPC 建议')).toBeInTheDocument();
+    expect(screen.getByText('地点建议')).toBeInTheDocument();
+    expect(screen.getByText('角色建议')).toBeInTheDocument();
+    expect(screen.getByText(/救援矿工/)).toBeInTheDocument();
     expect(screen.getByText('调查矿井')).toBeInTheDocument();
     expect(screen.getByText(/\[in_progress\]/)).toBeInTheDocument();
     expect(screen.getByText('格拉克')).toBeInTheDocument();
@@ -1370,7 +1468,7 @@ describe('中文界面文案', () => {
         { id: 'q-1', roomId: 'room-1', title: '调查矿井', status: 'in_progress', description: '矿工被困在矿井深处。', updatedAt: '2026-05-30T00:00:00.000Z' }
       ],
       npcs: [
-        { id: 'n-1', roomId: 'room-1', name: '格拉克', role: '地精首领', attitude: 'hostile', notes: '被击败后逃跑。', location: '矿井入口', updatedAt: '2026-05-30T00:00:00.000Z' }
+        { id: 'n-1', roomId: 'room-1', name: '格拉克', role: '地精首领', attitude: 'hostile', location: '矿井入口', updatedAt: '2026-05-30T00:00:00.000Z' }
       ]
     });
 
@@ -1384,16 +1482,17 @@ describe('中文界面文案', () => {
     expect(screen.getByText(/\[in_progress\]/)).toBeInTheDocument();
     expect(screen.getByText('已知 NPC')).toBeInTheDocument();
     expect(screen.getByText('格拉克')).toBeInTheDocument();
+    expect(screen.getByText('矿井入口')).toBeInTheDocument();
   });
 
   it('数据库标签页展示数据库管理子区域', async () => {
     const user = userEvent.setup();
     render(<AdminPage roomId="room-1" />);
 
-    await user.click(await screen.findByRole('button', { name: '数据库' }));
+    await user.click(await screen.findByRole('button', { name: '数据库插件' }));
 
-    expect(screen.getByRole('heading', { name: '数据库管理' })).toBeInTheDocument();
-    expect(screen.getByText('管理已接入的数据源。数据库插件会作为表结构来源使用，不会作为世界书条目导入。')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '数据库插件' })).toBeInTheDocument();
+    expect(screen.getByText('数据库插件只提供结构化表数据，不会作为世界书或 prompt 预设导入。停用只影响当前房间；永久删除会移除整个数据源。')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '从 URL 接入' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '从 URL 接入' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: '从 JS 代码接入' })).not.toBeInTheDocument();

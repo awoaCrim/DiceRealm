@@ -70,6 +70,16 @@ describe('campaignMemoryService', () => {
         expect(summary.turnStart).toBe(1);
         expect(summary.turnEnd).toBe(5);
         expect(summary.summary).toBe('队伍击败了地精，找到了秘密通道。');
+        expect(JSON.parse(summary.questUpdatesJson)).toEqual([
+          {
+            title: '救援矿工',
+            status: 'in_progress',
+            description: '矿工被地精困在矿井深处。',
+          },
+        ]);
+        expect(db.prepare('SELECT COUNT(*) as count FROM campaign_quests').get()).toMatchObject({ count: 0 });
+        expect(db.prepare('SELECT COUNT(*) as count FROM campaign_npcs').get()).toMatchObject({ count: 0 });
+        expect(db.prepare('SELECT COUNT(*) as count FROM campaign_locations').get()).toMatchObject({ count: 0 });
       } finally {
         db.close();
       }
@@ -247,6 +257,22 @@ describe('campaignMemoryService', () => {
               description: '一处被地精占据的旧矿井，深处有异常声响。',
             },
           ],
+        });
+        upsertCampaignQuest(db, roomId, {
+          title: '救援矿工',
+          status: 'in_progress',
+          description: '矿工被地精困在矿井深处。',
+        });
+        upsertCampaignNpc(db, roomId, {
+          name: '格拉克',
+          role: '地精首领',
+          attitude: 'hostile',
+          notes: '被击败后逃跑，发誓复仇。',
+          location: '矿井入口',
+        });
+        upsertCampaignLocation(db, roomId, {
+          name: '废弃矿井',
+          description: '一处被地精占据的旧矿井，深处有异常声响。',
         });
 
         const context = buildCampaignContext(db, roomId);

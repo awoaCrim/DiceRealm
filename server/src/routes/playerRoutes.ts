@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 import type { AppDatabase } from '../db/connection.js';
+import type { Room, Turn } from '../domain/types.js';
 import { buildPlayerVisibleState } from '../services/visibilityService.js';
 import { publishRoomUpdate } from '../services/eventBus.js';
 import { listRuleSummariesForRoom } from '../services/ruleRetrievalService.js';
@@ -19,6 +20,7 @@ import { getTurnReadiness } from '../services/turnReadinessService.js';
 const actionSchema = z.object({
   text: z.string().min(1),
   actionType: z.enum(['narrative', 'exploration', 'social', 'combat', 'ooc', 'in_character_action', 'player_question', 'meta_question', 'observe', 'wait', 'skip', 'ready', 'follow', 'combat_action']).optional(),
+  visibility: z.enum(['public', 'private', 'dm_only']).optional(),
   isHiddenRoll: z.boolean().optional()
 });
 const interactionResponseSchema = z.object({ response: z.string().min(1) });
@@ -33,6 +35,11 @@ function inferActionType(text: string, actionType: z.infer<typeof actionSchema>[
   if (/^(观察|查看|环顾|侦查|搜索)/.test(trimmed)) return 'observe';
   if (/^(等待|静观|观望|不行动)/.test(trimmed)) return 'wait';
   return actionType ?? 'in_character_action';
+}
+
+function inferActionVisibility(actionType: NonNullable<z.infer<typeof actionSchema>['actionType']>, visibility: z.infer<typeof actionSchema>['visibility']): NonNullable<z.infer<typeof actionSchema>['visibility']> {
+  if (visibility) return visibility;
+  return actionType === 'player_question' || actionType === 'meta_question' ? 'private' : 'public';
 }
 
 function getPlayerByToken(db: AppDatabase, token: string): any | null {
@@ -68,7 +75,7 @@ export function createPlayerRouter(db: AppDatabase): Router {
     const character = characterRow ? mapCharacterRow(characterRow) : null;
     const logs = db.prepare('SELECT id, room_id as roomId, turn_id as turnId, visibility_scope as visibilityScope, player_id as playerId, title, content, created_at as createdAt FROM log_entries WHERE room_id = ? ORDER BY created_at ASC').all(player.roomId) as any[];
     const turn = db.prepare('SELECT id FROM turns WHERE room_id = ? AND number = ?').get(player.roomId, room.currentTurn) as any;
-    const actions = turn ? db.prepare('SELECT id, room_id as roomId, turn_id as turnId, player_id as playerId, text, submitted_at as submittedAt, status, action_type as actionType, is_hidden_roll as isHiddenRoll FROM actions WHERE turn_id = ? ORDER BY submitted_at ASC').all(turn.id) as any[] : [];
+    const actions = turn ? db.prepare('SELECT id, room_id as roomId, turn_id as turnId, player_id as playerId, text, submitted_at as submittedAt, status, action_type as actionType, visibility, is_hidden_roll as isHiddenRoll FROM actions WHERE turn_id = ? ORDER BY submitted_at ASC').all(turn.id) as any[] : [];
     const interactions = db.prepare('SELECT id, room_id as roomId, turn_id as turnId, source_player_id as sourcePlayerId, target_player_id as targetPlayerId, type, prompt, target_response as targetResponse, status, created_at as createdAt FROM interaction_requests WHERE room_id = ? ORDER BY created_at ASC').all(player.roomId) as any[];
     const ruleSummaries = listRuleSummariesForRoom(db, player.roomId, 5);
 
@@ -79,28 +86,32 @@ export function createPlayerRouter(db: AppDatabase): Router {
 
     // Load recent public dice logs (is_public=1 or target this player)
     const recentDiceLogs = db.prepare(
-      'SELECT id, room_id as roomId, turn_id as turnId, combat_id as combatId, character_id as characterId, dice_type as diceType, values_json as valuesJson, modifier, total, dc, success, is_public as isPublic, reason, created_at as createdAt FROM dice_logs WHERE room_id = ? AND (is_public = 1 OR character_id = (SELECT c.id FROM characters c WHERE c.player_id = ?)) ORDER BY created_at DESC LIMIT 20'
+      `SELECT d.id, d.room_id as roomId, d.character_id as characterId, d.dice_type as diceType,
+              d.values_json as valuesJson, d.modifier, d.total, d.success, d.is_public as isPublic,
+              d.reason, d.public_reason as publicReason, d.created_at as createdAt,
+              COALESCE(p.name, 'DM') as playerName
+       FROM dice_logs d
+       LEFT JOIN characters c ON c.id = d.character_id
+       LEFT JOIN players p ON p.id = c.player_id
+       WHERE d.room_id = ? AND (d.is_public = 1 OR d.character_id = (SELECT own.id FROM characters own WHERE own.player_id = ?))
+       ORDER BY d.created_at DESC
+       LIMIT 20`
     ).all(player.roomId, player.id) as Array<{
-      id: string; roomId: string; turnId: string | null; combatId: string | null;
-      characterId: string | null; diceType: string; valuesJson: string;
-      modifier: number; total: number; dc: number | null; success: number | null;
-      isPublic: number; reason: string; createdAt: string;
+      id: string; roomId: string; characterId: string | null; diceType: string; valuesJson: string;
+      modifier: number; total: number; success: number | null;
+      isPublic: number; reason: string; publicReason: string; createdAt: string; playerName: string;
     }>;
     const diceLogs = recentDiceLogs.map((row) => ({
       id: row.id,
       roomId: row.roomId,
-      turnId: row.turnId,
-      combatId: row.combatId,
-      characterId: row.characterId,
-      diceType: row.diceType,
+      playerName: row.playerName,
+      die: row.diceType,
       values: JSON.parse(row.valuesJson) as number[],
       modifier: row.modifier,
       total: row.total,
-      dc: row.dc,
-      success: row.success === null ? null : Boolean(row.success),
-      isPublic: Boolean(row.isPublic),
-      reason: row.reason,
-      timestamp: row.createdAt,
+      reason: row.publicReason || row.reason,
+      success: row.success === null ? undefined : Boolean(row.success),
+      createdAt: row.createdAt,
     }));
 
     // Load resources and recent changes
@@ -226,14 +237,25 @@ export function createPlayerRouter(db: AppDatabase): Router {
     const input = actionSchema.parse(req.body);
     const player = getPlayerByToken(db, req.params.token);
     if (!player) return res.status(404).json({ error: 'Not found' });
-    const room = db.prepare('SELECT current_turn as currentTurn FROM rooms WHERE id = ?').get(player.roomId) as any;
-    const turn = db.prepare('SELECT id FROM turns WHERE room_id = ? AND number = ?').get(player.roomId, room.currentTurn) as any;
+    const room = db.prepare('SELECT id, current_turn as currentTurn, status FROM rooms WHERE id = ?').get(player.roomId) as { id: string; currentTurn: number; status: Room['status'] } | undefined;
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+    const turn = db.prepare('SELECT id, status FROM turns WHERE room_id = ? AND number = ?').get(player.roomId, room.currentTurn) as { id: string; status: Turn['status'] } | undefined;
+    if (!turn) return res.status(409).json({ error: 'TURN_NOT_OPEN', message: '当前没有可提交行动的回合。' });
+    if (room.status !== 'waiting_for_actions' || !['open', 'waiting_for_actions'].includes(turn.status)) {
+      return res.status(409).json({
+        error: 'ACTIONS_CLOSED',
+        message: '当前回合已锁定或正在结算，不能再提交或修改行动。',
+        roomStatus: room.status,
+        turnStatus: turn.status
+      });
+    }
     const now = new Date().toISOString();
 
-    db.prepare('INSERT OR REPLACE INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status, action_type, is_hidden_roll) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(nanoid(), player.roomId, turn.id, player.id, input.text, now, 'submitted', inferActionType(input.text, input.actionType), input.isHiddenRoll ? 1 : 0);
-    const fullRoom = db.prepare('SELECT id, current_turn as currentTurn FROM rooms WHERE id = ?').get(player.roomId) as { id: string; currentTurn: number };
-    getTurnReadiness(db, fullRoom);
+    const inferredActionType = inferActionType(input.text, input.actionType);
+    const visibility = inferActionVisibility(inferredActionType, input.visibility);
+    db.prepare('INSERT OR REPLACE INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status, action_type, visibility, is_hidden_roll) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(nanoid(), player.roomId, turn.id, player.id, input.text, now, 'submitted', inferredActionType, visibility, input.isHiddenRoll ? 1 : 0);
+    getTurnReadiness(db, room);
     publishRoomUpdate(player.roomId);
     res.json({ ok: true });
   });
@@ -243,9 +265,24 @@ export function createPlayerRouter(db: AppDatabase): Router {
     const player = getPlayerByToken(db, req.params.token);
     if (!player) return res.status(404).json({ error: 'Not found' });
 
-    const result = db.prepare('UPDATE interaction_requests SET target_response = ?, status = ? WHERE id = ? AND target_player_id = ?')
-      .run(input.response, 'ready_for_ai', req.params.interactionId, player.id);
-    if (result.changes === 0) return res.status(404).json({ error: 'Interaction not found' });
+    const interaction = db.prepare('SELECT id, room_id as roomId, turn_id as turnId FROM interaction_requests WHERE id = ? AND target_player_id = ?')
+      .get(req.params.interactionId, player.id) as { id: string; roomId: string; turnId: string } | undefined;
+    if (!interaction) return res.status(404).json({ error: 'Interaction not found' });
+
+    const tx = db.transaction(() => {
+      db.prepare('UPDATE interaction_requests SET target_response = ?, status = ? WHERE id = ? AND target_player_id = ?')
+        .run(input.response, 'ready_for_ai', req.params.interactionId, player.id);
+
+      const pending = db.prepare('SELECT COUNT(*) as count FROM interaction_requests WHERE room_id = ? AND turn_id = ? AND status = ?')
+        .get(interaction.roomId, interaction.turnId, 'pending_target') as { count: number };
+      if (pending.count === 0) {
+        db.prepare('UPDATE turns SET status = ? WHERE id = ? AND status = ?')
+          .run('ready_to_resolve', interaction.turnId, 'waiting_for_interaction');
+        db.prepare('UPDATE rooms SET status = ? WHERE id = ? AND status = ?')
+          .run('ready_to_resolve', interaction.roomId, 'waiting_for_interaction');
+      }
+    });
+    tx();
     publishRoomUpdate(player.roomId);
     res.json({ ok: true });
   });

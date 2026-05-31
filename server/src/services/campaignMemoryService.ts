@@ -67,17 +67,6 @@ export function createSessionSummary(
     now,
   );
 
-  // Upsert referenced quest/npc/location updates
-  for (const qu of input.questUpdates ?? []) {
-    upsertCampaignQuest(db, roomId, qu);
-  }
-  for (const nu of input.npcUpdates ?? []) {
-    upsertCampaignNpc(db, roomId, nu);
-  }
-  for (const lu of input.locationUpdates ?? []) {
-    upsertCampaignLocation(db, roomId, lu);
-  }
-
   return {
     id,
     roomId,
@@ -380,6 +369,10 @@ export function buildCampaignContext(db: AppDatabase, roomId: string): string {
   const quests = listCampaignQuests(db, roomId);
   const npcs = listCampaignNpcs(db, roomId);
   const locations = listCampaignLocations(db, roomId);
+
+  if (summaries.length === 0 && quests.length === 0 && npcs.length === 0 && locations.length === 0) {
+    return '';
+  }
 
   const parts: string[] = [];
 

@@ -640,7 +640,10 @@ export function migrate(db: AppDatabase): void {
 
   // --- Exploration & Social ---
   addColumnIfMissing(db, 'actions', 'action_type', 'TEXT');
+  addColumnIfMissing(db, 'actions', 'visibility', "TEXT NOT NULL DEFAULT 'public'");
   addColumnIfMissing(db, 'actions', 'is_hidden_roll', 'INTEGER DEFAULT 0');
+  addColumnIfMissing(db, 'dice_logs', 'public_reason', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'dice_logs', 'objective_reason', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'turns', 'required_actor_ids_json', "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(db, 'turns', 'submitted_actor_ids_json', "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(db, 'turns', 'skipped_actor_ids_json', "TEXT NOT NULL DEFAULT '[]'");

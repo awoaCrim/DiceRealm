@@ -371,15 +371,17 @@ describe('remoteDbImportService', () => {
       expect(context).toContain('silver-key');
       expect(context).toContain('银钥匙');
 
-      applyPluginDatabaseChange(db, 'room-1', {
+      const applyResult = applyPluginDatabaseChange(db, 'room-1', {
         changeType: 'database_row_upsert',
         targetId: `sheet:${sheet.id}`,
         path: 'silver-key',
         before: { item_name: '银钥匙', quantity: 1 },
         after: { item_name: '银钥匙', quantity: 0 }
       });
+      expect(applyResult.applied).toBe(false);
+      expect(applyResult.message).toContain('Pending admin review');
       const snapshot = getRoomPluginDatabaseSnapshot(db, 'room-1');
-      expect(snapshot[0].sheets[0].rows[0].data.quantity).toBe(0);
+      expect(snapshot[0].sheets[0].rows[0].data.quantity).toBe(1);
     });
 
     it('checkForUpdates returns hasUpdate false when hash matches', async () => {

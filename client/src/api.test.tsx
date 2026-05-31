@@ -35,6 +35,7 @@ import {
   putGlobalScriptCard,
   reviewResourceImportDraft,
   activatePreset,
+  applyAiTurnPreview,
   auditCharacterBuilderDraft,
   reindexRuleEmbeddings,
   saveCharacterBuilderDraft,
@@ -321,6 +322,7 @@ describe('resource API helpers', () => {
   });
 
   it('imports and reviews PHB extraction drafts through admin resource APIs', async () => {
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
@@ -398,8 +400,12 @@ describe('resource API helpers', () => {
     const sendResponse = {
       responseText: 'AI narration',
       suggestedStateChanges: [{ type: 'dice_request', reason: 'attack' }],
-      raw: { publicLog: 'AI narration', privateUpdatesByPlayer: {}, ruleResults: [], interactionRequests: [] }
+      raw: { publicLog: 'AI narration', privateUpdatesByPlayer: {}, ruleResults: [], interactionRequests: [] },
+      applied: false,
+      warnings: ['publicLog 长度 320/300，超过上限。']
     };
+    const applyResponse = { ...sendResponse, applied: true };
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
@@ -410,6 +416,11 @@ describe('resource API helpers', () => {
         ok: true,
         json: async () => sendResponse,
         text: async () => JSON.stringify(sendResponse)
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => applyResponse,
+        text: async () => JSON.stringify(applyResponse)
       } as Response);
 
     await expect(createAiTurnPreview('room-1')).resolves.toEqual(previewResponse);
@@ -423,6 +434,21 @@ describe('resource API helpers', () => {
       method: 'POST',
       body: JSON.stringify({ roomId: 'room-1', previewId: 'preview-1', flatPrompt: 'edited prompt' })
     }));
+    expect(timeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 120000);
+    await expect(applyAiTurnPreview('room-1', 'preview-1', {
+      confirmedSuggestedStateChangeIndexes: [0],
+      confirmedCharacterResourceChangeIndexes: [1]
+    })).resolves.toEqual(applyResponse);
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/admin/ai/apply-preview', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        roomId: 'room-1',
+        previewId: 'preview-1',
+        confirmedSuggestedStateChangeIndexes: [0],
+        confirmedCharacterResourceChangeIndexes: [1]
+      })
+    }));
+    timeoutSpy.mockRestore();
   });
 
   it('calls character resource rest and audit APIs', async () => {
@@ -469,88 +495,114 @@ describe('resource API helpers', () => {
   });
 
   it('calls admin dice and combat APIs', async () => {
+    const combatState = {
+      id: 'combat-1',
+      roomId: 'room-1',
+      round: 1,
+      currentTurn: 0,
+      combatants: [{
+        id: 'combatant-1',
+        characterId: null,
+        npcId: 'npc-1',
+        name: '哥布林',
+        initiative: 18,
+        hp: { current: 7, max: 7 },
+        ac: 15,
+        isPlayer: false,
+        conditions: []
+      }],
+      status: 'active',
+      startedAt: '2026-05-30T00:00:00.000Z'
+    };
+    const nextCombatState = {
+      ...combatState,
+      round: 2,
+      combatants: [{ ...combatState.combatants[0], hp: { current: 4, max: 7 } }]
+    };
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ values: [15], modifier: 3, total: 18, success: true }),
-        text: async () => JSON.stringify({ values: [15], modifier: 3, total: 18, success: true })
+        json: async () => ({ values: [15], modifier: 3, total: 18, success: true, diceLog: { id: 'dice-1' } }),
+        text: async () => JSON.stringify({ values: [15], modifier: 3, total: 18, success: true, diceLog: { id: 'dice-1' } })
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ id: 'combat-1', roomId: 'room-1', participants: [], currentTurnIndex: 0, round: 1, status: 'active' }),
-        text: async () => JSON.stringify({ id: 'combat-1', roomId: 'room-1', participants: [], currentTurnIndex: 0, round: 1, status: 'active' })
+        json: async () => ({ combatState }),
+        text: async () => JSON.stringify({ combatState })
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ id: 'combat-1', roomId: 'room-1', participants: [{ id: 'p-1', name: '哥布林', hp: 7, maxHp: 7, ac: 15, initiative: 18, isNpc: true }], currentTurnIndex: 0, round: 1, status: 'active' }),
-        text: async () => JSON.stringify({ id: 'combat-1', roomId: 'room-1', participants: [{ id: 'p-1', name: '哥布林', hp: 7, maxHp: 7, ac: 15, initiative: 18, isNpc: true }], currentTurnIndex: 0, round: 1, status: 'active' })
+        json: async () => ({ combatState }),
+        text: async () => JSON.stringify({ combatState })
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ hit: true, attackRoll: { values: [12], modifier: 5, total: 17 }, damage: { dice: '1d8', bonus: 3, total: 8 }, newHp: 4 }),
-        text: async () => JSON.stringify({ hit: true, attackRoll: { values: [12], modifier: 5, total: 17 }, damage: { dice: '1d8', bonus: 3, total: 8 }, newHp: 4 })
+        json: async () => ({ combatState: nextCombatState, hit: true, criticalHit: false, criticalMiss: false, attackRoll: 12, attackTotal: 17, damageTotal: 8 }),
+        text: async () => JSON.stringify({ combatState: nextCombatState, hit: true, criticalHit: false, criticalMiss: false, attackRoll: 12, attackTotal: 17, damageTotal: 8 })
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ id: 'combat-1', roomId: 'room-1', participants: [{ id: 'p-1', name: '哥布林', hp: 4, maxHp: 7, ac: 15, initiative: 18, isNpc: true }], currentTurnIndex: 0, round: 2, status: 'active' }),
-        text: async () => JSON.stringify({ id: 'combat-1', roomId: 'room-1', participants: [{ id: 'p-1', name: '哥布林', hp: 4, maxHp: 7, ac: 15, initiative: 18, isNpc: true }], currentTurnIndex: 0, round: 2, status: 'active' })
+        json: async () => ({ combatState: nextCombatState }),
+        text: async () => JSON.stringify({ combatState: nextCombatState })
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ id: 'combat-1', roomId: 'room-1', participants: [], currentTurnIndex: 0, round: 1, status: 'active' }),
-        text: async () => JSON.stringify({ id: 'combat-1', roomId: 'room-1', participants: [], currentTurnIndex: 0, round: 1, status: 'active' })
+        json: async () => ({ combatState }),
+        text: async () => JSON.stringify({ combatState })
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
-        json: async () => ({ logs: [{ id: 'log-1', roomId: 'room-1', playerName: 'DM', die: 'd20', values: [15], modifier: 3, total: 18, reason: '攻击检定', success: true, createdAt: '2026-05-30T00:00:00.000Z' }] }),
-        text: async () => JSON.stringify({ logs: [{ id: 'log-1', roomId: 'room-1', playerName: 'DM', die: 'd20', values: [15], modifier: 3, total: 18, reason: '攻击检定', success: true, createdAt: '2026-05-30T00:00:00.000Z' }] })
+        json: async () => ({ logs: [{ id: 'log-1', roomId: 'room-1', turnId: null, combatId: 'combat-1', characterId: null, diceType: 'd20', values: [15], modifier: 3, total: 18, dc: 15, reason: '攻击检定', success: true, isPublic: true, createdAt: '2026-05-30T00:00:00.000Z' }] }),
+        text: async () => JSON.stringify({ logs: [{ id: 'log-1', roomId: 'room-1', turnId: null, combatId: 'combat-1', characterId: null, diceType: 'd20', values: [15], modifier: 3, total: 18, dc: 15, reason: '攻击检定', success: true, isPublic: true, createdAt: '2026-05-30T00:00:00.000Z' }] })
       } as Response);
 
     const { adminDiceRoll, startCombat, rollCombatInitiative, combatAttack, combatNextTurn, getCombatState, getDiceLogs } = await import('./api');
 
-    const diceInput = { die: 'd20' as const, modifier: 3, dc: 15, reason: '攻击检定' };
+    const diceInput = { diceType: 'd20', modifier: 3, dc: 15, reason: '攻击检定' };
     const diceResult = await adminDiceRoll('room-1', diceInput);
-    expect(diceResult).toEqual({ values: [15], modifier: 3, total: 18, success: true });
+    expect(diceResult).toEqual({ values: [15], modifier: 3, total: 18, success: true, diceLog: { id: 'dice-1' } });
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/admin/rooms/room-1/dice/roll', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify(diceInput)
     }));
 
-    const combatInput = { participants: [{ name: '哥布林', hp: 7, ac: 15, initiativeModifier: 2 }] };
-    const combatState = await startCombat('room-1', combatInput);
-    expect(combatState).toEqual({ id: 'combat-1', roomId: 'room-1', participants: [], currentTurnIndex: 0, round: 1, status: 'active' });
+    const combatInput = { combatants: [{ name: '哥布林', hp: 7, ac: 15, dexMod: 2 }] };
+    const started = await startCombat('room-1', combatInput);
+    expect(started.combatState).toEqual(combatState);
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/admin/rooms/room-1/combat/start', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify(combatInput)
     }));
 
     const initiativeState = await rollCombatInitiative('room-1', 'combat-1');
-    expect(initiativeState.participants[0].initiative).toBe(18);
-    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/admin/rooms/room-1/combat/combat-1/initiative', expect.objectContaining({
-      method: 'POST'
+    expect(initiativeState.combatState.combatants[0].initiative).toBe(18);
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/admin/rooms/room-1/combat/roll-initiative', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ combatId: 'combat-1' })
     }));
 
-    const attackInput = { combatId: 'combat-1', attackerId: 'p-1', targetId: 'p-2', attackBonus: 5, damageDice: '1d8', damageBonus: 3 };
+    const attackInput = { combatId: 'combat-1', attackerIndex: 0, targetIndex: 0, weaponDie: 'd8' };
     const attackResult = await combatAttack('room-1', attackInput);
-    expect(attackResult).toEqual({ hit: true, attackRoll: { values: [12], modifier: 5, total: 17 }, damage: { dice: '1d8', bonus: 3, total: 8 }, newHp: 4 });
+    expect(attackResult).toEqual({ combatState: nextCombatState, hit: true, criticalHit: false, criticalMiss: false, attackRoll: 12, attackTotal: 17, damageTotal: 8 });
     expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/admin/rooms/room-1/combat/attack', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify(attackInput)
     }));
 
     const nextTurnState = await combatNextTurn('room-1', 'combat-1');
-    expect(nextTurnState.round).toBe(2);
-    expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/admin/rooms/room-1/combat/combat-1/next-turn', expect.objectContaining({
-      method: 'POST'
+    expect(nextTurnState.combatState.round).toBe(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(5, '/api/admin/rooms/room-1/combat/next-turn', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ combatId: 'combat-1' })
     }));
 
     const getState = await getCombatState('room-1');
-    expect(getState.id).toBe('combat-1');
+    expect(getState.combatState.id).toBe('combat-1');
     expect(fetchMock).toHaveBeenNthCalledWith(6, '/api/admin/rooms/room-1/combat', expect.objectContaining({ headers: expect.any(Object) }));
 
     const logsResult = await getDiceLogs('room-1');
-    expect(logsResult.logs[0].die).toBe('d20');
-    expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/admin/rooms/room-1/dice/logs', expect.objectContaining({ headers: expect.any(Object) }));
+    expect(logsResult.logs[0].diceType).toBe('d20');
+    expect(fetchMock).toHaveBeenNthCalledWith(7, '/api/admin/rooms/room-1/dice-logs', expect.objectContaining({ headers: expect.any(Object) }));
 
     fetchMock.mockRestore();
   });

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { activatePreset, addPlayer, applyPresetTemplate, checkDbSourceUpdates, createAiTurnPreview, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, listCharacterResourceChanges, listDbSourceSheets, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listRoomDbRows, listRoomDbSheets, listRoomDbSourceBindings, listSessionSummaries, previewAiPrompt, putRoomDbRow, putRoomDbSourceBindings, reindexRuleEmbeddings, rollbackCharacterResourceChange, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, sendAiTurnPreview, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updateQuest } from '../api';
+import { activatePreset, addPlayer, applyAiTurnPreview, applyPresetTemplate, checkDbSourceUpdates, createAiTurnPreview, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, listCharacterResourceChanges, listDbSourceSheets, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listRoomDbRows, listRoomDbSheets, listRoomDbSourceBindings, listSessionSummaries, previewAiPrompt, putRoomDbRow, putRoomDbSourceBindings, reindexRuleEmbeddings, rollbackCharacterResourceChange, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, sendAiTurnPreview, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updateQuest } from '../api';
 import { LogList } from '../components/LogList';
 import { CharacterCard } from '../components/CharacterCard';
 import { PromptPreviewPanel } from '../components/PromptPreviewPanel';
@@ -21,6 +21,31 @@ function isJsonRecord(value: unknown): value is Record<string, unknown> {
 
 function readString(value: unknown): string {
   return typeof value === 'string' ? value : '';
+}
+
+function readJsonArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function parseJsonArrayText(value: string): unknown[] {
+  try {
+    return readJsonArray(JSON.parse(value));
+  } catch {
+    return [];
+  }
+}
+
+function renderJsonValue(value: unknown) {
+  return <pre>{JSON.stringify(value, null, 2)}</pre>;
+}
+
+function renderTextValue(value: unknown, emptyText: string) {
+  const text = readString(value).trim();
+  return text ? <pre>{text}</pre> : <p className="muted">{emptyText}</p>;
+}
+
+function renderJsonArraySection(items: unknown[], emptyText: string) {
+  return items.length > 0 ? renderJsonValue(items) : <p className="muted">{emptyText}</p>;
 }
 
 function promptPackageBlocks(presetPackage: PromptPresetPackage | null): PromptPackageBlockView[] {
@@ -75,6 +100,54 @@ function promptPackageBlockContent(block: PromptPackageBlockView): string {
   return '空内容';
 }
 
+interface NarrativeLengthLimits {
+  objectiveMax: number;
+  publicMax: number;
+  privateMax: number;
+}
+
+const defaultNarrativeLengthLimits: NarrativeLengthLimits = {
+  objectiveMax: 300,
+  publicMax: 300,
+  privateMax: 150
+};
+
+function buildNarrativeLengthRuleContent(limits: NarrativeLengthLimits): string {
+  return [
+    '剧情字数硬上限：控制 AI 本回合输出的三层剧情长度。超过上限属于格式错误。',
+    `- objectiveLog：最多 ${limits.objectiveMax} 个中文字符，写 DM 需要追踪的客观事实、隐藏细节和裁定依据。`,
+    `- publicLog：最多 ${limits.publicMax} 个中文字符，只写所有玩家共同可见或共同已知的公开剧情。`,
+    `- privateUpdatesByPlayer：每名玩家最多 ${limits.privateMax} 个中文字符，只写该玩家本人可见的私人信息。`,
+    '- ruleResults：每条最多 120 个中文字符。',
+    '- interactionRequests：每条 prompt 最多 120 个中文字符。',
+    '- suggestedStateChanges.reason：最多 120 个中文字符。',
+    '- characterResourceChanges.reason：最多 80 个中文字符。',
+    '- diceRequests.reason：最多 80 个中文字符。',
+    '信息量少时可以更短，不要为了达到字数而填充内容。'
+  ].join('\n');
+}
+
+function readNarrativeLengthLimits(preset: PromptPreset | null): NarrativeLengthLimits {
+  const block = preset?.blocks.find((item) => item.name === '剧情字数限制');
+  const content = block?.content ?? '';
+  const objective = content.match(/objectiveLog：(?:最多|建议\s*\d+-)\s*(\d+)/);
+  const publicLog = content.match(/publicLog：(?:最多|建议\s*\d+-)\s*(\d+)/);
+  const privateLog = content.match(/privateUpdatesByPlayer：(?:每名玩家)?(?:最多|建议\s*\d+-)\s*(\d+)/);
+  return {
+    objectiveMax: objective ? Number(objective[1]) : defaultNarrativeLengthLimits.objectiveMax,
+    publicMax: publicLog ? Number(publicLog[1]) : defaultNarrativeLengthLimits.publicMax,
+    privateMax: privateLog ? Number(privateLog[1]) : defaultNarrativeLengthLimits.privateMax
+  };
+}
+
+function upsertNarrativeLengthBlock(preset: PromptPreset, limits: NarrativeLengthLimits): PromptPreset {
+  const content = buildNarrativeLengthRuleContent(limits);
+  const blocks = preset.blocks.some((block) => block.name === '剧情字数限制')
+    ? preset.blocks.map((block) => block.name === '剧情字数限制' ? { ...block, enabled: true, role: 'system' as const, position: 'final' as const, orderIndex: 850, content } : block)
+    : [...preset.blocks, { name: '剧情字数限制', role: 'system' as const, position: 'final' as const, enabled: true, orderIndex: 850, content }];
+  return { ...preset, blocks };
+}
+
 type AdminTab = 'overview' | 'aiProvider' | 'characterResources' | 'campaignMemory' | 'resources' | 'database' | 'presets' | 'worldBooks';
 type AdminLogTab = 'objective' | 'public' | `player:${string}`;
 
@@ -110,11 +183,16 @@ export function AdminPage({ roomId }: { roomId: string }) {
   const [aiTurnResult, setAiTurnResult] = useState<AiTurnPromptSendResponse | null>(null);
   const [aiTurnBusy, setAiTurnBusy] = useState(false);
   const [aiTurnMessage, setAiTurnMessage] = useState('');
+  const [confirmedSuggestedChangeIndexes, setConfirmedSuggestedChangeIndexes] = useState<Set<number>>(new Set());
+  const [confirmedResourceChangeIndexes, setConfirmedResourceChangeIndexes] = useState<Set<number>>(new Set());
   const [presetDraft, setPresetDraft] = useState<PromptPreset | null>(null);
   const [expandedPresetBlockKey, setExpandedPresetBlockKey] = useState<string | null>(null);
   const [presetTemplates, setPresetTemplates] = useState<PresetTemplateMeta[]>([]);
   const [activePresetType, setActivePresetType] = useState<PresetType | null>(null);
   const [templateApplying, setTemplateApplying] = useState<PresetType | null>(null);
+  const [narrativeLengthDraft, setNarrativeLengthDraft] = useState<NarrativeLengthLimits>(defaultNarrativeLengthLimits);
+  const [narrativeLengthMessage, setNarrativeLengthMessage] = useState('');
+  const [narrativeLengthSaving, setNarrativeLengthSaving] = useState(false);
   const [resourceChanges, setResourceChanges] = useState<CharacterResourceChange[]>([]);
   const [resourceChangeLoading, setResourceChangeLoading] = useState(false);
 
@@ -175,6 +253,8 @@ export function AdminPage({ roomId }: { roomId: string }) {
     setAiTurnResult(null);
     setAiTurnBusy(false);
     setAiTurnMessage('');
+    setConfirmedSuggestedChangeIndexes(new Set());
+    setConfirmedResourceChangeIndexes(new Set());
     setError('');
     setAiProviderMessage('');
     setAiProviderTesting(false);
@@ -182,6 +262,9 @@ export function AdminPage({ roomId }: { roomId: string }) {
     setEmbeddingTesting(false);
     setPresetDraft(null);
     setExpandedPresetBlockKey(null);
+    setNarrativeLengthDraft(defaultNarrativeLengthLimits);
+    setNarrativeLengthMessage('');
+    setNarrativeLengthSaving(false);
     setState(null);
     setPresetTemplates([]);
     setActivePresetType(null);
@@ -205,6 +288,10 @@ export function AdminPage({ roomId }: { roomId: string }) {
     }
   }, [activeTab, roomId]);
 
+  useEffect(() => {
+    setNarrativeLengthDraft(readNarrativeLengthLimits(activePreset()));
+  }, [state?.presets]);
+
   async function createPlayer() {
     setError('');
     try {
@@ -221,6 +308,8 @@ export function AdminPage({ roomId }: { roomId: string }) {
     setAiTurnBusy(true);
     setAiTurnMessage('正在生成 AI 回合提示词...');
     setAiTurnResult(null);
+    setConfirmedSuggestedChangeIndexes(new Set());
+    setConfirmedResourceChangeIndexes(new Set());
     try {
       const preview = await createAiTurnPreview(roomId);
       setAiTurnPreview(preview);
@@ -242,9 +331,31 @@ export function AdminPage({ roomId }: { roomId: string }) {
     try {
       const result = await sendAiTurnPreview(roomId, aiTurnPreview.previewId, aiTurnPromptDraft);
       setAiTurnResult(result);
+      setConfirmedSuggestedChangeIndexes(new Set());
+      setConfirmedResourceChangeIndexes(new Set());
+      setAiTurnMessage('AI 已返回，尚未写入系统。请检查下方待确认内容，最终确认后才会应用。');
+    } catch (err) {
+      setAiTurnMessage('');
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAiTurnBusy(false);
+    }
+  }
+
+  async function applyCurrentAiTurnResult() {
+    if (!aiTurnPreview || aiTurnResult?.applied) return;
+    setError('');
+    setAiTurnBusy(true);
+    setAiTurnMessage('正在应用已确认的 AI 结果...');
+    try {
+      const result = await applyAiTurnPreview(roomId, aiTurnPreview.previewId, {
+        confirmedSuggestedStateChangeIndexes: Array.from(confirmedSuggestedChangeIndexes).sort((a, b) => a - b),
+        confirmedCharacterResourceChangeIndexes: Array.from(confirmedResourceChangeIndexes).sort((a, b) => a - b)
+      });
+      setAiTurnResult(result);
       setAiTurnMessage(result.resourceErrors?.length
-        ? 'AI 已返回并推进回合；部分玩家状态更新失败，请查看建议变更和 AI 错误。'
-        : 'AI 已返回并推进回合；客观剧情、公开剧情、玩家私人剧情和可应用的玩家状态已写入系统。');
+        ? '已应用并推进回合；部分玩家状态更新失败，请查看状态更新错误。'
+        : '已应用：客观剧情、公开剧情、玩家私人剧情和已确认的可应用状态已写入系统。');
       await refresh();
     } catch (err) {
       setAiTurnMessage('');
@@ -252,6 +363,24 @@ export function AdminPage({ roomId }: { roomId: string }) {
     } finally {
       setAiTurnBusy(false);
     }
+  }
+
+  function toggleConfirmedSuggestedChange(index: number, checked: boolean) {
+    setConfirmedSuggestedChangeIndexes((current) => {
+      const next = new Set(current);
+      if (checked) next.add(index);
+      else next.delete(index);
+      return next;
+    });
+  }
+
+  function toggleConfirmedResourceChange(index: number, checked: boolean) {
+    setConfirmedResourceChangeIndexes((current) => {
+      const next = new Set(current);
+      if (checked) next.add(index);
+      else next.delete(index);
+      return next;
+    });
   }
 
   function updateAiProviderConfig(key: keyof AiProviderConfig, value: string) {
@@ -529,6 +658,44 @@ export function AdminPage({ roomId }: { roomId: string }) {
     }
   }
 
+  function updateNarrativeLengthDraft(key: keyof NarrativeLengthLimits, value: string) {
+    setNarrativeLengthMessage('');
+    const parsed = Number(value);
+    setNarrativeLengthDraft((current) => ({
+      ...current,
+      [key]: Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0
+    }));
+  }
+
+  async function saveNarrativeLengthLimits() {
+    const preset = activePreset();
+    if (!preset) {
+      setError('当前没有可保存的 Prompt 预设。');
+      return;
+    }
+    const limits = narrativeLengthDraft;
+    if (limits.objectiveMax <= 0 || limits.publicMax <= 0 || limits.privateMax <= 0) {
+      setNarrativeLengthMessage('');
+      setError('剧情长度硬上限必须大于 0。');
+      return;
+    }
+    setError('');
+    setNarrativeLengthSaving(true);
+    setNarrativeLengthMessage('');
+    try {
+      const nextPreset = upsertNarrativeLengthBlock(preset, limits);
+      const result = await savePreset(nextPreset);
+      setState((current) => current ? { ...current, presets: result.presets } : current);
+      setPresetDraft((current) => current && current.id === nextPreset.id ? { ...nextPreset, blocks: nextPreset.blocks.map((block) => ({ ...block })) } : current);
+      setNarrativeLengthMessage('剧情长度硬上限已保存，并会进入最终 AI prompt。');
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setNarrativeLengthSaving(false);
+    }
+  }
+
   async function usePreset(presetId: string) {
     setError('');
     try {
@@ -707,6 +874,12 @@ export function AdminPage({ roomId }: { roomId: string }) {
   const readinessLabel = readiness.requiredActorIds.length > 0
     ? `${readiness.completedActorIds.length} / ${readiness.requiredActorIds.length} 已完成`
     : '暂无必需行动者';
+  const actorsComplete = readiness.requiredActorIds.length > 0 && readiness.missingActorIds.length === 0;
+  const readinessHint = readiness.ready
+    ? '提示：所有必需玩家已完成，可以生成 AI 回合提示词。'
+    : actorsComplete
+      ? `提示：玩家行动已完成，但房间/回合状态尚未进入 ready_to_resolve（房间：${readiness.roomStatus ?? state.room.status}，回合：${readiness.status ?? 'unknown'}）。请刷新或重新提交一次行动以同步状态。`
+      : '提示：所有必需玩家提交、跳过或被管理员排除后，才能生成提示词。';
   const actionsByPlayerId = new Map<string, typeof state.actions>();
   for (const action of state.actions) {
     const existing = actionsByPlayerId.get(action.playerId) ?? [];
@@ -803,7 +976,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                       <div className="action-entry" key={action.id}>
                         <p>行动详情：{action.text}</p>
                         <p className="muted">
-                          {action.actionType ?? 'narrative'} · {action.status}
+                          {action.actionType ?? 'narrative'} · {action.visibility ?? 'public'} · {action.status}
                           {action.isHiddenRoll ? ' · 隐藏骰点' : ''}
                           {action.submittedAt ? ` · ${action.submittedAt}` : ''}
                         </p>
@@ -818,7 +991,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
             <div className="button-row">
               <button onClick={advance} disabled={aiTurnBusy || !readiness.ready}>{aiTurnBusy ? '处理中...' : '生成 AI 回合提示词'}</button>
             </div>
-            {!readiness.ready ? <p className="muted">提示：所有必需玩家提交、跳过或被管理员排除后，才能生成提示词。</p> : null}
+            <p className="muted">{readinessHint}</p>
             {aiTurnMessage ? <p>{aiTurnMessage}</p> : null}
             <h2>AI 错误</h2>
             {state.aiGenerations.filter((gen) => gen.error).map((gen) => <p key={gen.id}>{gen.error}</p>)}
@@ -852,7 +1025,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
         {aiTurnPreview ? (
           <div className="card ai-turn-debug-panel">
             <h2>AI-DM 回合调试</h2>
-            <p className="muted">先检查上下文和提示词，再发送给模型；发送成功后会写入客观剧情、公开剧情、玩家私人剧情，并推进回合。</p>
+            <p className="muted">先检查上下文和提示词，再发送给模型；模型返回后只生成待确认内容，最终确认后才会写入系统并推进回合。</p>
             <div className="context-section-list">
               {aiTurnPreview.contextSections.map((section) => (
                 <details key={section.title}>
@@ -877,18 +1050,125 @@ export function AdminPage({ roomId }: { roomId: string }) {
               <div className="subcard">
                 <h3>AI 回复</h3>
                 <p>{aiTurnResult.responseText}</p>
-                {aiTurnResult.applied ? <p className="muted">已写入本回合客观剧情、公开剧情、私人剧情并推进到下一回合。</p> : null}
-                <h3>建议状态变更</h3>
-                {aiTurnResult.suggestedStateChanges.length > 0 ? (
-                  <pre>{JSON.stringify(aiTurnResult.suggestedStateChanges, null, 2)}</pre>
+                {aiTurnResult.applied ? (
+                  <p className="muted">已写入本回合客观剧情、公开剧情、私人剧情并推进到下一回合。</p>
                 ) : (
-                  <p className="muted">本次没有建议状态变更。</p>
+                  <p className="muted">尚未写入系统。请确认下面列出的客观剧情、公开剧情、私人剧情、骰点请求和状态变更。</p>
                 )}
+                {aiTurnResult.warnings?.length ? (
+                  <>
+                    <h3>长度警告</h3>
+                    <ul>{aiTurnResult.warnings.map((item) => <li key={item}>{item}</li>)}</ul>
+                  </>
+                ) : null}
+                <h3>待确认内容</h3>
+                {(() => {
+                  const raw = isJsonRecord(aiTurnResult.raw) ? aiTurnResult.raw : {};
+                  const privateUpdates = isJsonRecord(raw.privateUpdatesByPlayer) ? raw.privateUpdatesByPlayer : {};
+                  const privateEntries = Object.entries(privateUpdates);
+                  const suggestedChanges = readJsonArray(raw.suggestedStateChanges);
+                  const resourceChanges = readJsonArray(raw.characterResourceChanges);
+                  const diceRequests = readJsonArray(raw.diceRequests);
+                  const ruleResults = readJsonArray(raw.ruleResults);
+                  const interactionRequests = readJsonArray(raw.interactionRequests);
+                  return (
+                    <div className="context-section-list">
+                      <details open>
+                        <summary>客观剧情</summary>
+                        {renderTextValue(raw.objectiveLog, '本次没有客观剧情。')}
+                      </details>
+                      <details open>
+                        <summary>公开剧情</summary>
+                        {renderTextValue(raw.publicLog, '本次没有公开剧情。')}
+                      </details>
+                      <details open>
+                        <summary>私人剧情</summary>
+                        {privateEntries.length > 0 ? (
+                          <div className="context-section-list">
+                            {privateEntries.map(([playerId, content]) => (
+                              <details key={playerId} open>
+                                <summary>{playerId}</summary>
+                                {renderTextValue(content, '本玩家没有私人剧情。')}
+                              </details>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted">本次没有私人剧情。</p>
+                        )}
+                      </details>
+                      <details open>
+                        <summary>系统骰点请求</summary>
+                        {renderJsonArraySection(diceRequests, '本次没有系统骰点请求。')}
+                      </details>
+                      <details>
+                        <summary>规则结果</summary>
+                        {renderJsonArraySection(ruleResults, '本次没有规则结果。')}
+                      </details>
+                      <details>
+                        <summary>互动请求</summary>
+                        {renderJsonArraySection(interactionRequests, '本次没有互动请求。')}
+                      </details>
+                      <details open>
+                        <summary>建议状态变更</summary>
+                        {suggestedChanges.length > 0 ? (
+                          <div className="context-section-list">
+                            {suggestedChanges.map((change, index) => (
+                              <label key={index}>
+                                <input
+                                  type="checkbox"
+                                  checked={confirmedSuggestedChangeIndexes.has(index)}
+                                  disabled={aiTurnResult.applied}
+                                  onChange={(event) => toggleConfirmedSuggestedChange(index, event.target.checked)}
+                                />
+                                确认应用建议状态变更 #{index + 1}
+                                {renderJsonValue(change)}
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted">本次没有建议状态变更。</p>
+                        )}
+                      </details>
+                      <details open>
+                        <summary>角色资源变更</summary>
+                        {resourceChanges.length > 0 ? (
+                          <div className="context-section-list">
+                            {resourceChanges.map((change, index) => (
+                              <label key={index}>
+                                <input
+                                  type="checkbox"
+                                  checked={confirmedResourceChangeIndexes.has(index)}
+                                  disabled={aiTurnResult.applied}
+                                  onChange={(event) => toggleConfirmedResourceChange(index, event.target.checked)}
+                                />
+                                确认应用角色资源变更 #{index + 1}
+                                {renderJsonValue(change)}
+                              </label>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted">本次没有角色资源变更。</p>
+                        )}
+                      </details>
+                      <details>
+                        <summary>原始 JSON</summary>
+                        {renderJsonValue(aiTurnResult.raw)}
+                      </details>
+                    </div>
+                  );
+                })()}
                 {aiTurnResult.resourceErrors?.length ? (
                   <>
                     <h3>状态更新错误</h3>
                     <ul>{aiTurnResult.resourceErrors.map((item) => <li key={item}>{item}</li>)}</ul>
                   </>
+                ) : null}
+                {!aiTurnResult.applied ? (
+                  <div className="button-row">
+                    <button onClick={applyCurrentAiTurnResult} disabled={aiTurnBusy}>
+                      {aiTurnBusy ? '应用中...' : '最终确认并应用'}
+                    </button>
+                  </div>
                 ) : null}
               </div>
             ) : null}
@@ -1028,6 +1308,42 @@ export function AdminPage({ roomId }: { roomId: string }) {
                     <div className="subcard" key={s.id}>
                       <p className="muted">回合 {s.turnStart}-{s.turnEnd} · {s.createdAt}</p>
                       <p>{s.summary}</p>
+                      {(() => {
+                        const suggestedQuests = parseJsonArrayText(s.questUpdatesJson);
+                        const suggestedNpcs = parseJsonArrayText(s.npcUpdatesJson);
+                        const suggestedLocations = parseJsonArrayText(s.locationUpdatesJson);
+                        const suggestedCharacters = parseJsonArrayText(s.characterUpdatesJson);
+                        const hasSuggestions = suggestedQuests.length > 0 || suggestedNpcs.length > 0 || suggestedLocations.length > 0 || suggestedCharacters.length > 0;
+                        return hasSuggestions ? (
+                          <details>
+                            <summary>摘要建议（不会自动写入长期记忆）</summary>
+                            {suggestedQuests.length > 0 ? (
+                              <>
+                                <strong>任务建议</strong>
+                                {renderJsonValue(suggestedQuests)}
+                              </>
+                            ) : null}
+                            {suggestedNpcs.length > 0 ? (
+                              <>
+                                <strong>NPC 建议</strong>
+                                {renderJsonValue(suggestedNpcs)}
+                              </>
+                            ) : null}
+                            {suggestedLocations.length > 0 ? (
+                              <>
+                                <strong>地点建议</strong>
+                                {renderJsonValue(suggestedLocations)}
+                              </>
+                            ) : null}
+                            {suggestedCharacters.length > 0 ? (
+                              <>
+                                <strong>角色建议</strong>
+                                {renderJsonValue(suggestedCharacters)}
+                              </>
+                            ) : null}
+                          </details>
+                        ) : null;
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -1219,6 +1535,28 @@ export function AdminPage({ roomId }: { roomId: string }) {
           <button onClick={loadPromptPreview}>预览 AI 请求</button>
         </div>
         <PromptPreviewPanel preview={promptPreview} />
+
+        <div className="subcard" style={{ marginTop: '16px' }}>
+          <h3>AI 输出剧情长度</h3>
+          <p className="muted">这里控制 AI 返回的客观剧情、公开剧情、私人剧情硬上限。保存后会写入当前启用预设，并注入最终 AI prompt。</p>
+          <div className="form-grid">
+            <label>客观剧情最多字数
+              <input type="number" min={0} value={narrativeLengthDraft.objectiveMax} onChange={(event) => updateNarrativeLengthDraft('objectiveMax', event.target.value)} />
+            </label>
+            <label>公开剧情最多字数
+              <input type="number" min={0} value={narrativeLengthDraft.publicMax} onChange={(event) => updateNarrativeLengthDraft('publicMax', event.target.value)} />
+            </label>
+            <label>私人剧情最多字数/玩家
+              <input type="number" min={0} value={narrativeLengthDraft.privateMax} onChange={(event) => updateNarrativeLengthDraft('privateMax', event.target.value)} />
+            </label>
+          </div>
+          <div className="button-row">
+            <button onClick={saveNarrativeLengthLimits} disabled={narrativeLengthSaving}>
+              {narrativeLengthSaving ? '保存中...' : '保存剧情长度硬上限'}
+            </button>
+          </div>
+          {narrativeLengthMessage ? <p className="form-success">{narrativeLengthMessage}</p> : null}
+        </div>
 
         <div className="subcard" style={{ marginTop: '16px' }}>
           <h3>当前生效预设包</h3>

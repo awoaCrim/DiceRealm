@@ -23,6 +23,11 @@ export function createApp(db: AppDatabase) {
       res.status(400).json({ error: 'Invalid request body', issues: err.issues });
       return;
     }
+    if (typeof err === 'object' && err !== null && 'status' in err && typeof err.status === 'number' && err.status >= 400 && err.status < 500) {
+      const message = err instanceof Error ? err.message : 'Invalid request body';
+      res.status(err.status).json({ error: message || 'Invalid request body' });
+      return;
+    }
     const message = err instanceof Error ? err.message : String(err);
     res.status(500).json({ error: message || 'Internal server error' });
   });

@@ -16,7 +16,7 @@ import type {
   WorldBookEntry,
   WorldBookPosition
 } from '../domain/types.js';
-import { defaultAiConfig, normalizeAiConfig, parseAiConfigJson } from './aiContextBuilder.js';
+import { defaultAiConfig, defaultNarrativeLengthRules, normalizeAiConfig, parseAiConfigJson } from './aiContextBuilder.js';
 import { getPresetPackage, getResourceWorldBook, getResourceWorldBookEntries, getScriptCard, listResourceLibrary } from './resourceLibrary.js';
 
 export const GLOBAL_CONFIG_ID = 'default';
@@ -182,6 +182,7 @@ function defaultGlobalPresetBlocks(aiConfig: AiConfig): Array<Omit<PromptBlock, 
     { name: '信息隔离规则', role: 'system', position: 'before_world', enabled: true, orderIndex: 30, content: aiConfig.visibilityRules },
     { name: '玩家互动规则', role: 'system', position: 'before_world', enabled: true, orderIndex: 40, content: aiConfig.interactionRules },
     { name: '叙事风格规则', role: 'system', position: 'before_world', enabled: true, orderIndex: 50, content: aiConfig.styleRules },
+    { name: '剧情字数限制', role: 'system', position: 'final', enabled: true, orderIndex: 850, content: defaultNarrativeLengthRules },
     { name: '输出格式规则', role: 'system', position: 'final', enabled: true, orderIndex: 900, content: aiConfig.outputFormatRules }
   ];
 }
@@ -202,6 +203,25 @@ function insertDefaultGlobalPresetBlocks(db: AppDatabase, aiConfig: AiConfig): v
     db.prepare('INSERT INTO global_prompt_blocks (id, preset_id, name, role, position, enabled, order_index, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(nanoid(), DEFAULT_GLOBAL_PRESET_ID, block.name, block.role, block.position, block.enabled ? 1 : 0, block.orderIndex, block.content);
   }
+}
+
+function ensureNarrativeLengthBlockForBuiltinDefaultPreset(db: AppDatabase): void {
+  const rows = db.prepare('SELECT id, name, content FROM global_prompt_blocks WHERE preset_id = ? ORDER BY order_index ASC').all(DEFAULT_GLOBAL_PRESET_ID) as Array<{ id: string; name: string; content: string }>;
+  const existing = rows.find((row) => row.name === '剧情字数限制');
+  if (existing) {
+    if (existing.content !== defaultNarrativeLengthRules) {
+      db.prepare('UPDATE global_prompt_blocks SET content = ?, position = ?, role = ?, order_index = ?, enabled = ? WHERE id = ?')
+        .run(defaultNarrativeLengthRules, 'final', 'system', 850, 1, existing.id);
+    }
+    return;
+  }
+
+  const builtinNames = new Set(defaultGlobalPresetBlocks(defaultAiConfig).filter((block) => block.name !== '剧情字数限制').map((block) => block.name));
+  const looksLikeOldBuiltinDefault = rows.length === builtinNames.size && rows.every((row) => builtinNames.has(row.name));
+  if (!looksLikeOldBuiltinDefault) return;
+
+  db.prepare('INSERT INTO global_prompt_blocks (id, preset_id, name, role, position, enabled, order_index, content) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(nanoid(), DEFAULT_GLOBAL_PRESET_ID, '剧情字数限制', 'system', 'final', 1, 850, defaultNarrativeLengthRules);
 }
 
 function repairGlobalActivePresetUniqueness(db: AppDatabase): void {
@@ -225,6 +245,8 @@ function ensureDefaultGlobalPresetInitialized(db: AppDatabase): void {
     const preset = ensureDefaultGlobalPresetRow(db);
     if (preset.created) {
       insertDefaultGlobalPresetBlocks(db, defaultAiConfig);
+    } else {
+      ensureNarrativeLengthBlockForBuiltinDefaultPreset(db);
     }
   });
   tx();

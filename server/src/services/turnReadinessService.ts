@@ -113,7 +113,8 @@ export function getTurnReadiness(db: AppDatabase, room: Pick<Room, 'id' | 'curre
   `).get(turn.id) as { requiredActorIdsJson?: string; skippedActorIdsJson?: string; excludedActorIdsJson?: string } | undefined;
 
   const configuredRequired = parseStringArray(row?.requiredActorIdsJson);
-  const required = configuredRequired.length > 0 ? configuredRequired : requiredActorsForCurrentScene(db, room.id);
+  const currentSceneRequired = requiredActorsForCurrentScene(db, room.id);
+  const required = unique([...currentSceneRequired, ...configuredRequired]);
   const submitted = submittedActorsForTurn(db, turn.id);
   const skipped = unique([...parseStringArray(row?.skippedActorIdsJson), ...skippedActorsForTurn(db, turn.id)]);
   const excluded = parseStringArray(row?.excludedActorIdsJson);
@@ -141,7 +142,8 @@ export function getTurnReadiness(db: AppDatabase, room: Pick<Room, 'id' | 'curre
 }
 
 export function assertTurnReadyForAi(db: AppDatabase, room: Pick<Room, 'id' | 'currentTurn'>): TurnReadiness {
-  const readiness = getTurnReadiness(db, { ...room, status: roomStatusForRoom(db, room.id) }, { updateStatus: false });
+  const currentRoomStatus = roomStatusForRoom(db, room.id);
+  const readiness = getTurnReadiness(db, { ...room, status: currentRoomStatus ?? undefined }, { updateStatus: false });
   if (!readiness.ready) {
     throw new TurnNotReadyError(readiness);
   }

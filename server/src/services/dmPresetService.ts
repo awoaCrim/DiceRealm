@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid';
 import type { AppDatabase } from '../db/connection.js';
 import type { ModuleCategory, PresetType, PromptBlock, PromptPreset, SceneType } from '../domain/types.js';
+import { defaultNarrativeLengthRules } from './aiContextBuilder.js';
 import { getActiveGlobalPromptBlocks, getGlobalPresets } from './globalConfigService.js';
 
 interface PresetBlockTemplate {
@@ -28,7 +29,18 @@ export interface PresetTemplateMeta {
   blockCount: number;
 }
 
-export const PRESET_TEMPLATES: PresetTemplateDefinition[] = [
+const narrativeLengthLimitBlock: PresetBlockTemplate = {
+  name: '剧情字数限制',
+  role: 'system',
+  position: 'final',
+  enabled: true,
+  orderIndex: 850,
+  content: defaultNarrativeLengthRules,
+  category: 'summary',
+  sceneType: 'all'
+};
+
+const BASE_PRESET_TEMPLATES: PresetTemplateDefinition[] = [
   {
     type: 'tutorial',
     name: '新手教学',
@@ -587,6 +599,13 @@ export const PRESET_TEMPLATES: PresetTemplateDefinition[] = [
     ]
   }
 ];
+
+export const PRESET_TEMPLATES: PresetTemplateDefinition[] = BASE_PRESET_TEMPLATES.map((template) => ({
+  ...template,
+  blocks: template.blocks.some((block) => block.name === narrativeLengthLimitBlock.name)
+    ? template.blocks
+    : [...template.blocks, { ...narrativeLengthLimitBlock }]
+}));
 
 export function listPresetTemplates(): PresetTemplateMeta[] {
   return PRESET_TEMPLATES.map((template) => ({

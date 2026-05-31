@@ -57,8 +57,22 @@ function inferActionType(text: string, selected: PlayerActionType): PlayerAction
   return selected;
 }
 
+function inferActionVisibility(actionType: PlayerActionType): 'public' | 'private' {
+  return actionType === 'player_question' || actionType === 'meta_question' ? 'private' : 'public';
+}
+
 function describeItem(name: string): { type: string; detail: string } {
   return itemInfo[name] ?? { type: '物品', detail: '角色持有的可见物品；具体规则效果由当前规则与场景决定。' };
+}
+
+function combatHealthText(label: string): string {
+  switch (label) {
+    case 'healthy': return '状态良好';
+    case 'injured': return '受伤';
+    case 'bloodied': return '重伤';
+    case 'defeated': return '倒下';
+    default: return '未知';
+  }
 }
 
 export function PlayerPage({ token }: { token: string }) {
@@ -101,7 +115,8 @@ export function PlayerPage({ token }: { token: string }) {
     if (!action.trim() || isSubmittingAction) return;
     setIsSubmittingAction(true);
     try {
-      await submitAction(token, action, inferActionType(action, actionType), isHiddenRoll);
+      const inferredType = inferActionType(action, actionType);
+      await submitAction(token, action, inferredType, isHiddenRoll, inferActionVisibility(inferredType));
       setAction('');
       await refresh();
       setActionNotice('行动已提交，等待 DM 处理。');
@@ -200,7 +215,7 @@ export function PlayerPage({ token }: { token: string }) {
                     {state.npcs.map((n) => (
                       <div className="subcard" key={n.id}>
                         <strong>{n.name}</strong> <span className="muted">({n.role}, {n.attitude})</span>
-                        <p>{n.notes} [{n.location}]</p>
+                        {n.location ? <p className="muted">{n.location}</p> : null}
                       </div>
                     ))}
                   </div>
@@ -440,19 +455,23 @@ export function PlayerPage({ token }: { token: string }) {
               <h2>战斗</h2>
               <p className="muted">第 {state.combatState.round} 回合 · 当前行动者：{state.combatState.participants[state.combatState.currentTurnIndex]?.name ?? '--'}</p>
               {state.combatState.participants
-                .slice()
-                .sort((a, b) => (b.initiative ?? -Infinity) - (a.initiative ?? -Infinity))
                 .map((p, i) => (
                   <div className="subcard" key={p.id} style={i === state.combatState!.currentTurnIndex ? { border: '2px solid #ffd700' } : undefined}>
                     <strong>{p.name}{p.isNpc ? ' (NPC)' : ''}</strong>
-                    <p>先攻: {p.initiative ?? '--'} · AC: {p.ac}</p>
-                    <div className="hp-bar-bg">
-                      <div className="hp-bar-fill" style={{
-                        width: `${Math.min(100, Math.round(p.hp / p.maxHp * 100))}%`,
-                        background: p.hp > p.maxHp / 2 ? '#79bd74' : p.hp > 0 ? '#dfa34b' : '#de6f62'
-                      }} />
-                    </div>
-                    <p className="muted">HP: {p.hp}/{p.maxHp}</p>
+                    <p>先攻: {p.initiative ?? '--'}{p.ac !== null ? ` · AC: ${p.ac}` : ''}</p>
+                    {p.hp !== null && p.maxHp !== null ? (
+                      <>
+                        <div className="hp-bar-bg">
+                          <div className="hp-bar-fill" style={{
+                            width: `${Math.min(100, Math.round(p.hp / p.maxHp * 100))}%`,
+                            background: p.hp > p.maxHp / 2 ? '#79bd74' : p.hp > 0 ? '#dfa34b' : '#de6f62'
+                          }} />
+                        </div>
+                        <p className="muted">HP: {p.hp}/{p.maxHp}</p>
+                      </>
+                    ) : (
+                      <p className="muted">状态：{combatHealthText(p.healthLabel)}</p>
+                    )}
                   </div>
                 ))}
             </section>

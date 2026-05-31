@@ -106,18 +106,16 @@ describe('buildSillyTavernPromptPreview', () => {
     const preview = buildPreview();
 
     expect(preview.mode).toBe('sillytavern-compatible');
-    expect(preview.prompt).toContain('Imported main prompt.');
     expect(preview.prompt).toContain('中文 DM 系统提示。');
-    expect(preview.prompt).toContain('A sealed gate under moonlight.');
     expect(preview.prompt).toContain('The gate responds to silver keys.');
     expect(preview.prompt).toContain('The party stands before the Candlekeep gate.');
-    expect(preview.prompt).toContain('Ari: I inspect Candlekeep.');
+    expect(preview.prompt).toContain('1. Ari [in_character_action, public]: I inspect Candlekeep.');
     expect(preview.prompt).toContain(dndOutputContract);
     expect(preview.prompt).toContain('# DND 输出契约');
     expect(preview.prompt).toContain('严格 JSON 输出：只返回一个 JSON 对象');
     expect(occurrenceCount(preview.prompt, '# DND 输出契约')).toBe(1);
-    expect(preview.prompt.indexOf('Imported main prompt.')).toBeLessThan(preview.prompt.indexOf('A sealed gate under moonlight.'));
-    expect(preview.prompt.indexOf('Ari: I inspect Candlekeep.')).toBeLessThan(preview.prompt.indexOf(dndOutputContract));
+    expect(preview.prompt.indexOf('中文 DM 系统提示。')).toBeLessThan(preview.prompt.indexOf('The gate responds to silver keys.'));
+    expect(preview.prompt.indexOf('1. Ari [in_character_action, public]: I inspect Candlekeep.')).toBeLessThan(preview.prompt.indexOf(dndOutputContract));
     expect(preview.worldBookMatches[0]).toMatchObject({ worldBookId: 'book-1', entryId: 'entry-1', reason: 'primary-key', position: 'before' });
   });
 
@@ -126,8 +124,8 @@ describe('buildSillyTavernPromptPreview', () => {
 
     expect(preview.prompt).toContain('- Previous scene: A bell rang once.');
     expect(occurrenceCount(preview.prompt, 'I inspect Candlekeep.')).toBe(1);
-    expect(preview.promptBlocks.find((block) => block.identifier === 'chatHistory')?.content).toContain('A bell rang once.');
-    expect(preview.promptBlocks.find((block) => block.identifier === 'chatHistory')?.content).not.toContain('I inspect Candlekeep.');
+    expect(preview.promptBlocks.find((block) => block.identifier === 'dndTurnState')?.content).toContain('A bell rang once.');
+    expect(preview.promptBlocks.find((block) => block.identifier === 'dndTurnState')?.content).not.toContain('I inspect Candlekeep.');
   });
 
   it('forces dndOutputContract to system role and renders it once', () => {
