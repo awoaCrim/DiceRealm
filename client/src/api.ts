@@ -79,8 +79,13 @@ async function jsonRequest<T>(url: string, init?: RequestInit, options: { timeou
     let message = text;
     try {
       const payload = JSON.parse(text) as unknown;
-      if (payload && typeof payload === 'object' && 'error' in payload && typeof payload.error === 'string') {
-        message = payload.error;
+      if (payload && typeof payload === 'object') {
+        const record = payload as Record<string, unknown>;
+        if (typeof record.message === 'string' && record.message.trim()) {
+          message = record.message;
+        } else if (typeof record.error === 'string' && record.error.trim()) {
+          message = record.error;
+        }
       }
     } catch {
     }

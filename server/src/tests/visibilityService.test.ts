@@ -46,7 +46,7 @@ describe('buildPlayerVisibleState', () => {
     expect(JSON.stringify(state)).not.toContain('lich phylactery');
   });
 
-  it('shows submitted and waiting player names without exposing action text', () => {
+  it('shows the selected player action without exposing other player action text', () => {
     const state = buildPlayerVisibleState({
       room,
       player: players[0],
@@ -54,14 +54,16 @@ describe('buildPlayerVisibleState', () => {
       character: null,
       logs,
       actions: [
-        { id: 'action-a', roomId: 'room-1', turnId: 'turn-1', playerId: 'player-a', text: 'I pick the lock quietly.', submittedAt: room.createdAt, status: 'submitted' }
+        { id: 'action-a', roomId: 'room-1', turnId: 'turn-1', playerId: 'player-a', text: 'I pick the lock quietly.', submittedAt: room.createdAt, status: 'submitted' },
+        { id: 'action-b', roomId: 'room-1', turnId: 'turn-1', playerId: 'player-b', text: 'I palm the silver key.', submittedAt: room.createdAt, status: 'submitted' }
       ],
       interactions: []
     });
 
-    expect(state.submittedPlayers).toEqual(['Ari']);
-    expect(state.waitingPlayers).toEqual(['Bo']);
-    expect(JSON.stringify(state)).not.toContain('pick the lock');
+    expect(state.submittedPlayers).toEqual(['Ari', 'Bo']);
+    expect(state.waitingPlayers).toEqual([]);
+    expect(state.currentAction?.text).toBe('I pick the lock quietly.');
+    expect(JSON.stringify(state)).not.toContain('palm the silver key');
   });
 
   it('strips unconfirmed campaign memory update suggestions from player state', () => {

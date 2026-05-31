@@ -34,6 +34,18 @@ const defaultDraft: CharacterBuilderDraft = {
   notes: ''
 };
 
+const emptyCharacterBuilderOptions: CharacterBuilderOptions = {
+  species: [],
+  subSpecies: [],
+  classes: [],
+  backgrounds: [],
+  skills: [],
+  equipment: [],
+  spells: [],
+  languages: [],
+  proficiencies: []
+};
+
 const abilityKeys = ['str', 'dex', 'con', 'int', 'wis', 'cha'] as const;
 const abilityLabels: Record<(typeof abilityKeys)[number], string> = {
   str: '力量',
@@ -250,7 +262,7 @@ function SingleOptionField({
       <label>
         {label}
         <select value={approvedValue(options, value)} onChange={e => onChange(e.target.value)}>
-          <option value="">从内置 / 已批准选项选择</option>
+          <option value="">{options.length > 0 ? '从内置 / 已批准选项选择' : '暂无已批准选项，可在下方自定义填写'}</option>
           {options.map(o => (
             <option key={o.id} value={o.name}>{o.name}</option>
           ))}
@@ -424,7 +436,13 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
   useEffect(() => {
     getCharacterBuilderOptions(token)
       .then(res => setOptions(res.options))
-      .catch(err => setError(err.message));
+      .catch(err => {
+        const errorMessage = err instanceof Error ? err.message : String(err);
+        setOptions(emptyCharacterBuilderOptions);
+        setError(errorMessage);
+        setLocalError(`已进入自定义创建模式：角色选项目录加载失败（${errorMessage}）。`);
+        setMessage('可以继续手动填写种族、职业、背景、技能和装备。');
+      });
   }, [token, setError]);
 
   useEffect(() => {
@@ -519,6 +537,14 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
   const next = () => setStepIndex(index => Math.min(index + 1, steps.length - 1));
   const previous = () => setStepIndex(index => Math.max(index - 1, 0));
   const currentStep = steps[stepIndex];
+  const footerStatus = localError
+    ? [localError, message].filter(Boolean).join(' ')
+    : message || (dirty ? '有未保存修改。' : '草稿已同步。');
+  const approvedOptionsText = options
+    ? totalApprovedOptions > 0
+      ? `已批准选项 ${totalApprovedOptions}`
+      : '已批准选项 0 · 可自定义填写'
+    : '选项加载中';
 
   const randomizeCharacter = () => {
     if (!options) return;
@@ -695,11 +721,14 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
       <h2>角色卡</h2>
       <p className="muted">尚未确认角色。使用分步向导创建角色，草稿可随时保存。</p>
       <div className="builder-summary">
-        <span>可选项 {totalApprovedOptions}</span>
+        <span>{approvedOptionsText}</span>
         <span>技能 {draft.skills.length}</span>
         <span>装备 {draft.equipment.length}</span>
         <span>法术 {draft.spells.length}</span>
       </div>
+      {options && totalApprovedOptions === 0 ? (
+        <p className="muted">当前没有已批准目录，不影响创建角色；每一步都可以手动输入自定义内容。</p>
+      ) : null}
       <div className="button-row">
         <button type="button" onClick={() => setIsOpen(true)}>创建角色</button>
         <button type="button" onClick={() => { setIsOpen(true); randomizeCharacter(); }} disabled={!options}>随机角色</button>
@@ -711,7 +740,7 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
             <header className="builder-modal-header">
               <div>
                 <h1 id="character-builder-title">角色创建向导</h1>
-                <p className="muted">优先读取内置和已批准角色选项；保存草稿不会确认角色。</p>
+                <p className="muted">优先读取内置和已批准角色选项；没有目录时也可以自定义填写。保存草稿不会确认角色。</p>
               </div>
               <div className="button-row">
                 <button type="button" onClick={randomizeCharacter} disabled={!options}>随机角色</button>
@@ -743,7 +772,7 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
               </section>
             </div>
             <footer className="builder-modal-footer">
-              <span className={localError ? 'form-error' : 'muted'}>{localError || message || (dirty ? '有未保存修改。' : '草稿已同步。')}</span>
+              <span className={localError ? 'form-error' : 'muted'}>{footerStatus}</span>
               <div className="button-row">
                 <button type="button" onClick={randomizeCharacter} disabled={!options}>随机角色</button>
                 {stepIndex < steps.length - 1 ? <button type="button" onClick={saveDraft} disabled={saveBusy || confirmBusy}>{saveBusy ? '保存中...' : '保存草稿'}</button> : null}

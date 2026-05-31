@@ -75,6 +75,40 @@ function combatHealthText(label: string): string {
   }
 }
 
+function actionTypeLabel(type: string | undefined): string {
+  switch (type) {
+    case 'player_question': return '玩家问题';
+    case 'meta_question': return '场外问题';
+    case 'observe': return '观察';
+    case 'wait': return '等待';
+    case 'skip': return '跳过';
+    case 'ready': return '准备';
+    case 'follow': return '跟随';
+    case 'combat_action':
+    case 'combat': return '战斗行动';
+    case 'exploration': return '探索行动';
+    case 'social': return '社交行动';
+    case 'ooc': return '场外说明';
+    default: return '角色行动';
+  }
+}
+
+function actionVisibilityLabel(visibility: string | undefined): string {
+  switch (visibility) {
+    case 'private': return '私人';
+    case 'dm_only': return '仅主持人';
+    default: return '公开';
+  }
+}
+
+function actionStatusLabel(status: string | undefined): string {
+  switch (status) {
+    case 'complete': return '已结算';
+    case 'processing': return '处理中';
+    default: return '已提交';
+  }
+}
+
 export function PlayerPage({ token }: { token: string }) {
   const [state, setState] = useState<PlayerVisibleState | null>(null);
   const [action, setAction] = useState('');
@@ -86,6 +120,8 @@ export function PlayerPage({ token }: { token: string }) {
   const [isHiddenRoll, setIsHiddenRoll] = useState(false);
   const [activeTab, setActiveTab] = useState<PlayerTab>('story');
   const [activeLogTab, setActiveLogTab] = useState<LogTab>('public');
+  const [interactionResponses, setInteractionResponses] = useState<Record<string, string>>({});
+  const [interactionNotice, setInteractionNotice] = useState('');
   const logScrollRef = useRef<HTMLDivElement | null>(null);
 
   async function refresh() {
@@ -140,11 +176,35 @@ export function PlayerPage({ token }: { token: string }) {
   }
 
   async function respond(interactionId: string, response: string) {
-    await respondToInteraction(token, interactionId, response);
-    await refresh();
+    const trimmed = response.trim();
+    if (!trimmed) return;
+    setError('');
+    setInteractionNotice('');
+    try {
+      await respondToInteraction(token, interactionId, trimmed);
+      setInteractionResponses((current) => {
+        const next = { ...current };
+        delete next[interactionId];
+        return next;
+      });
+      await refresh();
+      setInteractionNotice('回应已提交，等待主持人继续结算。');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   if (!state) return <main className="shell"><p>加载中...</p></main>;
+  const canSubmitAction = state.room.status === 'waiting_for_actions';
+  const actionDisabledReason = canSubmitAction
+    ? ''
+    : state.room.status === 'waiting_for_interaction'
+      ? (state.pendingInteractions.length > 0
+        ? '请先回应下方互动请求，本回合暂不能提交新行动。'
+        : '正在等待其他玩家回应互动请求，本回合暂不能提交新行动。')
+      : state.room.status === 'ready_to_resolve'
+        ? '所有必要行动已完成，等待主持人结算，本回合暂不能修改行动。'
+        : '当前回合未开放行动提交。';
   const showResources = state.resources && state.character?.confirmed;
   const hasBackpackContent = Boolean(state.character?.sheet.equipment.length)
     || Boolean(state.resources?.ammo.length)
@@ -251,24 +311,40 @@ export function PlayerPage({ token }: { token: string }) {
                 </label>
               ) : null}
               {subAction ? <p className="muted">预计 DC: {getSubActionDcInfo()}</p> : null}
+              {state.currentAction ? (
+                <div className="subcard">
+                  <h3>本回合已提交</h3>
+                  <p>{state.currentAction.text}</p>
+                  <p className="muted">
+                    {actionTypeLabel(state.currentAction.actionType)} · {actionVisibilityLabel(state.currentAction.visibility)} · {actionStatusLabel(state.currentAction.status)}
+                    {state.currentAction.submittedAt ? ` · ${state.currentAction.submittedAt}` : ''}
+                  </p>
+                  <p className="muted">
+                    {canSubmitAction ? '再次提交会替换你本回合的行动。' : '当前回合已锁定，不能再修改本次行动。'}
+                  </p>
+                </div>
+              ) : null}
               <label className="check-row">
                 <input type="checkbox" checked={isHiddenRoll} onChange={(event) => setIsHiddenRoll(event.target.checked)} />
                 隐藏骰点（仅玩家本人可见）
               </label>
               <textarea
                 value={action}
+                disabled={!canSubmitAction || isSubmittingAction}
                 onChange={(event) => {
                   setAction(event.target.value);
                   setActionNotice('');
                 }}
                 placeholder="描述你的角色本回合想尝试做什么。"
               />
-              <button disabled={!action.trim() || isSubmittingAction} onClick={submit}>
+              <button disabled={!canSubmitAction || !action.trim() || isSubmittingAction} onClick={submit}>
                 {isSubmittingAction ? '提交中...' : '提交行动'}
               </button>
+              {!canSubmitAction ? <p className="muted">{actionDisabledReason}</p> : null}
               {actionNotice ? <p className="form-success">{actionNotice}</p> : null}
               {error ? <p className="form-error">{error}</p> : null}
             </section>
+            {interactionNotice ? <p className="form-success">{interactionNotice}</p> : null}
             {state.pendingInteractions.map((interaction) => (
               <section className="card" key={interaction.id}>
                 <h2>需要回应</h2>
@@ -277,6 +353,19 @@ export function PlayerPage({ token }: { token: string }) {
                   <button onClick={() => respond(interaction.id, '我同意或配合。')}>同意 / 配合</button>
                   <button onClick={() => respond(interaction.id, '我反抗或拒绝。')}>反抗 / 拒绝</button>
                 </div>
+                <label>自定义回应
+                  <textarea
+                    value={interactionResponses[interaction.id] ?? ''}
+                    onChange={(event) => setInteractionResponses((current) => ({ ...current, [interaction.id]: event.target.value }))}
+                    placeholder="写下你的具体回应、条件或反问。"
+                  />
+                </label>
+                <button
+                  disabled={!interactionResponses[interaction.id]?.trim()}
+                  onClick={() => respond(interaction.id, interactionResponses[interaction.id] ?? '')}
+                >
+                  提交回应
+                </button>
               </section>
             ))}
           </aside>

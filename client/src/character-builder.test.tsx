@@ -102,8 +102,11 @@ describe('CharacterBuilder', () => {
 
     render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={onChanged} setError={vi.fn()} />);
 
+    expect(await screen.findByText('已批准选项 0 · 可自定义填写')).toBeInTheDocument();
+    expect(screen.getByText('当前没有已批准目录，不影响创建角色；每一步都可以手动输入自定义内容。')).toBeInTheDocument();
     await user.click(await screen.findByRole('button', { name: '创建角色' }));
     expect(await screen.findByRole('dialog', { name: '角色创建向导' })).toBeInTheDocument();
+    expect(screen.getByText('优先读取内置和已批准角色选项；没有目录时也可以自定义填写。保存草稿不会确认角色。')).toBeInTheDocument();
 
     await user.clear(screen.getByLabelText('角色姓名'));
     await user.type(screen.getByLabelText('角色姓名'), '米拉');
@@ -135,6 +138,24 @@ describe('CharacterBuilder', () => {
       equipment: ['黄铜罗盘'],
       languages: ['星界语']
     })));
+  });
+
+  it('falls back to custom creation mode when option catalogs fail to load', async () => {
+    const user = userEvent.setup();
+    const setError = vi.fn();
+    vi.mocked(api.getCharacterBuilderOptions).mockRejectedValueOnce(new Error('目录服务不可用'));
+
+    render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={vi.fn()} setError={setError} />);
+
+    expect(await screen.findByText('已批准选项 0 · 可自定义填写')).toBeInTheDocument();
+    expect(setError).toHaveBeenCalledWith('目录服务不可用');
+    await user.click(screen.getByRole('button', { name: '创建角色' }));
+
+    expect(await screen.findByRole('dialog', { name: '角色创建向导' })).toBeInTheDocument();
+    expect(screen.getByText(/已进入自定义创建模式：角色选项目录加载失败/)).toBeInTheDocument();
+    expect(screen.getByText(/可以继续手动填写种族、职业、背景、技能和装备/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /种族/ }));
+    expect(screen.getAllByText('暂无已批准选项，可在下方自定义填写').length).toBeGreaterThan(0);
   });
 
   it('fills an editable random draft from available options', async () => {

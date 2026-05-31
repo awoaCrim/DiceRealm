@@ -454,6 +454,8 @@ describe('中文界面文案', () => {
     expect(screen.getByText('暂无角色。')).toBeInTheDocument();
     expect(screen.getByText('第 2 回合')).toBeInTheDocument();
     expect(screen.getByText('状态：')).toBeInTheDocument();
+    expect(screen.getByText('等待行动')).toBeInTheDocument();
+    expect(screen.getByText('请提交本回合行动；已提交后等待其他玩家。')).toBeInTheDocument();
     expect(screen.getByText('已提交')).toBeInTheDocument();
     expect(screen.getByText('暂无玩家提交。')).toBeInTheDocument();
     expect(screen.getByText('等待中')).toBeInTheDocument();
@@ -587,6 +589,114 @@ describe('中文界面文案', () => {
 
     await user.selectOptions(select, 'player_question');
     expect((screen.getByLabelText('行动类型') as HTMLSelectElement).value).toBe('player_question');
+  });
+
+  it('玩家页显示本回合自己的已提交行动和替换规则', async () => {
+    vi.mocked(api.getPlayerState).mockResolvedValueOnce({
+      room: { id: 'room-1', name: '测试房间', worldInfo: '测试世界', currentTurn: 1, status: 'waiting_for_actions' },
+      player: { id: 'player-1', name: '测试玩家' },
+      character: null,
+      publicLogs: [],
+      privateLogs: [],
+      pendingInteractions: [],
+      currentAction: {
+        id: 'action-1',
+        roomId: 'room-1',
+        turnId: 'turn-1',
+        playerId: 'player-1',
+        text: '观察道路两侧的林线。',
+        submittedAt: '2026-05-30T00:00:00.000Z',
+        status: 'submitted',
+        actionType: 'observe',
+        visibility: 'public',
+        isHiddenRoll: false
+      },
+      submittedPlayers: ['测试玩家'],
+      waitingPlayers: [],
+      ruleSummaries: []
+    });
+
+    render(<PlayerPage token="token-1" />);
+
+    expect(await screen.findByText('本回合已提交')).toBeInTheDocument();
+    expect(screen.getByText('观察道路两侧的林线。')).toBeInTheDocument();
+    expect(screen.getByText(/观察 · 公开 · 已提交/)).toBeInTheDocument();
+    expect(screen.getByText('再次提交会替换你本回合的行动。')).toBeInTheDocument();
+  });
+
+  it('玩家页在回合锁定后说明已提交行动不能修改', async () => {
+    vi.mocked(api.getPlayerState).mockResolvedValueOnce({
+      room: { id: 'room-1', name: '测试房间', worldInfo: '测试世界', currentTurn: 1, status: 'ready_to_resolve' },
+      player: { id: 'player-1', name: '测试玩家' },
+      character: null,
+      publicLogs: [],
+      privateLogs: [],
+      pendingInteractions: [],
+      currentAction: {
+        id: 'action-1',
+        roomId: 'room-1',
+        turnId: 'turn-1',
+        playerId: 'player-1',
+        text: '等待队伍决定。',
+        submittedAt: '2026-05-30T00:00:00.000Z',
+        status: 'submitted',
+        actionType: 'wait',
+        visibility: 'public',
+        isHiddenRoll: false
+      },
+      submittedPlayers: ['测试玩家'],
+      waitingPlayers: [],
+      ruleSummaries: []
+    });
+
+    render(<PlayerPage token="token-1" />);
+
+    expect(await screen.findByText('等待队伍决定。')).toBeInTheDocument();
+    expect(screen.getByText('当前回合已锁定，不能再修改本次行动。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '提交行动' })).toBeDisabled();
+  });
+
+  it('玩家页在等待互动回应时禁用新行动并允许自定义回应', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getPlayerState).mockResolvedValueOnce({
+      room: { id: 'room-1', name: '测试房间', worldInfo: '测试世界', currentTurn: 1, status: 'waiting_for_interaction' },
+      player: { id: 'player-1', name: '测试玩家' },
+      character: null,
+      publicLogs: [],
+      privateLogs: [],
+      pendingInteractions: [{
+        id: 'interaction-1',
+        roomId: 'room-1',
+        turnId: 'turn-1',
+        sourcePlayerId: 'player-2',
+        targetPlayerId: 'player-1',
+        type: 'confirm',
+        prompt: '你是否接受递来的绳子？',
+        targetResponse: null,
+        status: 'pending_target',
+        createdAt: '2026-05-30T00:00:00.000Z'
+      }],
+      submittedPlayers: ['其他玩家'],
+      waitingPlayers: [],
+      ruleSummaries: []
+    });
+
+    render(<PlayerPage token="token-1" />);
+
+    expect(await screen.findByText('等待回应')).toBeInTheDocument();
+    expect(screen.getByText('请先回应下方互动请求，本回合暂不能提交新行动。')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '提交行动' })).toBeDisabled();
+    expect(screen.getByText('你是否接受递来的绳子？')).toBeInTheDocument();
+
+    const customResponse = screen.getByLabelText('自定义回应');
+    await user.type(customResponse, '我接受，但要求对方先说明计划。');
+    await user.click(screen.getByRole('button', { name: '提交回应' }));
+
+    await waitFor(() => expect(api.respondToInteraction).toHaveBeenCalledWith(
+      'token-1',
+      'interaction-1',
+      '我接受，但要求对方先说明计划。'
+    ));
   });
 
   it('玩家没有确认角色时展示角色创建向导', async () => {
@@ -748,8 +858,8 @@ describe('中文界面文案', () => {
 
     expect(screen.getByText('行动详情：调查银色门缝')).toBeVisible();
     expect(screen.getByText('行动详情：再次使用侦测魔法')).toBeVisible();
-    expect(screen.getByText(/exploration · public · submitted/)).toBeVisible();
-    expect(screen.getByText(/narrative · public · submitted/)).toBeVisible();
+    expect(screen.getByText(/探索行动 · 公开 · 已提交/)).toBeVisible();
+    expect(screen.getByText(/角色行动 · 公开 · 已提交/)).toBeVisible();
   });
 
   it('总览页先生成可编辑 AI 回合提示词，再发送给 AI', async () => {
@@ -757,6 +867,11 @@ describe('中文界面文案', () => {
     vi.mocked(api.createAiTurnPreview).mockClear();
     vi.mocked(api.sendAiTurnPreview).mockClear();
     vi.mocked(api.applyAiTurnPreview).mockClear();
+    const baseState = await api.getAdminState('room-1');
+    vi.mocked(api.getAdminState).mockResolvedValueOnce({
+      ...baseState,
+      players: [{ id: 'player-1', roomId: 'room-1', name: '阿瑞', token: 't1', isConnected: true, createdAt: '2026-05-27T00:00:00.000Z' }]
+    });
     render(<AdminPage roomId="room-1" />);
 
     await user.click(await screen.findByRole('button', { name: '生成 AI 回合提示词' }));
@@ -785,6 +900,7 @@ describe('中文界面文案', () => {
     expect(screen.getByText('角色资源变更')).toBeInTheDocument();
     expect(screen.getByText('原始 JSON')).toBeInTheDocument();
     expect(screen.getByText('DM objective note')).toBeInTheDocument();
+    expect(screen.getByText('阿瑞 (player-1)')).toBeInTheDocument();
     expect(screen.getByText('Private clue')).toBeInTheDocument();
     expect(screen.getAllByText(/attack roll/).length).toBeGreaterThan(0);
     expect(screen.getByText('AI 已返回，尚未写入系统。请检查下方待确认内容，最终确认后才会应用。')).toBeInTheDocument();
@@ -800,6 +916,63 @@ describe('中文界面文案', () => {
       confirmedCharacterResourceChangeIndexes: [0]
     }));
     expect(await screen.findByText('已应用：客观剧情、公开剧情、玩家私人剧情和已确认的可应用状态已写入系统。')).toBeInTheDocument();
+  });
+
+  it('总览页应用含互动请求的 AI 结果后不提示已推进下一回合', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.sendAiTurnPreview).mockResolvedValueOnce({
+      responseText: 'AI asks for consent',
+      suggestedStateChanges: [],
+      raw: {
+        objectiveLog: '等待玩家确认。',
+        publicLog: '递出绳子，等待回应。',
+        privateUpdatesByPlayer: {},
+        ruleResults: [],
+        interactionRequests: [{
+          sourcePlayerId: 'player-1',
+          targetPlayerId: 'player-2',
+          type: 'confirm',
+          prompt: '是否接受绳子？'
+        }],
+        diceRequests: [],
+        suggestedStateChanges: [],
+        characterResourceChanges: []
+      },
+      applied: false,
+      warnings: []
+    });
+    vi.mocked(api.applyAiTurnPreview).mockResolvedValueOnce({
+      responseText: 'AI asks for consent',
+      suggestedStateChanges: [],
+      raw: {
+        objectiveLog: '等待玩家确认。',
+        publicLog: '递出绳子，等待回应。',
+        privateUpdatesByPlayer: {},
+        ruleResults: [],
+        interactionRequests: [{
+          sourcePlayerId: 'player-1',
+          targetPlayerId: 'player-2',
+          type: 'confirm',
+          prompt: '是否接受绳子？'
+        }],
+        diceRequests: [],
+        suggestedStateChanges: [],
+        characterResourceChanges: []
+      },
+      applied: true,
+      warnings: []
+    });
+
+    render(<AdminPage roomId="room-1" />);
+
+    await user.click(await screen.findByRole('button', { name: '生成 AI 回合提示词' }));
+    await user.click(screen.getByRole('button', { name: '发送给 AI' }));
+    await waitFor(() => expect(screen.getAllByText('AI asks for consent').length).toBeGreaterThan(0));
+    await user.click(screen.getByRole('button', { name: '最终确认并应用' }));
+
+    expect(await screen.findByText('已应用：客观剧情、公开剧情、玩家私人剧情和已确认的可应用状态已写入系统；当前回合正在等待玩家回应互动请求。')).toBeInTheDocument();
+    expect(screen.getByText('已写入本回合客观剧情、公开剧情和私人剧情；当前回合正在等待目标玩家回应互动请求。')).toBeInTheDocument();
+    expect(screen.queryByText('已写入本回合客观剧情、公开剧情、私人剧情并推进到下一回合。')).not.toBeInTheDocument();
   });
 
   it('总览页在回合未就绪时禁用生成提示词并显示缺席玩家', async () => {
@@ -856,6 +1029,68 @@ describe('中文界面文案', () => {
     expect(await screen.findByText('等待玩家行动：2 / 2 已完成')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '生成 AI 回合提示词' })).toBeDisabled();
     expect(screen.getByText(/玩家行动已完成，但房间\/回合状态尚未进入 ready_to_resolve/)).toBeInTheDocument();
+    expect(screen.getByText(/不要让玩家重复提交行动/)).toBeInTheDocument();
+  });
+
+  it('总览页在等待互动回应时说明下一步而不是要求玩家重交行动', async () => {
+    const baseState = await api.getAdminState('room-1');
+    vi.mocked(api.getAdminState).mockResolvedValueOnce({
+      ...baseState,
+      room: { ...baseState.room, status: 'waiting_for_interaction' },
+      players: [
+        { id: 'player-1', roomId: 'room-1', name: '阿瑞', token: 't1', isConnected: true, createdAt: '2026-05-27T00:00:00.000Z' },
+        { id: 'player-2', roomId: 'room-1', name: '波', token: 't2', isConnected: true, createdAt: '2026-05-27T00:01:00.000Z' }
+      ],
+      interactions: [{
+        id: 'interaction-1',
+        roomId: 'room-1',
+        turnId: 'turn-1',
+        sourcePlayerId: 'player-1',
+        targetPlayerId: 'player-2',
+        type: 'confirm',
+        prompt: '是否接受递来的绳子？',
+        targetResponse: null,
+        status: 'pending_target',
+        createdAt: '2026-05-30T00:00:00.000Z'
+      }, {
+        id: 'interaction-2',
+        roomId: 'room-1',
+        turnId: 'turn-1',
+        sourcePlayerId: 'player-2',
+        targetPlayerId: 'player-1',
+        type: 'reply',
+        prompt: '是否愿意一起行动？',
+        targetResponse: '我愿意，但先保持距离。',
+        status: 'ready_for_ai',
+        createdAt: '2026-05-30T00:01:00.000Z'
+      }],
+      turnReadiness: {
+        ...baseState.turnReadiness,
+        turnId: 'turn-1',
+        roomStatus: 'waiting_for_interaction',
+        status: 'waiting_for_interaction',
+        requiredActorIds: ['player-1', 'player-2'],
+        submittedActorIds: ['player-1', 'player-2'],
+        skippedActorIds: [],
+        excludedActorIds: [],
+        completedActorIds: ['player-1', 'player-2'],
+        missingActorIds: [],
+        ready: false
+      }
+    });
+
+    render(<AdminPage roomId="room-1" />);
+
+    expect(await screen.findByText('等待玩家行动：2 / 2 已完成')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '生成 AI 回合提示词' })).toBeDisabled();
+    expect(screen.getByText('提示：本回合正在等待玩家回应互动请求。目标玩家回应后，系统会回到可继续结算状态。')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '互动回应' })).toBeInTheDocument();
+    expect(screen.getByText('等待目标玩家回应')).toBeInTheDocument();
+    expect(screen.getByText('已回应，等待主持人继续结算')).toBeInTheDocument();
+    expect(screen.getByText('来源：阿瑞 · 目标：波')).toBeInTheDocument();
+    expect(screen.getByText('请求：是否接受递来的绳子？')).toBeInTheDocument();
+    expect(screen.getByText('回应：我愿意，但先保持距离。')).toBeInTheDocument();
+    expect(screen.queryByText(/重新提交一次行动/)).not.toBeInTheDocument();
   });
 
   it('资源配置标签页展示资源导入与审核入口', async () => {

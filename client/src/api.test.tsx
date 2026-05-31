@@ -73,6 +73,28 @@ afterEach(() => {
 });
 
 describe('resource API helpers', () => {
+  it('shows backend message before internal error code', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      json: async () => ({ error: 'TURN_NOT_READY', message: '还有玩家未提交行动，不能生成 AI 提示词。' }),
+      text: async () => JSON.stringify({ error: 'TURN_NOT_READY', message: '还有玩家未提交行动，不能生成 AI 提示词。' })
+    }) as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(createAiTurnPreview('room-1')).rejects.toThrow('还有玩家未提交行动，不能生成 AI 提示词。');
+  });
+
+  it('falls back to backend error code when no user message exists', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      json: async () => ({ error: 'Room not found' }),
+      text: async () => JSON.stringify({ error: 'Room not found' })
+    }) as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(deleteRoom('missing-room')).rejects.toThrow('Room not found');
+  });
+
   it('requests script card resource endpoints with expected methods and bodies', async () => {
     const fetchMock = mockFetchJson({ scriptCards: [] });
 

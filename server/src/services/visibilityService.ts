@@ -100,6 +100,9 @@ function sanitizeCombatState(state: CombatState | undefined): PlayerVisibleComba
 
 export function buildPlayerVisibleState(input: BuildPlayerVisibleStateInput): PlayerVisibleState {
   const submittedPlayerIds = new Set(input.actions.map((action) => action.playerId));
+  const currentAction = [...input.actions]
+    .sort((left, right) => right.submittedAt.localeCompare(left.submittedAt))
+    .find((action) => action.playerId === input.player.id) ?? null;
 
   return {
     room: {
@@ -119,6 +122,7 @@ export function buildPlayerVisibleState(input: BuildPlayerVisibleStateInput): Pl
     pendingInteractions: input.interactions.filter(
       (interaction) => interaction.targetPlayerId === input.player.id && interaction.status === 'pending_target'
     ),
+    currentAction,
     submittedPlayers: input.players.filter((player) => submittedPlayerIds.has(player.id)).map((player) => player.name),
     waitingPlayers: input.players.filter((player) => !submittedPlayerIds.has(player.id)).map((player) => player.name),
     ruleSummaries: input.ruleSummaries ?? [],

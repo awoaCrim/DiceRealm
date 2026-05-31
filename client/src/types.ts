@@ -258,6 +258,7 @@ export interface PlayerVisibleState {
   publicLogs: LogEntry[];
   privateLogs: LogEntry[];
   pendingInteractions: InteractionRequest[];
+  currentAction?: PlayerAction | null;
   submittedPlayers: string[];
   waitingPlayers: string[];
   ruleSummaries: RuleSummary[];

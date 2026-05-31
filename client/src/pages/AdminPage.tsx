@@ -48,6 +48,51 @@ function renderJsonArraySection(items: unknown[], emptyText: string) {
   return items.length > 0 ? renderJsonValue(items) : <p className="muted">{emptyText}</p>;
 }
 
+function aiResultHasInteractionRequests(result: AiTurnPromptSendResponse | null): boolean {
+  if (!result || !isJsonRecord(result.raw)) return false;
+  return readJsonArray(result.raw.interactionRequests).length > 0;
+}
+
+function appliedAiResultMessage(result: AiTurnPromptSendResponse): string {
+  return aiResultHasInteractionRequests(result)
+    ? '已写入本回合客观剧情、公开剧情和私人剧情；当前回合正在等待目标玩家回应互动请求。'
+    : '已写入本回合客观剧情、公开剧情、私人剧情并推进到下一回合。';
+}
+
+function actionTypeLabel(type: string | undefined): string {
+  switch (type) {
+    case 'player_question': return '玩家问题';
+    case 'meta_question': return '场外问题';
+    case 'observe': return '观察';
+    case 'wait': return '等待';
+    case 'skip': return '跳过';
+    case 'ready': return '准备';
+    case 'follow': return '跟随';
+    case 'combat_action':
+    case 'combat': return '战斗行动';
+    case 'exploration': return '探索行动';
+    case 'social': return '社交行动';
+    case 'ooc': return '场外说明';
+    default: return '角色行动';
+  }
+}
+
+function actionVisibilityLabel(visibility: string | undefined): string {
+  switch (visibility) {
+    case 'private': return '私人';
+    case 'dm_only': return '仅主持人';
+    default: return '公开';
+  }
+}
+
+function actionStatusLabel(status: string | undefined): string {
+  switch (status) {
+    case 'complete': return '已结算';
+    case 'processing': return '处理中';
+    default: return '已提交';
+  }
+}
+
 function promptPackageBlocks(presetPackage: PromptPresetPackage | null): PromptPackageBlockView[] {
   if (!presetPackage || !isJsonRecord(presetPackage.openAiSettings)) return [];
   const prompts: Record<string, unknown>[] = Array.isArray(presetPackage.openAiSettings.prompts)
@@ -353,9 +398,12 @@ export function AdminPage({ roomId }: { roomId: string }) {
         confirmedCharacterResourceChangeIndexes: Array.from(confirmedResourceChangeIndexes).sort((a, b) => a - b)
       });
       setAiTurnResult(result);
+      const appliedMessage = aiResultHasInteractionRequests(result)
+        ? '已应用：客观剧情、公开剧情、玩家私人剧情和已确认的可应用状态已写入系统；当前回合正在等待玩家回应互动请求。'
+        : '已应用：客观剧情、公开剧情、玩家私人剧情和已确认的可应用状态已写入系统。';
       setAiTurnMessage(result.resourceErrors?.length
-        ? '已应用并推进回合；部分玩家状态更新失败，请查看状态更新错误。'
-        : '已应用：客观剧情、公开剧情、玩家私人剧情和已确认的可应用状态已写入系统。');
+        ? `${appliedMessage} 部分玩家状态更新失败，请查看状态更新错误。`
+        : appliedMessage);
       await refresh();
     } catch (err) {
       setAiTurnMessage('');
@@ -877,9 +925,11 @@ export function AdminPage({ roomId }: { roomId: string }) {
   const actorsComplete = readiness.requiredActorIds.length > 0 && readiness.missingActorIds.length === 0;
   const readinessHint = readiness.ready
     ? '提示：所有必需玩家已完成，可以生成 AI 回合提示词。'
-    : actorsComplete
-      ? `提示：玩家行动已完成，但房间/回合状态尚未进入 ready_to_resolve（房间：${readiness.roomStatus ?? state.room.status}，回合：${readiness.status ?? 'unknown'}）。请刷新或重新提交一次行动以同步状态。`
-      : '提示：所有必需玩家提交、跳过或被管理员排除后，才能生成提示词。';
+    : readiness.roomStatus === 'waiting_for_interaction' || readiness.status === 'waiting_for_interaction'
+      ? '提示：本回合正在等待玩家回应互动请求。目标玩家回应后，系统会回到可继续结算状态。'
+      : actorsComplete
+        ? `提示：玩家行动已完成，但房间/回合状态尚未进入 ready_to_resolve（房间：${readiness.roomStatus ?? state.room.status}，回合：${readiness.status ?? 'unknown'}）。请检查状态异常，不要让玩家重复提交行动。`
+        : '提示：所有必需玩家提交、跳过或被管理员排除后，才能生成提示词。';
   const actionsByPlayerId = new Map<string, typeof state.actions>();
   for (const action of state.actions) {
     const existing = actionsByPlayerId.get(action.playerId) ?? [];
@@ -894,6 +944,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
     playerName: playerNameById.get(playerId) ?? playerId,
     actions: actionsByPlayerId.get(playerId) ?? []
   }));
+  const activeInteractions = state.interactions.filter((interaction) => interaction.status !== 'resolved');
   const privateLogsByPlayer = state.players.map((player) => ({
     player,
     logs: state.logs.filter((log) => log.visibilityScope === 'private' && log.playerId === player.id)
@@ -918,6 +969,13 @@ export function AdminPage({ roomId }: { roomId: string }) {
     const text = latestAction?.text.trim() ?? '';
     const clipped = text.length > 42 ? `${text.slice(0, 42)}...` : text;
     return `${actions.length} 条行动 · 最新：${clipped || '已提交'}`;
+  };
+  const interactionStatusText = (status: string): string => {
+    switch (status) {
+      case 'pending_target': return '等待目标玩家回应';
+      case 'ready_for_ai': return '已回应，等待主持人继续结算';
+      default: return status;
+    }
   };
   const formatChangeValue = (value: unknown): string => {
     if (value === undefined) return '未记录';
@@ -976,7 +1034,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                       <div className="action-entry" key={action.id}>
                         <p>行动详情：{action.text}</p>
                         <p className="muted">
-                          {action.actionType ?? 'narrative'} · {action.visibility ?? 'public'} · {action.status}
+                      {actionTypeLabel(action.actionType)} · {actionVisibilityLabel(action.visibility)} · {actionStatusLabel(action.status)}
                           {action.isHiddenRoll ? ' · 隐藏骰点' : ''}
                           {action.submittedAt ? ` · ${action.submittedAt}` : ''}
                         </p>
@@ -986,6 +1044,25 @@ export function AdminPage({ roomId }: { roomId: string }) {
                 ))}
               </div>
             ) : <p className="muted">暂无玩家行动。</p>}
+            {activeInteractions.length > 0 ? (
+              <>
+                <h2>互动回应</h2>
+                <div className="action-player-list">
+                  {activeInteractions.map((interaction) => {
+                    const sourceName = playerNameById.get(interaction.sourcePlayerId) ?? interaction.sourcePlayerId;
+                    const targetName = playerNameById.get(interaction.targetPlayerId) ?? interaction.targetPlayerId;
+                    return (
+                      <div className="subcard action-entry" key={interaction.id}>
+                        <p><strong>{interactionStatusText(interaction.status)}</strong></p>
+                        <p className="muted">来源：{sourceName} · 目标：{targetName}</p>
+                        <p>请求：{interaction.prompt}</p>
+                        {interaction.targetResponse ? <p>回应：{interaction.targetResponse}</p> : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
             <p className="muted">等待玩家行动：{readinessLabel}</p>
             {missingActorNames.length > 0 ? <p className="muted">未提交：{missingActorNames.join(', ')}</p> : null}
             <div className="button-row">
@@ -1051,7 +1128,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                 <h3>AI 回复</h3>
                 <p>{aiTurnResult.responseText}</p>
                 {aiTurnResult.applied ? (
-                  <p className="muted">已写入本回合客观剧情、公开剧情、私人剧情并推进到下一回合。</p>
+                  <p className="muted">{appliedAiResultMessage(aiTurnResult)}</p>
                 ) : (
                   <p className="muted">尚未写入系统。请确认下面列出的客观剧情、公开剧情、私人剧情、骰点请求和状态变更。</p>
                 )}
@@ -1087,7 +1164,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                           <div className="context-section-list">
                             {privateEntries.map(([playerId, content]) => (
                               <details key={playerId} open>
-                                <summary>{playerId}</summary>
+                                <summary>{playerNameById.get(playerId) ? `${playerNameById.get(playerId)} (${playerId})` : playerId}</summary>
                                 {renderTextValue(content, '本玩家没有私人剧情。')}
                               </details>
                             ))}
