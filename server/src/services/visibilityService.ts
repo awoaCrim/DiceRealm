@@ -1,4 +1,4 @@
-import type { CampaignNpc, CampaignQuest, CharacterRecord, CharacterResources, CombatState, InteractionRequest, LogEntry, Player, PlayerAction, PlayerVisibleCombatState, PlayerVisibleDiceLog, PlayerVisibleState, Room, RuleSummary, SessionSummary } from '../domain/types.js';
+import type { CampaignNpc, CampaignQuest, CharacterRecord, CharacterResources, CombatState, InteractionRequest, LogEntry, Player, PlayerAction, PlayerRulesSummary, PlayerVisibleCombatState, PlayerVisibleDiceLog, PlayerVisibleState, Room, RuleSummary, SessionSummary } from '../domain/types.js';
 
 export interface BuildPlayerVisibleStateInput {
   room: Room;
@@ -16,6 +16,7 @@ export interface BuildPlayerVisibleStateInput {
   campaignSummary?: SessionSummary | null;
   quests?: CampaignQuest[];
   npcs?: CampaignNpc[];
+  rules?: PlayerRulesSummary;
 }
 
 function sanitizeCampaignSummary(summary: SessionSummary | null | undefined): SessionSummary | null {
@@ -133,5 +134,6 @@ export function buildPlayerVisibleState(input: BuildPlayerVisibleStateInput): Pl
     campaignSummary: sanitizeCampaignSummary(input.campaignSummary),
     quests: sanitizeCampaignQuests(input.quests),
     npcs: sanitizeCampaignNpcs(input.npcs),
+    rules: input.rules,
   };
 }

@@ -304,6 +304,9 @@ export interface AiTurnPromptSendResponse {
   applied?: boolean;
   resourceErrors?: string[];
   warnings?: string[];
+  resolutionRunId?: string;
+  seed?: string;
+  resolutionEvents?: GameEvent[];
 }
 
 export interface Room {
@@ -360,6 +363,38 @@ export interface CharacterRecord {
   confirmed: boolean;
   updatedAt: string;
   resources?: CharacterResources;
+}
+
+export interface PlayerRuleActionEconomyItem {
+  title: string;
+  value: string;
+  detail: string;
+}
+
+export interface PlayerRuleStat {
+  key: string;
+  label: string;
+  modifier: string;
+  proficient: boolean;
+  ability?: string;
+}
+
+export interface PlayerRuleAvailableAction {
+  id: string;
+  title: string;
+  subtitle: string;
+  timing: '动作' | '附赠动作' | '反应' | '按法术' | '特殊';
+  tags: string[];
+  detail?: string;
+}
+
+export interface PlayerRulesSummary {
+  ruleset: '5e-2014';
+  actionEconomy: PlayerRuleActionEconomyItem[];
+  savingThrows: PlayerRuleStat[];
+  skills: PlayerRuleStat[];
+  availableActions: PlayerRuleAvailableAction[];
+  assumptions: string[];
 }
 
 export interface Turn {
@@ -637,6 +672,7 @@ export interface PlayerVisibleState {
   campaignSummary?: SessionSummary | null;
   quests?: CampaignQuest[];
   npcs?: Array<Omit<CampaignNpc, 'notes'>>;
+  rules?: PlayerRulesSummary;
 }
 
 export interface AdminState {
@@ -742,6 +778,11 @@ export interface CombatState {
   combatants: Combatant[];
   status: 'active' | 'paused' | 'ended';
   startedAt: string;
+  metadata?: {
+    enemySummary?: string;
+    lastTurnEvents?: string[];
+    sourceTurnNumber?: number;
+  };
 }
 
 export interface PlayerVisibleCombatParticipant {
@@ -781,6 +822,50 @@ export interface DiceLog {
   publicReason?: string;
   objectiveReason?: string;
   timestamp: string;
+}
+
+export type GameCommand =
+  | { type: 'DICE_ROLL_REQUEST'; requestIndex: number; payload: NonNullable<AiTurnResult['diceRequests']>[number] }
+  | { type: 'RESOURCE_PATCH_REQUEST'; requestIndex: number; payload: NonNullable<AiTurnResult['characterResourceChanges']>[number] }
+  | { type: 'PLUGIN_DB_CHANGE_REQUEST'; requestIndex: number; payload: Record<string, unknown> }
+  | { type: 'INTERACTION_REQUEST'; requestIndex: number; payload: AiTurnResult['interactionRequests'][number] };
+
+export type GameEventType =
+  | 'DICE_ROLLED'
+  | 'RESOURCE_PATCH_APPLIED'
+  | 'RESOURCE_PATCH_REJECTED'
+  | 'PLUGIN_DB_CHANGE_APPLIED'
+  | 'INTERACTION_CREATED'
+  | 'TURN_LOG_MATERIALIZED'
+  | 'COMBAT_STATE_UPDATED';
+
+export interface GameEvent {
+  id: string;
+  roomId: string;
+  turnId: string | null;
+  sequence?: number;
+  eventType: GameEventType;
+  visibilityScope: VisibilityScope;
+  playerId: string | null;
+  actorId: string | null;
+  payload: Record<string, unknown>;
+  causalityId: string | null;
+  createdAt: string;
+}
+
+export interface TurnResolutionRun {
+  id: string;
+  previewId: string;
+  roomId: string;
+  turnId: string | null;
+  seed: string;
+  events: GameEvent[];
+  diceLogs: DiceLog[];
+  warnings: string[];
+  errors: string[];
+  status: 'previewed' | 'applied' | 'failed';
+  createdAt: string;
+  appliedAt: string | null;
 }
 
 export interface PlayerVisibleDiceLog {

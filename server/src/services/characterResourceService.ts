@@ -96,6 +96,17 @@ function setAtPath(obj: Record<string, unknown>, path: string, value: unknown): 
   current[parts[parts.length - 1]] = value;
 }
 
+function syncLegacyHitPoints(sheet: Record<string, unknown>, resources: CharacterResources): void {
+  const legacyHitPoints = (typeof sheet.hitPoints === 'object' && sheet.hitPoints !== null && !Array.isArray(sheet.hitPoints))
+    ? sheet.hitPoints as Record<string, unknown>
+    : {};
+  sheet.hitPoints = {
+    ...legacyHitPoints,
+    current: resources.hitPoints.current,
+    max: resources.hitPoints.max
+  };
+}
+
 // Whitelist regex patterns for valid resource paths
 const VALID_PATH_PATTERNS = [
   /^hitPoints\.(current|max|temp)$/,
@@ -201,9 +212,50 @@ export function getCharacterResources(db: AppDatabase, characterId: string): Cha
   // Initialize default resources and persist
   const resources = getDefaultResources(sheet);
   sheet.resources = resources;
+  syncLegacyHitPoints(sheet, resources);
   saveSheetJson(db, characterId, sheet);
 
   return resources;
+}
+
+function prepareResourcePatch(db: AppDatabase, patch: ResourcePatch): {
+  sheet: Record<string, unknown>;
+  resources: CharacterResources;
+  normalizedPatch: ResourcePatch;
+} {
+  const sheet = loadSheetJson(db, patch.characterId);
+  const resources = (sheet.resources as CharacterResources) || getDefaultResources(sheet);
+  const normalizedPatch = normalizeResourcePatchPath(resources, patch);
+
+  if (!isValidPath(normalizedPatch.path)) {
+    throw new Error(`Invalid resource path: ${patch.path}`);
+  }
+
+  const currentValue = getAtPath(resources as unknown as Record<string, unknown>, normalizedPatch.path);
+  if (!sameJsonValue(currentValue, normalizedPatch.before)) {
+    throw new Error(
+      `Before value mismatch for ${normalizedPatch.path}: expected ${normalizedPatch.before}, got ${JSON.stringify(currentValue)}`
+    );
+  }
+
+  validateResourceValue(normalizedPatch.path, normalizedPatch.after);
+
+  if (normalizedPatch.path === 'hitPoints.current' && typeof normalizedPatch.after === 'number') {
+    if (normalizedPatch.after > resources.hitPoints.max) {
+      throw new Error(`hitPoints.current (${normalizedPatch.after}) cannot exceed max (${resources.hitPoints.max})`);
+    }
+  }
+  if (normalizedPatch.path === 'hitDice.remaining' && typeof normalizedPatch.after === 'number') {
+    if (normalizedPatch.after > resources.hitDice.total) {
+      throw new Error(`hitDice.remaining (${normalizedPatch.after}) cannot exceed total (${resources.hitDice.total})`);
+    }
+  }
+
+  return { sheet, resources, normalizedPatch };
+}
+
+export function validateResourcePatch(db: AppDatabase, patch: ResourcePatch): ResourcePatch {
+  return prepareResourcePatch(db, patch).normalizedPatch;
 }
 
 export function applyResourcePatch(
@@ -213,41 +265,12 @@ export function applyResourcePatch(
   actorType: string,
   actorId: string
 ): CharacterResources {
-  const sheet = loadSheetJson(db, patch.characterId);
-  const resources = (sheet.resources as CharacterResources) || getDefaultResources(sheet);
-  const normalizedPatch = normalizeResourcePatchPath(resources, patch);
+  const { sheet, resources, normalizedPatch } = prepareResourcePatch(db, patch);
 
-  // Validate path is whitelisted
-  if (!isValidPath(normalizedPatch.path)) {
-    throw new Error(`Invalid resource path: ${patch.path}`);
-  }
-
-  // Validate before matches current value
-  const currentValue = getAtPath(resources as unknown as Record<string, unknown>, normalizedPatch.path);
-  if (!sameJsonValue(currentValue, normalizedPatch.before)) {
-    throw new Error(
-      `Before value mismatch for ${normalizedPatch.path}: expected ${normalizedPatch.before}, got ${JSON.stringify(currentValue)}`
-    );
-  }
-
-  // Validate range for numeric paths
-  validateResourceValue(normalizedPatch.path, normalizedPatch.after);
-
-  // Ensure hitPoints.current <= hitPoints.max
-  if (normalizedPatch.path === 'hitPoints.current' && typeof normalizedPatch.after === 'number') {
-    if (normalizedPatch.after > resources.hitPoints.max) {
-      throw new Error(`hitPoints.current (${normalizedPatch.after}) cannot exceed max (${resources.hitPoints.max})`);
-    }
-  }
   if (normalizedPatch.path === 'hitPoints.max' && typeof normalizedPatch.after === 'number') {
     if (normalizedPatch.after < resources.hitPoints.current) {
       // Adjust current down to new max
       resources.hitPoints.current = normalizedPatch.after;
-    }
-  }
-  if (normalizedPatch.path === 'hitDice.remaining' && typeof normalizedPatch.after === 'number') {
-    if (normalizedPatch.after > resources.hitDice.total) {
-      throw new Error(`hitDice.remaining (${normalizedPatch.after}) cannot exceed total (${resources.hitDice.total})`);
     }
   }
 
@@ -256,6 +279,9 @@ export function applyResourcePatch(
 
   // Persist
   sheet.resources = resources;
+  if (normalizedPatch.path.startsWith('hitPoints.')) {
+    syncLegacyHitPoints(sheet, resources);
+  }
   saveSheetJson(db, normalizedPatch.characterId, sheet);
 
   // Log the change via audit service
@@ -316,6 +342,7 @@ export function shortRest(
   resources.hitDice.remaining = remaining - diceToUse;
 
   sheet.resources = resources;
+  syncLegacyHitPoints(sheet, resources);
   saveSheetJson(db, characterId, sheet);
 
   // Record changes if room context provided
@@ -380,6 +407,7 @@ export function longRest(
   }
 
   sheet.resources = resources;
+  syncLegacyHitPoints(sheet, resources);
   saveSheetJson(db, characterId, sheet);
 
   // Record changes if room context provided

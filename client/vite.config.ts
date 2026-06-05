@@ -7,8 +7,8 @@ export default defineConfig({
     port: 5180,
     strictPort: true,
     proxy: {
-      '/api': 'http://192.168.31.246:3000',
-      '/events': 'http://192.168.31.246:3000'
+      '/api': 'http://127.0.0.1:3000',
+      '/events': 'http://127.0.0.1:3000'
     }
   }
 });

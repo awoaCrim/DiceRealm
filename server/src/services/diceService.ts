@@ -39,11 +39,37 @@ export interface DamageRollResult {
   modifier: number;
 }
 
-function rollSingle(die: number): number {
-  return Math.floor(Math.random() * die) + 1;
+export type RandomSource = () => number;
+
+export interface RollOptions {
+  rng?: RandomSource;
 }
 
-export function rollDice(die: string, count = 1): DiceResult {
+function hashSeed(seed: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+export function createSeededRng(seed: string): RandomSource {
+  let state = hashSeed(seed) || 0x9e3779b9;
+  return () => {
+    state += 0x6d2b79f5;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function rollSingle(die: number, rng: RandomSource = Math.random): number {
+  return Math.floor(rng() * die) + 1;
+}
+
+export function rollDice(die: string, count = 1, options: RollOptions = {}): DiceResult {
   const max: Record<string, number> = {
     d4: 4,
     d6: 6,
@@ -54,7 +80,7 @@ export function rollDice(die: string, count = 1): DiceResult {
     d100: 100
   };
   const sides = max[die] ?? 6;
-  const vals = Array.from({ length: count }, () => rollSingle(sides));
+  const vals = Array.from({ length: count }, () => rollSingle(sides, options.rng));
   return {
     values: vals,
     total: vals.reduce((a, b) => a + b, 0)
@@ -62,13 +88,14 @@ export function rollDice(die: string, count = 1): DiceResult {
 }
 
 export function rollD20(
-  advantage?: 'advantage' | 'disadvantage' | null
+  advantage?: 'advantage' | 'disadvantage' | null,
+  options: RollOptions = {}
 ): D20Result {
-  const r1 = rollSingle(20);
+  const r1 = rollSingle(20, options.rng);
   if (!advantage) {
     return { value: r1, natural: r1, advantage: null };
   }
-  const r2 = rollSingle(20);
+  const r2 = rollSingle(20, options.rng);
   return advantage === 'advantage'
     ? { value: Math.max(r1, r2), natural: r1, advantage: 'advantage' }
     : { value: Math.min(r1, r2), natural: r1, advantage: 'disadvantage' };
@@ -82,9 +109,10 @@ export function abilityCheck(
   score: number,
   dc: number,
   proficiency = 0,
-  advantage?: 'advantage' | 'disadvantage' | null
+  advantage?: 'advantage' | 'disadvantage' | null,
+  options: RollOptions = {}
 ): AbilityCheckResult {
-  const { value: roll, natural, advantage: adv } = rollD20(advantage);
+  const { value: roll, natural, advantage: adv } = rollD20(advantage, options);
   const mod = abilityModifier(score);
   const total = roll + mod + proficiency;
   const natural20 = natural === 20;
@@ -106,9 +134,10 @@ export function attackRoll(
   modifier: number,
   proficiency: number,
   ac: number,
-  advantage?: 'advantage' | 'disadvantage' | null
+  advantage?: 'advantage' | 'disadvantage' | null,
+  options: RollOptions = {}
 ): AttackRollResult {
-  const { value: roll, natural } = rollD20(advantage);
+  const { value: roll, natural } = rollD20(advantage, options);
   const total = roll + modifier + proficiency;
   const natural20 = natural === 20;
   const natural1 = natural === 1;
@@ -128,9 +157,10 @@ export function attackRoll(
 export function damageRoll(
   die: string,
   count: number,
-  modifier = 0
+  modifier = 0,
+  options: RollOptions = {}
 ): DamageRollResult {
-  const { values } = rollDice(die, count);
+  const { values } = rollDice(die, count, options);
   return {
     values,
     total: values.reduce((a, b) => a + b, 0) + modifier,

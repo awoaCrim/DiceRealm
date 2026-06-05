@@ -227,6 +227,37 @@ export function migrate(db: AppDatabase): void {
       CHECK (status IN ('previewed', 'sent', 'failed'))
     );
 
+    CREATE TABLE IF NOT EXISTS turn_resolution_runs (
+      id TEXT PRIMARY KEY,
+      preview_id TEXT NOT NULL REFERENCES ai_turn_previews(id) ON DELETE CASCADE,
+      room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      turn_id TEXT REFERENCES turns(id) ON DELETE SET NULL,
+      seed TEXT NOT NULL,
+      events_json TEXT NOT NULL DEFAULT '[]',
+      dice_logs_json TEXT NOT NULL DEFAULT '[]',
+      warnings_json TEXT NOT NULL DEFAULT '[]',
+      errors_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      applied_at TEXT,
+      CHECK (status IN ('previewed', 'applied', 'failed'))
+    );
+
+    CREATE TABLE IF NOT EXISTS game_events (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      turn_id TEXT REFERENCES turns(id) ON DELETE SET NULL,
+      sequence INTEGER NOT NULL,
+      event_type TEXT NOT NULL,
+      visibility_scope TEXT NOT NULL,
+      player_id TEXT REFERENCES players(id) ON DELETE SET NULL,
+      actor_id TEXT,
+      payload_json TEXT NOT NULL DEFAULT '{}',
+      causality_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(room_id, turn_id, sequence)
+    );
+
     CREATE TABLE IF NOT EXISTS prompt_presets (
       id TEXT PRIMARY KEY,
       room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
@@ -592,6 +623,9 @@ export function migrate(db: AppDatabase): void {
   db.prepare('CREATE INDEX IF NOT EXISTS resource_rules_category_idx ON resource_rules(category)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS character_resource_changes_room_char_idx ON character_resource_changes(room_id, character_id, created_at)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS ai_turn_previews_room_idx ON ai_turn_previews(room_id, created_at)').run();
+  db.prepare('CREATE INDEX IF NOT EXISTS turn_resolution_runs_preview_idx ON turn_resolution_runs(preview_id, created_at)').run();
+  db.prepare('CREATE INDEX IF NOT EXISTS turn_resolution_runs_room_turn_idx ON turn_resolution_runs(room_id, turn_id, created_at)').run();
+  db.prepare('CREATE INDEX IF NOT EXISTS game_events_room_turn_idx ON game_events(room_id, turn_id, sequence)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS session_summaries_room_idx ON session_summaries(room_id, created_at)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS campaign_quests_room_idx ON campaign_quests(room_id, title)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS campaign_npcs_room_idx ON campaign_npcs(room_id, name)').run();
@@ -642,6 +676,7 @@ export function migrate(db: AppDatabase): void {
   addColumnIfMissing(db, 'actions', 'action_type', 'TEXT');
   addColumnIfMissing(db, 'actions', 'visibility', "TEXT NOT NULL DEFAULT 'public'");
   addColumnIfMissing(db, 'actions', 'is_hidden_roll', 'INTEGER DEFAULT 0');
+  addColumnIfMissing(db, 'ai_turn_previews', 'resolution_run_id', 'TEXT');
   addColumnIfMissing(db, 'dice_logs', 'public_reason', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'dice_logs', 'objective_reason', "TEXT NOT NULL DEFAULT ''");
   addColumnIfMissing(db, 'turns', 'required_actor_ids_json', "TEXT NOT NULL DEFAULT '[]'");

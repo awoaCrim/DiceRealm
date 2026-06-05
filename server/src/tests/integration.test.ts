@@ -2648,7 +2648,12 @@ describe('DND AI-DM integration', () => {
 
       // Verify HP current = 8
       const charSheetAfter = db.prepare('SELECT sheet_json FROM characters WHERE id = ?').get(stubCharId) as { sheet_json: string };
-      const parsedAfter = JSON.parse(charSheetAfter.sheet_json) as { resources: { hitPoints: { current: number; max: number }; spellSlots: { level1: { total: number; used: number } } } };
+      const parsedAfter = JSON.parse(charSheetAfter.sheet_json) as {
+        hitPoints: { current: number; max: number };
+        resources: { hitPoints: { current: number; max: number }; spellSlots: { level1: { total: number; used: number } } };
+      };
+      expect(parsedAfter.hitPoints.current).toBe(8);
+      expect(parsedAfter.hitPoints.max).toBe(12);
       expect(parsedAfter.resources.hitPoints.current).toBe(8);
       expect(parsedAfter.resources.hitPoints.max).toBe(12);
       expect(parsedAfter.resources.spellSlots.level1).toEqual({ total: 2, used: 1 });
@@ -3613,6 +3618,283 @@ describe('DND AI-DM integration', () => {
       expect(roomAfter).toMatchObject({ currentTurn: 2, status: 'waiting_for_actions' });
       expect(generationsAfter.count).toBe(1);
       expect(resourceChangesAfter.count).toBe(1);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await stub.close();
+      db.close();
+    }
+  });
+
+  it('asks AI for post-roll narration after system dice resolution', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    let callCount = 0;
+    let postResolutionPrompt = '';
+    let thornCharacterId = '';
+    const stub = await createOpenAiStub((body) => {
+      callCount++;
+      const prompt = body.messages?.find((message: { role?: string; content?: string }) => message.role === 'user')?.content ?? '';
+      if (callCount === 1) {
+        return {
+          body: {
+            choices: [{
+              message: {
+                content: JSON.stringify(aiTurnResult({
+                  publicLog: '托恩从补给车上跳下来，扫视周围反常安静的林线。',
+                  diceRequests: [{
+                    characterId: thornCharacterId,
+                    type: 'skillCheck',
+                    skill: 'perception',
+                    dc: 1,
+                    modifier: 20,
+                    reason: '托恩观察周围环境（perception）'
+                  }]
+                }))
+              }
+            }]
+          }
+        };
+      }
+
+      postResolutionPrompt = prompt;
+      return {
+        body: {
+          choices: [{
+            message: {
+              content: JSON.stringify(aiTurnResult({
+                publicLog: '他在北侧林线的灌木后捕捉到一小片被压弯的枝叶，像是有人刚刚退入更深的树影。',
+                objectiveLog: '托恩的察觉成功。他发现林线中有伏击者撤退留下的新鲜痕迹。',
+                ruleResults: ['托恩的察觉检定成功，发现可疑痕迹。']
+              }))
+            }
+          }]
+        }
+      };
+    });
+
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Post Roll Narration Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+      const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '托恩' })
+      });
+      const player = await playerRes.json() as { playerId: string; token: string };
+      const charRow = db.prepare(
+        'SELECT c.id FROM characters c JOIN players p ON c.player_id = p.id WHERE p.token = ?'
+      ).get(player.token) as { id: string };
+      thornCharacterId = charRow.id;
+
+      await fetch(`${base}/api/admin/config/ai-provider`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai-compatible', baseUrl: stub.baseUrl, apiKey: 'post-roll-key', model: 'post-roll-model' })
+      });
+
+      const actionRes = await fetch(`${base}/api/player/${player.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '我检查林线和马鞍袋上的箭矢。' })
+      });
+      expect(actionRes.status).toBe(200);
+
+      const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(previewRes.status).toBe(200);
+      const preview = await previewRes.json() as { previewId: string; flatPrompt: string };
+
+      const sendRes = await fetch(`${base}/api/admin/ai/send-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId, flatPrompt: preview.flatPrompt })
+      });
+      expect(sendRes.status).toBe(200);
+      const sent = await sendRes.json() as { responseText: string };
+      expect(stub.requests).toHaveLength(2);
+      expect(postResolutionPrompt).toContain('## Authoritative System Dice Results');
+      expect(postResolutionPrompt).toContain('DC 1');
+      expect(postResolutionPrompt).toContain('成功');
+      expect(postResolutionPrompt).toContain(`Private result target playerIds: ${player.playerId}`);
+      expect(sent.responseText).toContain('托恩从补给车上跳下来');
+      expect(sent.responseText).not.toContain('🎲 系统骰点');
+      expect(sent.responseText).not.toContain('他在北侧林线的灌木后捕捉到');
+
+      const applyRes = await fetch(`${base}/api/admin/ai/apply-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId })
+      });
+      expect(applyRes.status).toBe(200);
+      const materializedLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at DESC LIMIT 1')
+        .get(room.roomId, 'public') as { content: string };
+      const privateLog = db.prepare('SELECT player_id as playerId, content FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at DESC LIMIT 1')
+        .get(room.roomId, 'private') as { playerId: string; content: string };
+      expect(materializedLog.content).toContain('托恩从补给车上跳下来');
+      expect(materializedLog.content).not.toContain('他在北侧林线的灌木后捕捉到');
+      expect(materializedLog.content).not.toContain('🎲 系统骰点');
+      expect(privateLog.playerId).toBe(player.playerId);
+      expect(privateLog.content).not.toContain('🎲 隐藏骰点');
+      expect(privateLog.content).toContain('成功');
+      expect(privateLog.content).toContain('他在北侧林线的灌木后捕捉到');
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await stub.close();
+      db.close();
+    }
+  });
+
+  it('blocks unconfirmed HP narration and creates combat state after confirmed damage', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    let characterId = '';
+    const stub = await createOpenAiStub(() => ({
+      body: {
+        choices: [{
+          message: {
+            content: JSON.stringify(aiTurnResult({
+              objectiveLog: '地精伏击托恩，短弓命中并造成5点伤害。',
+              publicLog: '林线中传来弓弦轻响，一支箭擦过补给车边缘，托恩被射中。',
+              characterResourceChanges: [{
+                characterId,
+                path: 'hitPoints.current',
+                before: 9,
+                after: 4,
+                reason: '地精短弓命中造成5点伤害',
+                ruleRefs: ['地精短弓']
+              }]
+            }))
+          }
+        }]
+      }
+    }));
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Combat Consistency Room' })
+      });
+      const room = await roomRes.json() as { roomId: string };
+      const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: '托恩' })
+      });
+      const player = await playerRes.json() as { token: string };
+      const charRow = db.prepare('SELECT c.id FROM characters c JOIN players p ON c.player_id = p.id WHERE p.token = ?')
+        .get(player.token) as { id: string };
+      characterId = charRow.id;
+      const sheet = {
+        name: '托恩',
+        species: '人类',
+        className: '武僧',
+        level: 1,
+        abilityScores: { str: 8, dex: 13, con: 12, int: 10, wis: 14, cha: 15 },
+        hitPoints: { current: 9, max: 9 },
+        armorClass: 11,
+        proficiencyBonus: 2,
+        skills: [],
+        equipment: [],
+        spells: [],
+        privateNotes: '',
+        resources: {
+          hitPoints: { current: 9, max: 9, temp: 0 },
+          hitDice: { total: 1, remaining: 1, die: 'd8' },
+          spellSlots: {},
+          ammo: [],
+          consumables: [],
+          currency: { gp: 0, sp: 0, cp: 0 },
+          conditions: []
+        }
+      };
+      db.prepare('UPDATE characters SET confirmed = 1, sheet_json = ? WHERE id = ?').run(JSON.stringify(sheet), characterId);
+
+      await fetch(`${base}/api/admin/config/ai-provider`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai-compatible', baseUrl: stub.baseUrl, apiKey: 'combat-key', model: 'combat-model' })
+      });
+      await fetch(`${base}/api/player/${player.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '我冲向补给车。' })
+      });
+
+      const previewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      const preview = await previewRes.json() as { previewId: string; flatPrompt: string };
+      const sendRes = await fetch(`${base}/api/admin/ai/send-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId, flatPrompt: preview.flatPrompt })
+      });
+      expect(sendRes.status).toBe(200);
+      const logsBeforeRejected = db.prepare('SELECT COUNT(*) as count FROM log_entries WHERE room_id = ?').get(room.roomId) as { count: number };
+
+      const rejectedApplyRes = await fetch(`${base}/api/admin/ai/apply-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId, confirmedCharacterResourceChangeIndexes: [] })
+      });
+      expect(rejectedApplyRes.status).toBe(409);
+      const rejectedBody = await rejectedApplyRes.json() as { error: string; message: string };
+      expect(rejectedBody.error).toBe('AI_RESOURCE_CONFLICT');
+      expect(rejectedBody.message).toContain('未被确认');
+      const logsAfterRejected = db.prepare('SELECT COUNT(*) as count FROM log_entries WHERE room_id = ?').get(room.roomId) as { count: number };
+      expect(logsAfterRejected.count).toBe(logsBeforeRejected.count);
+      const unchangedSheet = db.prepare('SELECT sheet_json FROM characters WHERE id = ?').get(characterId) as { sheet_json: string };
+      expect((JSON.parse(unchangedSheet.sheet_json) as { resources: { hitPoints: { current: number } } }).resources.hitPoints.current).toBe(9);
+
+      const acceptedApplyRes = await fetch(`${base}/api/admin/ai/apply-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId, previewId: preview.previewId, confirmedCharacterResourceChangeIndexes: [0] })
+      });
+      expect(acceptedApplyRes.status).toBe(200);
+      const changedSheet = db.prepare('SELECT sheet_json FROM characters WHERE id = ?').get(characterId) as { sheet_json: string };
+      expect((JSON.parse(changedSheet.sheet_json) as { resources: { hitPoints: { current: number } } }).resources.hitPoints.current).toBe(4);
+      const combatRow = db.prepare('SELECT state_json as stateJson FROM combat_state WHERE room_id = ?').get(room.roomId) as { stateJson: string };
+      expect(combatRow).toBeDefined();
+      expect(combatRow.stateJson).toContain('地精');
+
+      await fetch(`${base}/api/player/${player.token}/actions`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '我躲进车后掩体。' })
+      });
+      const nextPreviewRes = await fetch(`${base}/api/admin/ai/turn-preview`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ roomId: room.roomId })
+      });
+      expect(nextPreviewRes.status).toBe(200);
+      const nextPreview = await nextPreviewRes.json() as { flatPrompt: string };
+      expect(nextPreview.flatPrompt).toContain('# Active Combat State');
+      expect(nextPreview.flatPrompt).toContain('HP 4/9');
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await stub.close();

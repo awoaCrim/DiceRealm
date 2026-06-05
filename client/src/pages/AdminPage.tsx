@@ -7,192 +7,7 @@ import { ResourceImportPanel } from '../components/ResourceImportPanel';
 import { GlobalResourceConfigPanel } from '../components/RoomResourceBindingsPanel';
 import { actorTypeLabel, dbSourceTypeLabel, formatFileSize, formatIsoDateTime, moduleCategoryLabel, npcAttitudeLabel, presetTypeLabel, promptBlockPositionLabel, promptRoleLabel, questStatusLabel, roomStatusLabel, sceneTypeLabel } from '../displayLabels';
 import type { AdminState, AiProviderConfig, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, CampaignLocation, CampaignNpc, CampaignQuest, CharacterResourceChange, EmbeddingProviderConfig, PresetTemplateMeta, PresetType, PromptBlock, PromptPreset, PromptPresetPackage, PromptPreviewResponse, RemoteDbRow, RemoteDbSheet, RemoteDbSource, RoomDbSourceBinding, SessionSummary, WorldBookEntry } from '../types';
-
-interface PromptPackageBlockView {
-  identifier: string;
-  name: string;
-  role: string;
-  enabled: boolean;
-  content: string;
-}
-
-function isJsonRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-}
-
-function readString(value: unknown): string {
-  return typeof value === 'string' ? value : '';
-}
-
-function readJsonArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function parseJsonArrayText(value: string): unknown[] {
-  try {
-    return readJsonArray(JSON.parse(value));
-  } catch {
-    return [];
-  }
-}
-
-function renderJsonValue(value: unknown) {
-  return <pre>{JSON.stringify(value, null, 2)}</pre>;
-}
-
-function renderTextValue(value: unknown, emptyText: string) {
-  const text = readString(value).trim();
-  return text ? <pre>{text}</pre> : <p className="muted">{emptyText}</p>;
-}
-
-function renderJsonArraySection(items: unknown[], emptyText: string) {
-  return items.length > 0 ? renderJsonValue(items) : <p className="muted">{emptyText}</p>;
-}
-
-function aiResultHasInteractionRequests(result: AiTurnPromptSendResponse | null): boolean {
-  if (!result || !isJsonRecord(result.raw)) return false;
-  return readJsonArray(result.raw.interactionRequests).length > 0;
-}
-
-function appliedAiResultMessage(result: AiTurnPromptSendResponse): string {
-  return aiResultHasInteractionRequests(result)
-    ? '已写入本回合客观剧情、公开剧情和私人剧情；当前回合正在等待目标玩家回应互动请求。'
-    : '已写入本回合客观剧情、公开剧情、私人剧情并推进到下一回合。';
-}
-
-function actionTypeLabel(type: string | undefined): string {
-  switch (type) {
-    case 'player_question': return '玩家问题';
-    case 'meta_question': return '场外问题';
-    case 'observe': return '观察';
-    case 'wait': return '等待';
-    case 'skip': return '跳过';
-    case 'ready': return '准备';
-    case 'follow': return '跟随';
-    case 'combat_action':
-    case 'combat': return '战斗行动';
-    case 'exploration': return '探索行动';
-    case 'social': return '社交行动';
-    case 'ooc': return '场外说明';
-    default: return '角色行动';
-  }
-}
-
-function actionVisibilityLabel(visibility: string | undefined): string {
-  switch (visibility) {
-    case 'private': return '私人';
-    case 'dm_only': return '仅主持人';
-    default: return '公开';
-  }
-}
-
-function actionStatusLabel(status: string | undefined): string {
-  switch (status) {
-    case 'complete': return '已结算';
-    case 'processing': return '处理中';
-    default: return '已提交';
-  }
-}
-
-function promptPackageBlocks(presetPackage: PromptPresetPackage | null): PromptPackageBlockView[] {
-  if (!presetPackage || !isJsonRecord(presetPackage.openAiSettings)) return [];
-  const prompts: Record<string, unknown>[] = Array.isArray(presetPackage.openAiSettings.prompts)
-    ? presetPackage.openAiSettings.prompts.filter(isJsonRecord) as Record<string, unknown>[]
-    : [];
-  const firstOrder = Array.isArray(presetPackage.openAiSettings.prompt_order)
-    ? presetPackage.openAiSettings.prompt_order.filter(isJsonRecord)[0] as Record<string, unknown> | undefined
-    : undefined;
-  const order = firstOrder ? firstOrder['order'] : undefined;
-  const orderItems: Record<string, unknown>[] = Array.isArray(order) ? order.filter(isJsonRecord) as Record<string, unknown>[] : [];
-  const enabledByIdentifier = new Map<string, boolean>();
-  orderItems.forEach((item) => {
-    const identifier = (readString(item.identifier) || readString(item.name)).trim();
-    if (identifier) enabledByIdentifier.set(identifier, item.enabled !== false);
-  });
-
-  return prompts
-    .map((prompt) => {
-      const identifier = (readString(prompt.identifier) || readString(prompt.name)).trim();
-      return {
-        identifier,
-        name: (readString(prompt.name) || identifier || '未命名块').trim(),
-        role: readString(prompt.role) || 'system',
-        enabled: enabledByIdentifier.get(identifier) ?? true,
-        content: readString(prompt.content).trim()
-      };
-    })
-    .filter((block) => block.identifier.length > 0 || block.content.length > 0);
-}
-
-const runtimePromptSlotIds = new Set([
-  'worldInfoBefore',
-  'worldInfoAfter',
-  'charDescription',
-  'charPersonality',
-  'scenario',
-  'dialogueExamples',
-  'chatHistory',
-  'dndTurnState',
-  'dndPlayerActions',
-  'dndPendingInteractions',
-  'dndOutputContract'
-]);
-
-function promptPackageBlockContent(block: PromptPackageBlockView): string {
-  if (block.content) return block.content;
-  if (runtimePromptSlotIds.has(block.identifier)) {
-    return '运行时槽位：实际内容由当前房间、剧本卡、世界书、日志或输出契约生成。点击“预览 AI 请求”查看最终内容。';
-  }
-  return '空内容';
-}
-
-interface NarrativeLengthLimits {
-  objectiveMax: number;
-  publicMax: number;
-  privateMax: number;
-}
-
-const defaultNarrativeLengthLimits: NarrativeLengthLimits = {
-  objectiveMax: 300,
-  publicMax: 300,
-  privateMax: 150
-};
-
-function buildNarrativeLengthRuleContent(limits: NarrativeLengthLimits): string {
-  return [
-    '剧情字数硬上限：控制 AI 本回合输出的三层剧情长度。超过上限属于格式错误。',
-    `- objectiveLog：最多 ${limits.objectiveMax} 个中文字符，写 DM 需要追踪的客观事实、隐藏细节和裁定依据。`,
-    `- publicLog：最多 ${limits.publicMax} 个中文字符，只写所有玩家共同可见或共同已知的公开剧情。`,
-    `- privateUpdatesByPlayer：每名玩家最多 ${limits.privateMax} 个中文字符，只写该玩家本人可见的私人信息。`,
-    '- ruleResults：每条最多 120 个中文字符。',
-    '- interactionRequests：每条 prompt 最多 120 个中文字符。',
-    '- suggestedStateChanges.reason：最多 120 个中文字符。',
-    '- characterResourceChanges.reason：最多 80 个中文字符。',
-    '- diceRequests.reason：最多 80 个中文字符。',
-    '信息量少时可以更短，不要为了达到字数而填充内容。'
-  ].join('\n');
-}
-
-function readNarrativeLengthLimits(preset: PromptPreset | null): NarrativeLengthLimits {
-  const block = preset?.blocks.find((item) => item.name === '剧情字数限制');
-  const content = block?.content ?? '';
-  const objective = content.match(/objectiveLog：(?:最多|建议\s*\d+-)\s*(\d+)/);
-  const publicLog = content.match(/publicLog：(?:最多|建议\s*\d+-)\s*(\d+)/);
-  const privateLog = content.match(/privateUpdatesByPlayer：(?:每名玩家)?(?:最多|建议\s*\d+-)\s*(\d+)/);
-  return {
-    objectiveMax: objective ? Number(objective[1]) : defaultNarrativeLengthLimits.objectiveMax,
-    publicMax: publicLog ? Number(publicLog[1]) : defaultNarrativeLengthLimits.publicMax,
-    privateMax: privateLog ? Number(privateLog[1]) : defaultNarrativeLengthLimits.privateMax
-  };
-}
-
-function upsertNarrativeLengthBlock(preset: PromptPreset, limits: NarrativeLengthLimits): PromptPreset {
-  const content = buildNarrativeLengthRuleContent(limits);
-  const blocks = preset.blocks.some((block) => block.name === '剧情字数限制')
-    ? preset.blocks.map((block) => block.name === '剧情字数限制' ? { ...block, enabled: true, role: 'system' as const, position: 'final' as const, orderIndex: 850, content } : block)
-    : [...preset.blocks, { name: '剧情字数限制', role: 'system' as const, position: 'final' as const, enabled: true, orderIndex: 850, content }];
-  return { ...preset, blocks };
-}
+import { actionStatusLabel, actionTypeLabel, actionVisibilityLabel, aiResultHasInteractionRequests, appliedAiResultMessage, defaultNarrativeLengthLimits, eventTypeLabel, isJsonRecord, parseJsonArrayText, promptPackageBlockContent, promptPackageBlocks, readJsonArray, readNarrativeLengthLimits, renderJsonArraySection, renderJsonValue, renderTextValue, upsertNarrativeLengthBlock, visibilityScopeLabel, type NarrativeLengthLimits } from './admin/adminPageUtils';
 
 type AdminTab = 'overview' | 'aiProvider' | 'characterResources' | 'campaignMemory' | 'resources' | 'database' | 'presets' | 'worldBooks';
 type AdminLogTab = 'objective' | 'public' | `player:${string}`;
@@ -378,7 +193,9 @@ export function AdminPage({ roomId }: { roomId: string }) {
       const result = await sendAiTurnPreview(roomId, aiTurnPreview.previewId, aiTurnPromptDraft);
       setAiTurnResult(result);
       setConfirmedSuggestedChangeIndexes(new Set());
-      setConfirmedResourceChangeIndexes(new Set());
+      const raw = isJsonRecord(result.raw) ? result.raw : {};
+      const resourceChanges = readJsonArray(raw.characterResourceChanges);
+      setConfirmedResourceChangeIndexes(new Set(resourceChanges.map((_change, index) => index)));
       setAiTurnMessage('AI 已返回，尚未写入系统。请检查下方待确认内容，最终确认后才会应用。');
     } catch (err) {
       setAiTurnMessage('');
@@ -1070,13 +887,6 @@ export function AdminPage({ roomId }: { roomId: string }) {
               <button onClick={advance} disabled={aiTurnBusy || !readiness.ready}>{aiTurnBusy ? '处理中...' : '生成 AI 回合提示词'}</button>
             </div>
             <p className="muted">{readinessHint}</p>
-            <div className="subcard">
-              <h3>AI 输出长度</h3>
-              <p className="muted">
-                客观剧情最多 {narrativeLengthDraft.objectiveMax} 字 · 公开剧情最多 {narrativeLengthDraft.publicMax} 字 · 私人剧情每名玩家最多 {narrativeLengthDraft.privateMax} 字
-              </p>
-              <button type="button" onClick={() => setActiveTab('presets')}>调整 AI 输出长度</button>
-            </div>
             {aiTurnMessage ? <p>{aiTurnMessage}</p> : null}
             <h2>AI 错误</h2>
             {state.aiGenerations.filter((gen) => gen.error).map((gen) => <p key={gen.id}>{gen.error}</p>)}
@@ -1156,8 +966,37 @@ export function AdminPage({ roomId }: { roomId: string }) {
                   const diceRequests = readJsonArray(raw.diceRequests);
                   const ruleResults = readJsonArray(raw.ruleResults);
                   const interactionRequests = readJsonArray(raw.interactionRequests);
+                  const resolutionEvents = aiTurnResult.resolutionEvents ?? [];
+                  const unconfirmedResourceChangeCount = resourceChanges.filter((_change, index) => !confirmedResourceChangeIndexes.has(index)).length;
                   return (
                     <div className="context-section-list">
+                      <details open>
+                        <summary>系统结算预览</summary>
+                        {aiTurnResult.seed || aiTurnResult.resolutionRunId ? (
+                          <p className="muted">
+                            {aiTurnResult.seed ? `Seed: ${aiTurnResult.seed}` : ''}
+                            {aiTurnResult.seed && aiTurnResult.resolutionRunId ? ' · ' : ''}
+                            {aiTurnResult.resolutionRunId ? `Run: ${aiTurnResult.resolutionRunId}` : ''}
+                          </p>
+                        ) : null}
+                        {resolutionEvents.length > 0 ? (
+                          <div className="context-section-list">
+                            {resolutionEvents.map((event, index) => (
+                              <details key={event.id || `${event.eventType}-${index}`} open>
+                                <summary>
+                                  {eventTypeLabel(event.eventType)}
+                                  {' · '}
+                                  {visibilityScopeLabel(event.visibilityScope)}
+                                  {event.playerId ? ` · ${playerNameById.get(event.playerId) ?? event.playerId}` : ''}
+                                </summary>
+                                {renderJsonValue(event.payload)}
+                              </details>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="muted">本次没有系统结算事件。</p>
+                        )}
+                      </details>
                       <details open>
                         <summary>客观剧情</summary>
                         {renderTextValue(raw.objectiveLog, '本次没有客观剧情。')}
@@ -1230,6 +1069,11 @@ export function AdminPage({ roomId }: { roomId: string }) {
                                 {renderJsonValue(change)}
                               </label>
                             ))}
+                            {unconfirmedResourceChangeCount > 0 && !aiTurnResult.applied ? (
+                              <p className="warning-text">
+                                已取消 {unconfirmedResourceChangeCount} 条角色资源变更；如果剧情仍描述扣血、治疗或资源消耗，最终确认会被系统拒绝以避免状态不一致。
+                              </p>
+                            ) : null}
                           </div>
                         ) : (
                           <p className="muted">本次没有角色资源变更。</p>

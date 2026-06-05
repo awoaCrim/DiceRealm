@@ -239,6 +239,16 @@ pre {
   align-items: start;
 }
 
+.status-column {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.status-column > .card {
+  margin-bottom: 0;
+}
+
 .player-tab-panel {
   width: 100%;
   max-width: none;
@@ -511,6 +521,27 @@ select + button {
   margin: 0.35rem 0;
 }
 
+.log-dice-block {
+  display: inline-block;
+  font-family: "Cascadia Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  color: #d9ecff;
+  background: rgba(104, 183, 170, 0.08);
+  border: 1px solid rgba(104, 183, 170, 0.24);
+  border-radius: 6px;
+  padding: 0.28rem 0.48rem;
+}
+
+.warning-text {
+  color: #e5b85c;
+  background: rgba(208, 164, 76, 0.1);
+  border: 1px solid rgba(208, 164, 76, 0.25);
+  border-radius: 6px;
+  padding: 0.65rem 0.75rem;
+}
+
 .muted {
   color: var(--muted);
 }
@@ -530,6 +561,110 @@ select + button {
   background: rgba(104, 183, 170, 0.13);
   font-size: 0.86rem;
   font-weight: 700;
+}
+
+.available-action-list {
+  display: grid;
+  gap: 10px;
+}
+
+.available-action-item {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: #101210;
+  padding: 12px;
+}
+
+.available-action-item header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.available-action-item p {
+  margin: 0.25rem 0 0;
+}
+
+.action-timing {
+  flex: 0 0 auto;
+  border: 1px solid rgba(212, 164, 79, 0.38);
+  border-radius: 999px;
+  padding: 0.18rem 0.5rem;
+  color: #f8d998;
+  background: rgba(212, 164, 79, 0.11);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.action-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 0.65rem;
+}
+
+.action-economy-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0.7rem 0;
+}
+
+.action-economy-grid > div,
+.rules-stat-grid > div {
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  background: #101210;
+  padding: 0.7rem;
+}
+
+.action-economy-grid strong,
+.action-economy-grid span,
+.action-economy-grid small,
+.rules-stat-grid strong,
+.rules-stat-grid span,
+.rules-stat-grid small {
+  display: block;
+}
+
+.action-economy-grid span {
+  margin-top: 0.25rem;
+  color: var(--text);
+  font-weight: 750;
+}
+
+.action-economy-grid small {
+  margin-top: 0.3rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.rules-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 8px;
+}
+
+.skills-grid {
+  grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+}
+
+.rules-stat-grid span {
+  margin-top: 0.2rem;
+  color: #f8d998;
+  font-weight: 850;
+}
+
+.rules-stat-grid small {
+  margin-top: 0.18rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.rules-stat-grid .is-proficient {
+  border-color: rgba(104, 183, 170, 0.38);
+  background: rgba(104, 183, 170, 0.08);
 }
 
 .choice-pill {

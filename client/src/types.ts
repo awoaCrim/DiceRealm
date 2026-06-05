@@ -181,6 +181,38 @@ export interface CharacterRecord {
   resources?: CharacterResources;
 }
 
+export interface PlayerRuleActionEconomyItem {
+  title: string;
+  value: string;
+  detail: string;
+}
+
+export interface PlayerRuleStat {
+  key: string;
+  label: string;
+  modifier: string;
+  proficient: boolean;
+  ability?: string;
+}
+
+export interface PlayerRuleAvailableAction {
+  id: string;
+  title: string;
+  subtitle: string;
+  timing: '动作' | '附赠动作' | '反应' | '按法术' | '特殊';
+  tags: string[];
+  detail?: string;
+}
+
+export interface PlayerRulesSummary {
+  ruleset: '5e-2014';
+  actionEconomy: PlayerRuleActionEconomyItem[];
+  savingThrows: PlayerRuleStat[];
+  skills: PlayerRuleStat[];
+  availableActions: PlayerRuleAvailableAction[];
+  assumptions: string[];
+}
+
 export interface Turn {
   id: string;
   roomId: string;
@@ -269,6 +301,7 @@ export interface PlayerVisibleState {
   campaignSummary?: SessionSummary | null;
   quests?: CampaignQuest[];
   npcs?: Array<Omit<CampaignNpc, 'notes'>>;
+  rules?: PlayerRulesSummary;
 }
 
 export interface CharacterResources {
@@ -642,6 +675,20 @@ export interface AiTurnPromptPreviewResponse {
   warnings: string[];
 }
 
+export interface GameEvent {
+  id: string;
+  roomId: string;
+  turnId: string | null;
+  sequence?: number;
+  eventType: string;
+  visibilityScope: 'objective' | 'public' | 'private' | 'admin';
+  playerId: string | null;
+  actorId: string | null;
+  payload: JsonObject;
+  causalityId: string | null;
+  createdAt: string;
+}
+
 export interface AiTurnPromptSendResponse {
   responseText: string;
   suggestedStateChanges: JsonValue[];
@@ -649,6 +696,9 @@ export interface AiTurnPromptSendResponse {
   applied?: boolean;
   resourceErrors?: string[];
   warnings?: string[];
+  resolutionRunId?: string;
+  seed?: string;
+  resolutionEvents?: GameEvent[];
 }
 
 export interface CharacterResourceChange {

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildTurnPrompt, renderDndOutputContract, sanitizePublicDiceReason } from '../services/aiContextBuilder.js';
+import { buildTurnPrompt, parseNarrativeLengthLimitsFromPromptBlocks, renderDndOutputContract, sanitizePublicDiceReason } from '../services/aiContextBuilder.js';
 import { validateAiTurnResult, validateAiTurnResultLengthWarnings } from '../services/aiProvider.js';
 import { matchWorldBookEntries } from '../services/worldBookService.js';
-import type { Player, PlayerAction, Room, WorldBookEntry } from '../domain/types.js';
+import type { Player, PlayerAction, PromptBlock, Room, WorldBookEntry } from '../domain/types.js';
 
 const room: Room = {
   id: 'room-1',
@@ -66,6 +66,55 @@ describe('AI-DM prompt stability', () => {
     expect(contract).toContain('publicLog 最多 300 个中文字符');
     expect(contract).toContain('privateUpdatesByPlayer 每名玩家最多 150 个中文字符');
     expect(contract).toContain('超过上限属于格式错误');
+  });
+
+  it('uses active narrative length limits in the output contract and validation warnings', () => {
+    const promptBlocks: PromptBlock[] = [{
+      id: 'length-block',
+      presetId: 'preset-1',
+      name: '剧情字数限制',
+      role: 'system',
+      position: 'final',
+      enabled: true,
+      orderIndex: 1,
+      content: [
+        '剧情字数硬上限：控制 AI 本回合输出的三层剧情长度。超过上限属于格式错误。',
+        '- objectiveLog：最多 1000 个中文字符。',
+        '- publicLog：最多 1500 个中文字符。',
+        '- privateUpdatesByPlayer：每名玩家最多 800 个中文字符。'
+      ].join('\n')
+    }];
+    const limits = parseNarrativeLengthLimitsFromPromptBlocks(promptBlocks);
+    const contract = renderDndOutputContract(limits);
+
+    expect(contract).toContain('objectiveLog 最多 1000 个中文字符');
+    expect(contract).toContain('publicLog 最多 1500 个中文字符');
+    expect(contract).toContain('privateUpdatesByPlayer 每名玩家最多 800 个中文字符');
+    expect(contract).not.toContain('objectiveLog 最多 300 个中文字符、publicLog 最多 300 个中文字符');
+
+    const prompt = buildTurnPrompt({
+      room,
+      players,
+      objectiveLogs: [],
+      publicLogs: [],
+      actions: [action({})],
+      interactions: [],
+      promptBlocks
+    });
+    expect(prompt).toContain('objectiveLog 最多 1000 个中文字符');
+    expect(prompt).not.toContain('objectiveLog 最多 300 个中文字符、publicLog 最多 300 个中文字符');
+
+    const parsed = validateAiTurnResult({
+      objectiveLog: '客'.repeat(301),
+      publicLog: '公'.repeat(301),
+      privateUpdatesByPlayer: { tk: '私'.repeat(151) },
+      ruleResults: [],
+      interactionRequests: [],
+      diceRequests: [],
+      suggestedStateChanges: [],
+      characterResourceChanges: []
+    }, { strictRequiredFields: true });
+    expect(validateAiTurnResultLengthWarnings(parsed, limits)).toEqual([]);
   });
 
   it('accepts empty characterResourceChanges and diceRequests arrays', () => {

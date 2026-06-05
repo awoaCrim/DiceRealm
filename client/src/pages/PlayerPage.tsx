@@ -5,13 +5,28 @@ import { CharacterCard } from '../components/CharacterCard';
 import { LogList } from '../components/LogList';
 import { TurnPanel } from '../components/TurnPanel';
 import { formatIsoDateTime, npcAttitudeLabel, questStatusLabel } from '../displayLabels';
-import type { PlayerVisibleState } from '../types';
+import type { PlayerRuleAvailableAction, PlayerRuleStat, PlayerVisibleState } from '../types';
 
 type PlayerActionType = 'in_character_action' | 'player_question' | 'meta_question' | 'observe' | 'wait' | 'skip' | 'ready' | 'follow' | 'combat_action' | 'narrative' | 'exploration' | 'social' | 'combat' | 'ooc';
 type ExplorationAction = 'stealth' | 'perception' | 'investigation' | 'lockpick' | 'disarmTrap' | 'track' | 'solvePuzzle';
 type SocialAction = 'persuade' | 'deceive' | 'intimidate' | 'haggle' | 'negotiate';
 type PlayerTab = 'story' | 'character' | 'backpack' | 'status';
 type LogTab = 'public' | 'private';
+type ActionTiming = '动作' | '附赠动作' | '反应' | '按法术' | '特殊';
+type AvailableAction = PlayerRuleAvailableAction;
+type WeaponActionInfo = {
+  name: string;
+  ability: 'str' | 'dex';
+  damageDie: string;
+  damageType: string;
+  ranged?: boolean;
+  light?: boolean;
+  ammoName?: string;
+  range?: string;
+};
+type AbilityKey = 'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha';
+type ActionEconomyItem = { title: string; value: string; detail: string };
+type SkillDefinition = { key: string; label: string; ability: AbilityKey; aliases: string[] };
 
 const explorationActions: { value: ExplorationAction; label: string; dcInfo: string }[] = [
   { value: 'stealth', label: '潜行', dcInfo: 'DC 12 (敏捷)' },
@@ -48,6 +63,65 @@ const itemInfo: Record<string, { type: string; detail: string }> = {
   治疗包: { type: '工具', detail: '可用于稳定 0 HP 生物，通常有有限使用次数。' }
 };
 
+const abilityLabels: Record<AbilityKey, string> = {
+  str: '力量',
+  dex: '敏捷',
+  con: '体质',
+  int: '智力',
+  wis: '感知',
+  cha: '魅力'
+};
+
+const classSavingThrowProficiencies: Array<{ pattern: RegExp; saves: AbilityKey[] }> = [
+  { pattern: /野蛮人|barbarian/, saves: ['str', 'con'] },
+  { pattern: /吟游诗人|bard/, saves: ['dex', 'cha'] },
+  { pattern: /牧师|cleric/, saves: ['wis', 'cha'] },
+  { pattern: /德鲁伊|druid/, saves: ['int', 'wis'] },
+  { pattern: /战士|fighter/, saves: ['str', 'con'] },
+  { pattern: /武僧|monk/, saves: ['str', 'dex'] },
+  { pattern: /圣武士|paladin/, saves: ['wis', 'cha'] },
+  { pattern: /游侠|ranger/, saves: ['str', 'dex'] },
+  { pattern: /游荡者|rogue/, saves: ['dex', 'int'] },
+  { pattern: /术士|sorcerer/, saves: ['con', 'cha'] },
+  { pattern: /邪术师|warlock/, saves: ['wis', 'cha'] },
+  { pattern: /法师|wizard/, saves: ['int', 'wis'] }
+];
+
+const skillDefinitions: SkillDefinition[] = [
+  { key: 'acrobatics', label: '体操', ability: 'dex', aliases: ['acrobatics', '体操'] },
+  { key: 'animal_handling', label: '驯兽', ability: 'wis', aliases: ['animalhandling', 'animal handling', '驯兽', '驯养动物'] },
+  { key: 'arcana', label: '奥秘', ability: 'int', aliases: ['arcana', '奥秘', '奥术'] },
+  { key: 'athletics', label: '运动', ability: 'str', aliases: ['athletics', '运动'] },
+  { key: 'deception', label: '欺瞒', ability: 'cha', aliases: ['deception', '欺瞒', '欺骗'] },
+  { key: 'history', label: '历史', ability: 'int', aliases: ['history', '历史'] },
+  { key: 'insight', label: '洞悉', ability: 'wis', aliases: ['insight', '洞悉', '察言观色'] },
+  { key: 'intimidation', label: '威吓', ability: 'cha', aliases: ['intimidation', '威吓', '恐吓'] },
+  { key: 'investigation', label: '调查', ability: 'int', aliases: ['investigation', '调查', '侦查'] },
+  { key: 'medicine', label: '医药', ability: 'wis', aliases: ['medicine', '医药', '医疗'] },
+  { key: 'nature', label: '自然', ability: 'int', aliases: ['nature', '自然'] },
+  { key: 'perception', label: '察觉', ability: 'wis', aliases: ['perception', '察觉', '观察', '感知'] },
+  { key: 'performance', label: '表演', ability: 'cha', aliases: ['performance', '表演'] },
+  { key: 'persuasion', label: '游说', ability: 'cha', aliases: ['persuasion', '游说', '说服'] },
+  { key: 'religion', label: '宗教', ability: 'int', aliases: ['religion', '宗教'] },
+  { key: 'sleight_of_hand', label: '巧手', ability: 'dex', aliases: ['sleightofhand', 'sleight of hand', '巧手', '手上功夫'] },
+  { key: 'stealth', label: '隐匿', ability: 'dex', aliases: ['stealth', '隐匿', '潜行'] },
+  { key: 'survival', label: '求生', ability: 'wis', aliases: ['survival', '求生', '生存'] }
+];
+
+const weaponActionInfo: Record<string, WeaponActionInfo> = {
+  长剑: { name: '长剑', ability: 'str', damageDie: '1d8', damageType: '挥砍' },
+  巨剑: { name: '巨剑', ability: 'str', damageDie: '2d6', damageType: '挥砍' },
+  轻弩: { name: '轻弩', ability: 'dex', damageDie: '1d8', damageType: '穿刺', ranged: true, ammoName: '弩矢', range: '80/320' },
+  匕首: { name: '匕首', ability: 'dex', damageDie: '1d4', damageType: '穿刺', light: true, range: '20/60' },
+  短剑: { name: '短剑', ability: 'dex', damageDie: '1d6', damageType: '穿刺', light: true },
+  弯刀: { name: '弯刀', ability: 'dex', damageDie: '1d6', damageType: '挥砍', light: true },
+  手斧: { name: '手斧', ability: 'str', damageDie: '1d6', damageType: '挥砍', light: true, range: '20/60' },
+  轻锤: { name: '轻锤', ability: 'str', damageDie: '1d4', damageType: '钝击', light: true, range: '20/60' },
+  木棍: { name: '木棍', ability: 'str', damageDie: '1d4', damageType: '钝击', light: true },
+  短弓: { name: '短弓', ability: 'dex', damageDie: '1d6', damageType: '穿刺', ranged: true, ammoName: '箭矢', range: '80/320' },
+  长弓: { name: '长弓', ability: 'dex', damageDie: '1d8', damageType: '穿刺', ranged: true, ammoName: '箭矢', range: '150/600' }
+};
+
 function inferActionType(text: string, selected: PlayerActionType): PlayerActionType {
   if (selected !== 'in_character_action') return selected;
   const trimmed = text.trim();
@@ -74,6 +148,301 @@ function defaultActionText(actionType: PlayerActionType): string {
 
 function describeItem(name: string): { type: string; detail: string } {
   return itemInfo[name] ?? { type: '物品', detail: '角色持有的可见物品；具体规则效果由当前规则与场景决定。' };
+}
+
+function abilityModifier(score: number | undefined): number {
+  return Math.floor(((score ?? 10) - 10) / 2);
+}
+
+function formatModifier(value: number): string {
+  return value >= 0 ? `+${value}` : String(value);
+}
+
+function formatDamage(damageDie: string, modifier: number): string {
+  if (modifier === 0) return damageDie;
+  return `${damageDie}${modifier > 0 ? `+${modifier}` : modifier}`;
+}
+
+function normalizeKnownName(value: string): string {
+  return value.replace(/[（）()，,。.\s]/g, '').toLowerCase();
+}
+
+function hasAnyAlias(values: string[] | undefined, aliases: string[]): boolean {
+  const normalizedValues = (values ?? []).map(normalizeKnownName);
+  return aliases.some((alias) => normalizedValues.some((value) => value.includes(normalizeKnownName(alias))));
+}
+
+function findWeaponActionInfo(item: string): WeaponActionInfo | null {
+  const exact = weaponActionInfo[item];
+  if (exact) return exact;
+  const normalized = normalizeKnownName(item);
+  return Object.values(weaponActionInfo).find((weapon) => normalized.includes(normalizeKnownName(weapon.name))) ?? null;
+}
+
+function resourceAmmoText(state: PlayerVisibleState, weapon: WeaponActionInfo): string | null {
+  if (!weapon.ammoName) return null;
+  const ammo = state.resources?.ammo.find((entry) => normalizeKnownName(entry.name).includes(normalizeKnownName(weapon.ammoName!)));
+  return ammo ? `${weapon.ammoName} ${ammo.current}/${ammo.max}` : `${weapon.ammoName} 未记录`;
+}
+
+function classText(state: PlayerVisibleState): string {
+  const sheet = state.character?.sheet;
+  if (!sheet) return '';
+  return [
+    sheet.className,
+    sheet.classDetail,
+    sheet.privateNotes,
+    ...(sheet.proficiencies ?? [])
+  ].filter(Boolean).join(' ');
+}
+
+function inferSpeed(state: PlayerVisibleState): number {
+  const sheet = state.character?.sheet;
+  if (!sheet) return 30;
+  const species = normalizeKnownName(`${sheet.species}${sheet.subSpecies ?? ''}`);
+  let speed = species.includes('矮人') || species.includes('侏儒') || species.includes('半身人') ? 25 : 30;
+  if (species.includes('木精灵')) speed = 35;
+  if (/武僧|monk/i.test(classText(state)) && (sheet.level ?? 1) >= 2) speed += 10;
+  return speed;
+}
+
+function buildActionEconomy(state: PlayerVisibleState): ActionEconomyItem[] {
+  return [
+    { title: '动作', value: '1 / 轮', detail: '攻击、施法、疾走、撤离、闪避、协助、躲藏、搜索、准备或使用物品。' },
+    { title: '附赠动作', value: '1 / 轮', detail: '只有职业能力、法术或双持等规则给出时才能使用。' },
+    { title: '反应', value: '1 / 轮', detail: '常见触发包括借机攻击、准备动作触发和部分反应法术。' },
+    { title: '移动', value: `${inferSpeed(state)} 尺 / 轮`, detail: '可拆分在行动前后；困难地形、攀爬、游泳、爬行通常额外消耗移动。' },
+    { title: '物品互动', value: '1 / 轮', detail: '拔武器、开门、取物等轻量互动；复杂使用通常需要“使用物品”动作。' },
+    { title: '专注', value: '最多 1 个', detail: '受到伤害时通常要进行体质豁免来维持专注。' }
+  ];
+}
+
+function isSavingThrowProficient(state: PlayerVisibleState, ability: AbilityKey): boolean {
+  const sheet = state.character?.sheet;
+  if (!sheet) return false;
+  const proficiencies = sheet.proficiencies ?? [];
+  if (hasAnyAlias(proficiencies, [`${abilityLabels[ability]}豁免`, `${abilityLabels[ability]}豁免熟练`, `${ability} save`, `${ability} saving throw`])) return true;
+  const classInfo = classText(state).toLowerCase();
+  return classSavingThrowProficiencies.some((entry) => entry.pattern.test(classInfo) && entry.saves.includes(ability));
+}
+
+function buildSavingThrows(state: PlayerVisibleState): PlayerRuleStat[] {
+  const sheet = state.character?.sheet;
+  if (!sheet) return [];
+  const proficiencyBonus = sheet.proficiencyBonus ?? 2;
+  return (Object.keys(abilityLabels) as AbilityKey[]).map((ability) => {
+    const proficient = isSavingThrowProficient(state, ability);
+    return {
+      key: ability,
+      label: abilityLabels[ability],
+      modifier: formatModifier(abilityModifier(sheet.abilityScores[ability]) + (proficient ? proficiencyBonus : 0)),
+      proficient
+    };
+  });
+}
+
+function isSkillProficient(state: PlayerVisibleState, skill: SkillDefinition): boolean {
+  return hasAnyAlias(state.character?.sheet.skills, [skill.key, skill.label, ...skill.aliases]);
+}
+
+function buildSkillChecks(state: PlayerVisibleState): PlayerRuleStat[] {
+  const sheet = state.character?.sheet;
+  if (!sheet) return [];
+  const proficiencyBonus = sheet.proficiencyBonus ?? 2;
+  return skillDefinitions.map((skill) => {
+    const proficient = isSkillProficient(state, skill);
+    return {
+      key: skill.key,
+      label: skill.label,
+      ability: abilityLabels[skill.ability],
+      modifier: formatModifier(abilityModifier(sheet.abilityScores[skill.ability]) + (proficient ? proficiencyBonus : 0)),
+      proficient
+    };
+  });
+}
+
+function reactionSpellActions(state: PlayerVisibleState): AvailableAction[] {
+  const reactionSpellNames = [
+    { pattern: /护盾术|shield/i, detail: '被命中时可用，直到下回合开始 AC +5。' },
+    { pattern: /反制法术|counterspell/i, detail: '看到生物施法时可用，尝试中断法术。' },
+    { pattern: /吸收元素|absorb elements/i, detail: '受到酸、冷、火、电或雷鸣伤害时可用。' },
+    { pattern: /地狱叱喝|hellish rebuke/i, detail: '受到可见生物伤害时可用。' },
+    { pattern: /羽落术|feather fall/i, detail: '自己或附近生物坠落时可用。' }
+  ];
+  return (state.character?.sheet.spells ?? []).flatMap((spell) => {
+    const match = reactionSpellNames.find((entry) => entry.pattern.test(spell));
+    return match ? [{
+      id: `reaction-spell-${normalizeKnownName(spell)}`,
+      title: spell,
+      subtitle: '反应法术',
+      timing: '反应' as ActionTiming,
+      tags: ['消耗法术位 / 按法术'],
+      detail: match.detail
+    }] : [];
+  });
+}
+
+function buildAvailableActions(state: PlayerVisibleState): AvailableAction[] {
+  const sheet = state.character?.sheet;
+  if (!sheet || !state.character?.confirmed) return [];
+
+  const actions: AvailableAction[] = [];
+  const proficiencyBonus = sheet.proficiencyBonus ?? 2;
+  const weapons = sheet.equipment
+    .map((item) => findWeaponActionInfo(item))
+    .filter((weapon): weapon is WeaponActionInfo => Boolean(weapon));
+  const mainWeapon = weapons[0];
+
+  if (mainWeapon) {
+    const abilityMod = abilityModifier(sheet.abilityScores[mainWeapon.ability]);
+    const ammoText = resourceAmmoText(state, mainWeapon);
+    actions.push({
+      id: 'main-hand-weapon',
+      title: '主手武器攻击',
+      subtitle: mainWeapon.name,
+      timing: '动作',
+      tags: [
+        `攻击 ${formatModifier(abilityMod + proficiencyBonus)}`,
+        `伤害 ${formatDamage(mainWeapon.damageDie, abilityMod)} ${mainWeapon.damageType}`,
+        ...(mainWeapon.range ? [`射程 ${mainWeapon.range}`] : []),
+        ...(ammoText ? [ammoText] : [])
+      ]
+    });
+  } else {
+    const abilityMod = Math.max(abilityModifier(sheet.abilityScores.str), abilityModifier(sheet.abilityScores.dex));
+    actions.push({
+      id: 'unarmed-strike',
+      title: '徒手攻击',
+      subtitle: '近战武器攻击',
+      timing: '动作',
+      tags: [`攻击 ${formatModifier(abilityMod + proficiencyBonus)}`, `伤害 ${Math.max(1, 1 + abilityMod)} 钝击`]
+    });
+  }
+
+  const offhandWeapon = mainWeapon?.light && !mainWeapon.ranged
+    ? weapons.slice(1).find((weapon) => weapon.light && !weapon.ranged)
+    : null;
+  if (offhandWeapon) {
+    const abilityMod = abilityModifier(sheet.abilityScores[offhandWeapon.ability]);
+    actions.push({
+      id: 'off-hand-weapon',
+      title: '副手武器攻击',
+      subtitle: offhandWeapon.name,
+      timing: '附赠动作',
+      tags: [
+        `攻击 ${formatModifier(abilityMod + proficiencyBonus)}`,
+        `伤害 ${offhandWeapon.damageDie} ${offhandWeapon.damageType}`
+      ],
+      detail: '双持轻型近战武器时可用；默认副手伤害不加属性调整值。'
+    });
+  }
+
+  if (sheet.spells.length > 0) {
+    const slotSummary = Object.entries(state.resources?.spellSlots ?? {})
+      .filter(([, slots]) => slots.total > 0)
+      .map(([level, slots]) => `${level}: ${Math.max(0, slots.total - slots.used)}/${slots.total}`);
+    actions.push({
+      id: 'cast-spell',
+      title: '施放法术',
+      subtitle: sheet.spells.join('、'),
+      timing: '按法术',
+      tags: slotSummary.length ? [`可用法术位 ${slotSummary.join('，')}`] : ['法术 / 戏法 / 能力'],
+      detail: '具体施法时间、距离和消耗以法术条目为准。'
+    });
+  }
+
+  const classInfo = classText(state).toLowerCase();
+  const level = sheet.level ?? 1;
+  if (/战士|fighter/.test(classInfo)) {
+    actions.push({
+      id: 'fighter-second-wind',
+      title: '第二风',
+      subtitle: '恢复 1d10 + 战士等级 HP',
+      timing: '附赠动作',
+      tags: ['短休恢复']
+    });
+    if (level >= 2) {
+      actions.push({
+        id: 'fighter-action-surge',
+        title: '动作如潮',
+        subtitle: '本回合额外获得一次动作',
+        timing: '特殊',
+        tags: ['短休恢复']
+      });
+    }
+    if (/战斗大师|战技|battle\s*master/.test(classInfo)) {
+      actions.push({
+        id: 'fighter-maneuver',
+        title: '战技',
+        subtitle: '随武器攻击或触发条件使用',
+        timing: '特殊',
+        tags: ['战技骰', '按具体战技']
+      });
+    }
+  }
+  if (/武僧|monk/.test(classInfo)) {
+    actions.push({
+      id: 'monk-unarmed',
+      title: '徒手打击',
+      subtitle: '近战攻击',
+      timing: '动作',
+      tags: [`攻击 ${formatModifier(abilityModifier(sheet.abilityScores.dex) + proficiencyBonus)}`]
+    });
+    actions.push({
+      id: 'monk-martial-arts',
+      title: '武术附赠攻击',
+      subtitle: '攻击动作后可用',
+      timing: '附赠动作',
+      tags: ['武僧武器 / 徒手']
+    });
+  }
+  if (/游荡者|rogue/.test(classInfo)) {
+    actions.push({
+      id: 'rogue-sneak-attack',
+      title: '偷袭',
+      subtitle: '符合优势或盟友邻近等条件时追加伤害',
+      timing: '特殊',
+      tags: ['每回合一次']
+    });
+    if (level >= 2) {
+      actions.push({
+        id: 'rogue-cunning-action',
+        title: '灵巧动作',
+        subtitle: '疾走、撤离或躲藏',
+        timing: '附赠动作',
+        tags: ['2级起']
+      });
+    }
+  }
+
+  actions.push(
+    { id: 'dash', title: '疾走', subtitle: `本回合额外移动最多 ${inferSpeed(state)} 尺`, timing: '动作', tags: ['移动'] },
+    { id: 'disengage', title: '撤离', subtitle: '本回合移动不触发借机攻击', timing: '动作', tags: ['防守'] },
+    { id: 'dodge', title: '闪避', subtitle: '攻击者劣势，敏捷豁免优势，直到你下回合开始', timing: '动作', tags: ['防守', '失能时失效'] },
+    { id: 'help', title: '协助', subtitle: '帮助盟友进行检定或攻击邻近目标', timing: '动作', tags: ['支援'] },
+    { id: 'hide', title: '躲藏', subtitle: '进行敏捷（隐匿）检定', timing: '动作', tags: [`隐匿 ${buildSkillChecks(state).find((skill) => skill.key === 'stealth')?.modifier ?? '+0'}`] },
+    { id: 'search', title: '搜索', subtitle: '进行感知或调查检定寻找线索/敌人', timing: '动作', tags: [`察觉 ${buildSkillChecks(state).find((skill) => skill.key === 'perception')?.modifier ?? '+0'}`, `调查 ${buildSkillChecks(state).find((skill) => skill.key === 'investigation')?.modifier ?? '+0'}`] },
+    { id: 'ready-action', title: '准备动作', subtitle: '声明触发条件，触发时用反应执行', timing: '动作', tags: ['占用反应', '可能影响专注'] },
+    { id: 'use-object', title: '使用物品', subtitle: '使用需要动作的物品或复杂互动', timing: '动作', tags: ['物品'] },
+    { id: 'grapple', title: '擒抱', subtitle: '以攻击的一部分进行力量（运动）对抗', timing: '动作', tags: [`运动 ${buildSkillChecks(state).find((skill) => skill.key === 'athletics')?.modifier ?? '+0'}`] },
+    { id: 'shove', title: '推撞', subtitle: '以攻击的一部分将目标推开或撞倒', timing: '动作', tags: [`运动 ${buildSkillChecks(state).find((skill) => skill.key === 'athletics')?.modifier ?? '+0'}`] },
+    { id: 'escape-grapple', title: '挣脱擒抱', subtitle: '力量（运动）或敏捷（体操）对抗', timing: '动作', tags: [`运动 ${buildSkillChecks(state).find((skill) => skill.key === 'athletics')?.modifier ?? '+0'}`, `体操 ${buildSkillChecks(state).find((skill) => skill.key === 'acrobatics')?.modifier ?? '+0'}`] },
+    { id: 'improvise', title: '即兴行动', subtitle: '尝试规则未列明的环境互动或战术', timing: '动作', tags: ['由 DM 裁定'] }
+  );
+
+  const opportunityWeapon = weapons.find((weapon) => !weapon.ranged) ?? mainWeapon;
+  actions.push({
+    id: 'opportunity-attack',
+    title: '借机攻击',
+    subtitle: opportunityWeapon ? `${opportunityWeapon.name} 近战反应` : '敌人离开你的触及时',
+    timing: '反应',
+    tags: opportunityWeapon
+      ? [`攻击 ${formatModifier(abilityModifier(sheet.abilityScores[opportunityWeapon.ability]) + proficiencyBonus)}`]
+      : ['触发时可用']
+  });
+  actions.push(...reactionSpellActions(state));
+
+  return actions;
 }
 
 function combatHealthText(label: string): string {
@@ -221,6 +590,10 @@ export function PlayerPage({ token }: { token: string }) {
         ? '所有必要行动已完成，等待主持人结算，本回合暂不能修改行动。'
         : '当前回合未开放行动提交。';
   const showResources = state.resources && state.character?.confirmed;
+  const availableActions = state.rules?.availableActions ?? buildAvailableActions(state);
+  const actionEconomy = state.rules?.actionEconomy ?? buildActionEconomy(state);
+  const savingThrows = state.rules?.savingThrows ?? buildSavingThrows(state);
+  const skillChecks = state.rules?.skills ?? buildSkillChecks(state);
   const hasBackpackContent = Boolean(state.character?.sheet.equipment.length)
     || Boolean(state.resources?.ammo.length)
     || Boolean(state.resources?.consumables.length)
@@ -513,97 +886,165 @@ export function PlayerPage({ token }: { token: string }) {
 
       {activeTab === 'status' ? (
         <div className="player-status-layout">
-          {showResources ? (
-            <section className="card">
-              <h2>角色资源</h2>
-              <div className="subcard">
-                <strong>HP: {state.resources!.hitPoints.current} / {state.resources!.hitPoints.max}</strong>
-                {state.resources!.hitPoints.temp > 0 ? <span> (临时 {state.resources!.hitPoints.temp})</span> : null}
-                <div className="hp-bar-bg">
-                  <div className="hp-bar-fill" style={{
-                    width: `${Math.min(100, Math.round(state.resources!.hitPoints.current / state.resources!.hitPoints.max * 100))}%`,
-                    background: state.resources!.hitPoints.current > state.resources!.hitPoints.max / 2 ? '#79bd74' : state.resources!.hitPoints.current > 0 ? '#dfa34b' : '#de6f62'
-                  }} />
+          <div className="status-column">
+            {showResources ? (
+              <section className="card">
+                <h2>角色资源</h2>
+                <div className="subcard">
+                  <strong>HP: {state.resources!.hitPoints.current} / {state.resources!.hitPoints.max}</strong>
+                  {state.resources!.hitPoints.temp > 0 ? <span> (临时 {state.resources!.hitPoints.temp})</span> : null}
+                  <div className="hp-bar-bg">
+                    <div className="hp-bar-fill" style={{
+                      width: `${Math.min(100, Math.round(state.resources!.hitPoints.current / state.resources!.hitPoints.max * 100))}%`,
+                      background: state.resources!.hitPoints.current > state.resources!.hitPoints.max / 2 ? '#79bd74' : state.resources!.hitPoints.current > 0 ? '#dfa34b' : '#de6f62'
+                    }} />
+                  </div>
                 </div>
-              </div>
-              {state.resources!.hitDice.total > 0 ? (
-                <p>生命骰: {state.resources!.hitDice.remaining} / {state.resources!.hitDice.total} ({state.resources!.hitDice.die})</p>
-              ) : null}
-              {Object.keys(state.resources!.spellSlots).length > 0 ? (
-                <div>
-                  <strong>法术位</strong>
-                  {Object.entries(state.resources!.spellSlots).map(([level, slots]) => (
-                    <p key={level}>{level}环: {slots.total - slots.used} / {slots.total}</p>
+                {state.resources!.hitDice.total > 0 ? (
+                  <p>生命骰: {state.resources!.hitDice.remaining} / {state.resources!.hitDice.total} ({state.resources!.hitDice.die})</p>
+                ) : null}
+                {Object.keys(state.resources!.spellSlots).length > 0 ? (
+                  <div>
+                    <strong>法术位</strong>
+                    {Object.entries(state.resources!.spellSlots).map(([level, slots]) => (
+                      <p key={level}>{level}环: {slots.total - slots.used} / {slots.total}</p>
+                    ))}
+                  </div>
+                ) : null}
+                <p>货币: {state.resources!.currency.gp} gp · {state.resources!.currency.sp} sp · {state.resources!.currency.cp} cp</p>
+                {state.resources!.conditions.length > 0 ? (
+                  <p>状态: {state.resources!.conditions.join(', ')}</p>
+                ) : null}
+              </section>
+            ) : null}
+            {savingThrows.length > 0 ? (
+              <section className="card">
+                <h2>豁免</h2>
+                <div className="rules-stat-grid">
+                  {savingThrows.map((save) => (
+                    <div className={save.proficient ? 'is-proficient' : ''} key={save.key}>
+                      <strong>{save.label}</strong>
+                      <span>{save.modifier}</span>
+                      <small>{save.proficient ? '熟练' : '未熟练'}</small>
+                    </div>
                   ))}
                 </div>
-              ) : null}
-              <p>货币: {state.resources!.currency.gp} gp · {state.resources!.currency.sp} sp · {state.resources!.currency.cp} cp</p>
-              {state.resources!.conditions.length > 0 ? (
-                <p>状态: {state.resources!.conditions.join(', ')}</p>
-              ) : null}
-            </section>
-          ) : null}
-          {state.recentChanges && state.recentChanges.length > 0 ? (
-            <section className="card">
-              <h2>最近资源变动</h2>
-              {state.recentChanges.slice(0, 5).map((change) => (
-                <div className="subcard" key={change.id}>
-                  <strong>{change.path}</strong>
-                  <p>{String(change.before)} → {String(change.after)}</p>
-                  <p className="muted">{change.reason}</p>
+              </section>
+            ) : null}
+            {skillChecks.length > 0 ? (
+              <section className="card">
+                <h2>技能检定</h2>
+                <div className="rules-stat-grid skills-grid">
+                  {skillChecks.map((skill) => (
+                    <div className={skill.proficient ? 'is-proficient' : ''} key={skill.key}>
+                      <strong>{skill.label}</strong>
+                      <span>{skill.modifier}</span>
+                      <small>{skill.ability}{skill.proficient ? ' · 熟练' : ''}</small>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </section>
-          ) : null}
-          {state.combatState ? (
-            <section className="card">
-              <h2>战斗</h2>
-              <p className="muted">第 {state.combatState.round} 回合 · 当前行动者：{state.combatState.participants[state.combatState.currentTurnIndex]?.name ?? '--'}</p>
-              {state.combatState.participants
-                .map((p, i) => (
-                  <div className="subcard" key={p.id} style={i === state.combatState!.currentTurnIndex ? { border: '2px solid #ffd700' } : undefined}>
-                    <strong>{p.name}{p.isNpc ? ' (NPC)' : ''}</strong>
-                    <p>先攻: {p.initiative ?? '--'}{p.ac !== null ? ` · AC: ${p.ac}` : ''}</p>
-                    {p.hp !== null && p.maxHp !== null ? (
-                      <>
-                        <div className="hp-bar-bg">
-                          <div className="hp-bar-fill" style={{
-                            width: `${Math.min(100, Math.round(p.hp / p.maxHp * 100))}%`,
-                            background: p.hp > p.maxHp / 2 ? '#79bd74' : p.hp > 0 ? '#dfa34b' : '#de6f62'
-                          }} />
-                        </div>
-                        <p className="muted">HP: {p.hp}/{p.maxHp}</p>
-                      </>
-                    ) : (
-                      <p className="muted">状态：{combatHealthText(p.healthLabel)}</p>
-                    )}
+              </section>
+            ) : null}
+            {state.recentDiceLogs && state.recentDiceLogs.length > 0 ? (
+              <section className="card">
+                <h2>最近骰点</h2>
+                {state.recentDiceLogs.map((log) => (
+                  <div className="subcard" key={log.id}>
+                    <p>{log.reason}：{log.die} [{log.values.join(', ')}] + {log.modifier} = {log.total}{log.success !== undefined ? (log.success ? ' (成功)' : ' (失败)') : ''}</p>
+                    <p className="muted">{log.playerName} · {formatIsoDateTime(log.createdAt)}</p>
                   </div>
                 ))}
-            </section>
-          ) : null}
-          {state.recentDiceLogs && state.recentDiceLogs.length > 0 ? (
-            <section className="card">
-              <h2>最近骰点</h2>
-              {state.recentDiceLogs.map((log) => (
-                <div className="subcard" key={log.id}>
-                  <p>{log.reason}：{log.die} [{log.values.join(', ')}] + {log.modifier} = {log.total}{log.success !== undefined ? (log.success ? ' (成功)' : ' (失败)') : ''}</p>
-                  <p className="muted">{log.playerName} · {formatIsoDateTime(log.createdAt)}</p>
+              </section>
+            ) : null}
+            {state.recentChanges && state.recentChanges.length > 0 ? (
+              <section className="card">
+                <h2>最近资源变动</h2>
+                {state.recentChanges.slice(0, 5).map((change) => (
+                  <div className="subcard" key={change.id}>
+                    <strong>{change.path}</strong>
+                    <p>{String(change.before)} → {String(change.after)}</p>
+                    <p className="muted">{change.reason}</p>
+                  </div>
+                ))}
+              </section>
+            ) : null}
+          </div>
+          <div className="status-column">
+            {state.character?.confirmed ? (
+              <section className="card">
+                <h2>行动资源</h2>
+                <div className="action-economy-grid">
+                  {actionEconomy.map((item) => (
+                    <div key={item.title}>
+                      <strong>{item.title}</strong>
+                      <span>{item.value}</span>
+                      <small>{item.detail}</small>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </section>
-          ) : null}
-          {state.ruleSummaries.length ? (
-            <section className="card">
-              <h2>本轮规则摘要</h2>
-              {state.ruleSummaries.map((summary) => (
-                <div className="subcard" key={summary.entryId}>
-                  <strong>{summary.title}</strong>
-                  <p>{summary.summary}</p>
-                  <p className="muted">{summary.reason}</p>
+              </section>
+            ) : null}
+            {availableActions.length > 0 ? (
+              <section className="card available-actions-card">
+                <h2>可用行动</h2>
+                <div className="available-action-list">
+                  {availableActions.map((item) => (
+                    <article className="available-action-item" key={item.id}>
+                      <header>
+                        <div>
+                          <strong>{item.title}</strong>
+                          <p>{item.subtitle}</p>
+                        </div>
+                        <span className="action-timing">{item.timing}</span>
+                      </header>
+                      <div className="action-tag-row">
+                        {item.tags.map((tag) => <span className="pill" key={tag}>{tag}</span>)}
+                      </div>
+                      {item.detail ? <p className="muted">{item.detail}</p> : null}
+                    </article>
+                  ))}
                 </div>
-              ))}
-            </section>
-          ) : null}
+              </section>
+            ) : null}
+            {state.combatState ? (
+              <section className="card">
+                <h2>战斗</h2>
+                <p className="muted">第 {state.combatState.round} 回合 · 当前行动者：{state.combatState.participants[state.combatState.currentTurnIndex]?.name ?? '--'}</p>
+                {state.combatState.participants
+                  .map((p, i) => (
+                    <div className="subcard" key={p.id} style={i === state.combatState!.currentTurnIndex ? { border: '2px solid #ffd700' } : undefined}>
+                      <strong>{p.name}{p.isNpc ? ' (NPC)' : ''}</strong>
+                      <p>先攻: {p.initiative ?? '--'}{p.ac !== null ? ` · AC: ${p.ac}` : ''}</p>
+                      {p.hp !== null && p.maxHp !== null ? (
+                        <>
+                          <div className="hp-bar-bg">
+                            <div className="hp-bar-fill" style={{
+                              width: `${Math.min(100, Math.round(p.hp / p.maxHp * 100))}%`,
+                              background: p.hp > p.maxHp / 2 ? '#79bd74' : p.hp > 0 ? '#dfa34b' : '#de6f62'
+                            }} />
+                          </div>
+                          <p className="muted">HP: {p.hp}/{p.maxHp}</p>
+                        </>
+                      ) : (
+                        <p className="muted">状态：{combatHealthText(p.healthLabel)}</p>
+                      )}
+                    </div>
+                  ))}
+              </section>
+            ) : null}
+            {state.ruleSummaries.length ? (
+              <section className="card">
+                <h2>本轮规则摘要</h2>
+                {state.ruleSummaries.map((summary) => (
+                  <div className="subcard" key={summary.entryId}>
+                    <strong>{summary.title}</strong>
+                    <p>{summary.summary}</p>
+                    <p className="muted">{summary.reason}</p>
+                  </div>
+                ))}
+              </section>
+            ) : null}
+          </div>
         </div>
       ) : null}
     </main>

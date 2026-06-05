@@ -16,6 +16,7 @@ import { getCharacterResources } from '../services/characterResourceService.js';
 import { listCharacterResourceChanges } from '../services/characterAuditService.js';
 import { listSessionSummaries, listCampaignQuests, listCampaignNpcs } from '../services/campaignMemoryService.js';
 import { getTurnReadiness } from '../services/turnReadinessService.js';
+import { buildFiveERulesSummary } from '../services/fiveERulesService.js';
 
 const actionSchema = z.object({
   text: z.string().min(1),
@@ -144,8 +145,9 @@ export function createPlayerRouter(db: AppDatabase): Router {
     const campaignSummary = campaignSummaries.length > 0 ? campaignSummaries[0] : null;
     const quests = listCampaignQuests(db, player.roomId);
     const npcs = listCampaignNpcs(db, player.roomId);
+    const rules = buildFiveERulesSummary(character);
 
-    res.json(buildPlayerVisibleState({ room, player, players, character, logs, actions, interactions, ruleSummaries, resources, recentChanges, combatState, recentDiceLogs: diceLogs, campaignSummary, quests, npcs }));
+    res.json(buildPlayerVisibleState({ room, player, players, character, logs, actions, interactions, ruleSummaries, resources, recentChanges, combatState, recentDiceLogs: diceLogs, campaignSummary, quests, npcs, rules }));
   });
 
   router.get('/:token/character-builder/options', (req, res) => {

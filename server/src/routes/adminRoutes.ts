@@ -46,11 +46,29 @@ import {
 } from '../services/globalConfigService.js';
 import { registerAdminResourceRoutes } from './adminResourceRoutes.js';
 import { registerAdminDbRoutes } from './adminDbRoutes.js';
+import { registerAdminAiTurnRoutes } from './adminAiTurnRoutes.js';
+import { registerAdminMemoryRoutes } from './adminMemoryRoutes.js';
+import { registerAdminCombatRoutes } from './adminCombatRoutes.js';
+import { registerAdminConfigRoutes } from './adminConfigRoutes.js';
+import { registerAdminCharacterResourceRoutes } from './adminCharacterResourceRoutes.js';
 import { applyPluginDatabaseChange, renderRoomPluginDatabaseContext } from '../services/remoteDbRuntimeService.js';
 import { abilityCheck, abilityModifier, attackRoll, damageRoll, rollDice } from '../services/diceService.js';
 import { createCombat, rollInitiative, nextTurn, processAttack } from '../services/combatService.js';
 import { assertPreviewMatchesCurrentReadyTurn, assertTurnReadyForAi, getTurnReadiness, playerNamesById, StaleTurnPreviewError, TurnNotReadyError, turnNotReadyPayload } from '../services/turnReadinessService.js';
-import type { AiConfig, AiTurnPromptContextSection, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, AiTurnResult, CharacterSheet, DiceLog, InteractionRequest, LogEntry, Player, PlayerAction, PromptBlock, PromptBlockPosition, PromptPreviewResponse, PromptPreset, Room, RuleRetrievalMatch, ScriptCard, Turn, WorldBook, WorldBookEntry, WorldBookMatch, WorldBookPosition } from '../domain/types.js';
+import { persistGameEvents } from '../services/gameEventService.js';
+import {
+  applyResolutionRunToAiTurnResult,
+  buildConfirmedAiTurnResult as buildConfirmedResolvedAiTurnResult,
+  collectDiceRequestRoutingWarnings as collectResolutionDiceRequestRoutingWarnings,
+  createInteractionCreatedEvent,
+  createPluginDbChangeAppliedEvent,
+  createResourcePatchEvent,
+  createTurnLogMaterializedEvent,
+  createTurnResolutionRun,
+  loadTurnResolutionRun,
+  markTurnResolutionRunApplied
+} from '../services/turnResolutionService.js';
+import type { AiConfig, AiTurnPromptContextSection, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, AiTurnResult, CharacterSheet, DiceLog, GameEvent, InteractionRequest, LogEntry, Player, PlayerAction, PromptBlock, PromptBlockPosition, PromptPreviewResponse, PromptPreset, Room, RuleRetrievalMatch, ScriptCard, Turn, TurnResolutionRun, WorldBook, WorldBookEntry, WorldBookMatch, WorldBookPosition } from '../domain/types.js';
 
 const createRoomSchema = z.object({
   name: z.string().min(1)
@@ -716,18 +734,25 @@ function normalizeSuggestedStateChanges(result: AiTurnResult): unknown[] {
 function applyPluginDatabaseChangesFromAiResult(
   db: AppDatabase,
   roomId: string,
+  turnId: string,
   result: AiTurnResult,
-  errors: string[]
-): void {
+  errors: string[],
+  createdAt: string
+): GameEvent[] {
+  const events: GameEvent[] = [];
   for (const change of result.suggestedStateChanges ?? []) {
     if (!change || typeof change !== 'object' || Array.isArray(change)) continue;
     try {
       const outcome = applyPluginDatabaseChange(db, roomId, change);
       if (!outcome.applied && outcome.message) errors.push(outcome.message);
+      if (outcome.applied) {
+        events.push(createPluginDbChangeAppliedEvent(roomId, turnId, { change }, createdAt));
+      }
     } catch (err) {
       errors.push(`Failed to apply plugin database change: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+  return events;
 }
 
 function handleTurnReadinessError(error: unknown, res: import('express').Response): boolean {
@@ -1151,6 +1176,7 @@ interface MaterializeAiTurnInput {
   players: Player[];
   actions: PlayerAction[];
   result: AiTurnResult;
+  resolutionRun: TurnResolutionRun;
   providerName: string;
   inputSummary: string;
   ruleMatches: RuleRetrievalMatch[];
@@ -1175,9 +1201,9 @@ function buildConfirmedAiTurnResult(
 }
 
 function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTurnInput): { nextTurnId: string; resourceErrors: string[]; warnings: string[] } {
-  const { room, turn, players, actions, result, providerName, inputSummary, ruleMatches } = input;
+  const { room, turn, players, actions, result, resolutionRun, providerName, inputSummary, ruleMatches } = input;
   ensureObjectiveLog(result);
-  processAiTurnDiceAndPrivateResults(db, result, room.id, turn.id);
+  applyResolutionRunToAiTurnResult(db, result, resolutionRun);
   const privateUpdateRoutingWarnings = collectPrivateUpdateRoutingWarnings(players, result.privateUpdatesByPlayer);
   const interactionRoutingWarnings = collectInteractionRoutingWarnings(players, result.interactionRequests);
   const diceRequestRoutingWarnings = collectDiceRequestRoutingWarnings(db, room.id, result.diceRequests ?? []);
@@ -1194,6 +1220,7 @@ function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTurnInput)
   const hasPendingInteractions = (result.interactionRequests ?? []).length > 0;
   const nextTurnId = hasPendingInteractions ? turn.id : nanoid();
   const resourceErrors: string[] = [];
+  const appliedEvents: GameEvent[] = [...resolutionRun.events];
   const tx = db.transaction(() => {
     storeRuleContextHits(db, { roomId: room.id, turnId: turn.id, matches: ruleMatches });
 
@@ -1205,7 +1232,7 @@ function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTurnInput)
           diceLog.id, diceLog.roomId, diceLog.turnId, diceLog.combatId, diceLog.characterId,
           diceLog.diceType, JSON.stringify(diceLog.values), diceLog.modifier, diceLog.total,
           diceLog.dc, diceLog.success === null ? null : (diceLog.success ? 1 : 0),
-          diceLog.isPublic ? 1 : 0, diceLog.reason, diceLog.publicReason ?? diceLog.reason, diceLog.objectiveReason ?? diceLog.reason, now
+          diceLog.isPublic ? 1 : 0, diceLog.reason, diceLog.publicReason ?? diceLog.reason, diceLog.objectiveReason ?? diceLog.reason, diceLog.timestamp
         );
       }
     }
@@ -1214,13 +1241,26 @@ function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTurnInput)
       .run(nanoid(), room.id, turn.id, 'objective', null, `Objective Turn ${room.currentTurn}`, result.objectiveLog ?? result.publicLog, now);
     db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(nanoid(), room.id, turn.id, 'public', null, `Turn ${room.currentTurn}`, result.publicLog, now);
+    appliedEvents.push(createTurnLogMaterializedEvent(room.id, turn.id, {
+      objectiveLog: result.objectiveLog ?? result.publicLog,
+      publicLog: result.publicLog,
+      privateUpdatePlayerIds: Object.keys(result.privateUpdatesByPlayer)
+    }, now));
     for (const [playerId, content] of Object.entries(result.privateUpdatesByPlayer)) {
       db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         .run(nanoid(), room.id, turn.id, 'private', playerId, `Private Turn ${room.currentTurn}`, content, now);
     }
     for (const interaction of result.interactionRequests) {
+      const interactionId = nanoid();
       db.prepare('INSERT INTO interaction_requests (id, room_id, turn_id, source_player_id, target_player_id, type, prompt, target_response, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(nanoid(), room.id, turn.id, interaction.sourcePlayerId, interaction.targetPlayerId, interaction.type, interaction.prompt, null, 'pending_target', now);
+        .run(interactionId, room.id, turn.id, interaction.sourcePlayerId, interaction.targetPlayerId, interaction.type, interaction.prompt, null, 'pending_target', now);
+      appliedEvents.push(createInteractionCreatedEvent(room.id, turn.id, interaction.targetPlayerId, {
+        interactionId,
+        sourcePlayerId: interaction.sourcePlayerId,
+        targetPlayerId: interaction.targetPlayerId,
+        type: interaction.type,
+        prompt: interaction.prompt
+      }, now));
     }
     db.prepare('UPDATE interaction_requests SET status = ? WHERE room_id = ? AND turn_id = ? AND status = ?')
       .run('resolved', room.id, turn.id, 'ready_for_ai');
@@ -1241,7 +1281,9 @@ function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTurnInput)
         ).get(change.characterId, room.id) as { id: string } | undefined;
 
         if (!charRow) {
-          resourceErrors.push(`Invalid characterId '${change.characterId}': not found in room`);
+          const message = `Invalid characterId '${change.characterId}': not found in room`;
+          resourceErrors.push(message);
+          appliedEvents.push(createResourcePatchEvent(room.id, turn.id, false, { change, error: message }, now));
           continue;
         }
 
@@ -1254,15 +1296,18 @@ function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTurnInput)
             reason: change.reason,
             ruleRefs: change.ruleRefs,
           }, 'ai_dm', 'ai');
+          appliedEvents.push(createResourcePatchEvent(room.id, turn.id, true, { change }, now));
         } catch (err) {
-          resourceErrors.push(
-            `Failed to apply resource change for ${change.characterId}: ${err instanceof Error ? err.message : String(err)}`
-          );
+          const message = `Failed to apply resource change for ${change.characterId}: ${err instanceof Error ? err.message : String(err)}`;
+          resourceErrors.push(message);
+          appliedEvents.push(createResourcePatchEvent(room.id, turn.id, false, { change, error: message }, now));
         }
       }
     }
 
-    applyPluginDatabaseChangesFromAiResult(db, room.id, result, resourceErrors);
+    appliedEvents.push(...applyPluginDatabaseChangesFromAiResult(db, room.id, turn.id, result, resourceErrors, now));
+    persistGameEvents(db, appliedEvents);
+    markTurnResolutionRunApplied(db, resolutionRun.id, now);
 
     const generationIssues = [...warnings, ...resourceErrors];
     const generationError = generationIssues.length > 0 ? generationIssues.join('\n') : null;
@@ -1278,232 +1323,12 @@ export function createAdminRouter(db: AppDatabase): Router {
   const router = Router();
   registerAdminResourceRoutes(router, db);
   registerAdminDbRoutes(router, db);
+  registerAdminAiTurnRoutes(router, db);
+  registerAdminMemoryRoutes(router, db);
+  registerAdminCombatRoutes(router, db);
+  registerAdminConfigRoutes(router, db);
+  registerAdminCharacterResourceRoutes(router, db);
   ensureGlobalStartupState(db);
-
-  router.get('/config', (_req, res) => {
-    res.json(getGlobalConfigSnapshot(db));
-  });
-
-  router.get('/config/ai-provider', (_req, res) => {
-    res.json(getGlobalAiProviderConfig(db));
-  });
-
-  router.put('/config/ai-provider', (req, res) => {
-    try {
-      const aiProviderConfig = normalizeAiProviderConfig(aiProviderConfigSchema.parse(req.body));
-      res.json(updateGlobalAiProviderConfig(db, aiProviderConfig));
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.get('/config/embedding-provider', (_req, res) => {
-    res.json(getGlobalEmbeddingProviderConfig(db));
-  });
-
-  router.put('/config/embedding-provider', (req, res) => {
-    try {
-      res.json(updateGlobalEmbeddingProviderConfig(db, embeddingProviderConfigSchema.parse(req.body)));
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.post('/config/embedding-provider/test', async (req, res) => {
-    try {
-      const body = req.body;
-      const usesSavedConfig = body === undefined || (isPlainObject(body) && Object.keys(body).length === 0);
-      if (!usesSavedConfig && !isPlainObject(body)) {
-        throw new GlobalConfigResourceError('Embedding provider test payload must be an object', 400);
-      }
-      const embeddingProviderConfig = usesSavedConfig
-        ? getGlobalEmbeddingProviderConfig(db)
-        : normalizeEmbeddingProviderConfig(embeddingProviderConfigSchema.parse(body));
-      await testEmbeddingProviderConfig(embeddingProviderConfig);
-      res.json({ ok: true });
-    } catch (error) {
-      if (error instanceof z.ZodError || error instanceof GlobalConfigResourceError) {
-        handleGlobalConfigResourceError(error, res);
-        return;
-      }
-      res.status(502).json({ error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  router.post('/rules/embeddings/reindex', async (_req, res) => {
-    try {
-      const provider = createEmbeddingProviderFromConfig(getGlobalEmbeddingProviderConfig(db));
-      res.json(await indexApprovedRuleEntries(db, provider));
-    } catch (error) {
-      res.status(502).json({ error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  router.post('/rules/retrieval-preview', async (req, res) => {
-    try {
-      const input = ruleRetrievalPreviewSchema.parse(req.body);
-      const provider = createEmbeddingProviderFromConfig(getGlobalEmbeddingProviderConfig(db));
-      const matches = await retrieveRuleMatches(db, provider, input.query, { limit: input.limit });
-      res.json({ matches });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({ error: 'Invalid retrieval preview payload', issues: error.issues });
-        return;
-      }
-      res.status(502).json({ error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  router.post('/config/ai-provider/test', async (req, res) => {
-    try {
-      const body = req.body;
-      const usesSavedConfig = body === undefined || (isPlainObject(body) && Object.keys(body).length === 0);
-      if (!usesSavedConfig && !isPlainObject(body)) {
-        throw new GlobalConfigResourceError('AI provider test payload must be an object', 400);
-      }
-      const aiProviderConfig = usesSavedConfig
-        ? getGlobalAiProviderConfig(db)
-        : normalizeAiProviderConfig(aiProviderConfigSchema.parse(body));
-      await testAiProviderConfig(aiProviderConfig);
-      res.json({ ok: true });
-    } catch (error) {
-      if (error instanceof z.ZodError || error instanceof GlobalConfigResourceError) {
-        handleGlobalConfigResourceError(error, res);
-        return;
-      }
-      res.status(502).json({ error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  router.put('/config/ai-config', (req, res) => {
-    try {
-      const aiConfig: AiConfig = normalizeAiConfig(aiConfigSchema.parse(req.body));
-      res.json(updateGlobalAiConfig(db, aiConfig));
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.post('/config/presets', (req, res) => {
-    try {
-      const input = presetSchema.parse(req.body);
-      res.json({ preset: saveGlobalPreset(db, input), presets: getGlobalConfigSnapshot(db).presets });
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.put('/config/presets/:presetId', (req, res) => {
-    try {
-      const input = presetSchema.parse(req.body);
-      const existing = db.prepare('SELECT id FROM global_prompt_presets WHERE id = ?').get(req.params.presetId);
-      if (!existing) throw new GlobalConfigResourceError('Preset not found', 404);
-      res.json({ preset: saveGlobalPreset(db, { ...input, id: req.params.presetId }), presets: getGlobalConfigSnapshot(db).presets });
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.post('/config/presets/:presetId/activate', (req, res) => {
-    try {
-      res.json({ preset: activateGlobalPreset(db, req.params.presetId), presets: getGlobalConfigSnapshot(db).presets });
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  // --- Preset Template Routes ---
-  router.get('/preset-templates', (_req, res) => {
-    res.json({ templates: listPresetTemplates() });
-  });
-
-  router.post('/preset-templates/:presetType/apply', (req, res) => {
-    try {
-      const presetType = req.params.presetType;
-      const validTypes = ['tutorial', 'rules_strict', 'story_first', 'combat_first', 'casual', 'dark_fantasy', 'sandbox', 'epic'];
-      if (!validTypes.includes(presetType)) {
-        res.status(400).json({ error: `Invalid preset type: ${presetType}. Valid types: ${validTypes.join(', ')}` });
-        return;
-      }
-      const preset = applyPresetTemplate(db, presetType as import('../domain/types.js').PresetType);
-      res.json({ preset, presets: getGlobalConfigSnapshot(db).presets });
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.get('/active-preset-type', (_req, res) => {
-    res.json({ presetType: getActivePresetType(db) });
-  });
-
-  router.post('/config/world-books', (req, res) => {
-    try {
-      const input = worldBookSchema.parse(req.body);
-      res.json({ worldBook: createGlobalWorldBook(db, input), worldBooks: getGlobalConfigSnapshot(db).worldBooks });
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.post('/config/world-books/:worldBookId/entries', (req, res) => {
-    try {
-      const input = worldBookEntrySchema.parse(req.body);
-      res.json({ entry: createGlobalWorldBookEntry(db, req.params.worldBookId, input), entries: getGlobalConfigSnapshot(db).worldBookEntries });
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.put('/config/world-books/:worldBookId/entries/:entryId', (req, res) => {
-    try {
-      const input = worldBookEntrySchema.parse(req.body);
-      const entry = db.prepare('SELECT id FROM global_world_book_entries WHERE id = ? AND world_book_id = ?').get(req.params.entryId, req.params.worldBookId);
-      if (!entry) throw new GlobalConfigResourceError('World book entry not found', 404);
-      res.json({ entry: updateGlobalWorldBookEntry(db, req.params.entryId, input), entries: getGlobalConfigSnapshot(db).worldBookEntries });
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.put('/config/script-card', (req, res) => {
-    try {
-      const input = globalScriptConfigSchema.parse(req.body);
-      setGlobalScriptCard(db, input.scriptCardId);
-      res.json(getGlobalConfigSnapshot(db));
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.delete('/config/script-card', (_req, res) => {
-    clearGlobalScriptCard(db);
-    res.json(getGlobalConfigSnapshot(db));
-  });
-
-  router.put('/config/resource-world-books', (req, res) => {
-    try {
-      const input = globalResourceWorldBookConfigSchema.parse(req.body);
-      const bindings = replaceGlobalResourceWorldBookBindings(db, input.bindings);
-      res.json({ bindings });
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.put('/config/preset-package', (req, res) => {
-    try {
-      const input = globalPresetPackageConfigSchema.parse(req.body);
-      setGlobalPresetPackage(db, input.presetPackageId);
-      res.json(getGlobalConfigSnapshot(db));
-    } catch (error) {
-      handleGlobalConfigResourceError(error, res);
-    }
-  });
-
-  router.delete('/config/preset-package', (_req, res) => {
-    clearGlobalPresetPackage(db);
-    res.json(getGlobalConfigSnapshot(db));
-  });
 
   router.get('/rooms', (_req, res) => {
     const rows = db.prepare(`
@@ -1659,197 +1484,6 @@ export function createAdminRouter(db: AppDatabase): Router {
     db.prepare('UPDATE rooms SET ai_config_json = ? WHERE id = ?').run(JSON.stringify(aiConfig), req.params.roomId);
     publishRoomUpdate(req.params.roomId);
     res.json(aiConfig);
-  });
-
-  router.get('/rooms/:roomId/ai-prompt-preview', async (req, res) => {
-    const room = getRoom(db, req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-    const readiness = getTurnReadiness(db, room, { updateStatus: false });
-    const includeCurrentTurnActions = readiness.ready;
-    const { preview } = await buildRoomPromptPreview(db, room, { includeCurrentTurnActions });
-    res.json(includeCurrentTurnActions
-      ? preview
-      : {
-        ...preview,
-        warnings: [
-          ...preview.warnings,
-          '此配置预览不会包含未完成回合的当前行动；可发送给 AI 的回合提示词只能在所有必需玩家完成后通过 AI-DM 回合调试生成。'
-        ]
-      });
-  });
-
-  router.post('/ai/turn-preview', async (req, res) => {
-    const input = aiTurnPreviewSchema.parse(req.body);
-    const room = getRoom(db, input.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-
-    try {
-      assertTurnReadyForAi(db, room);
-    } catch (error) {
-      if (handleTurnReadinessError(error, res)) return;
-      throw error;
-    }
-
-    const { preview, context } = await buildRoomPromptPreview(db, room);
-    const characterStatus = loadCharacterStatusSection(db, room.id);
-    const { flatPrompt, contextSections } = buildAiTurnDebugPrompt(room, preview, context, characterStatus);
-    const previewId = nanoid();
-    const now = new Date().toISOString();
-    db.prepare(`
-      INSERT INTO ai_turn_previews (
-        id, room_id, turn_id, original_prompt, suggested_state_changes_json, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(previewId, room.id, context.turn?.id ?? null, flatPrompt, '[]', 'previewed', now);
-
-    const response: AiTurnPromptPreviewResponse = {
-      previewId,
-      roomId: room.id,
-      turnId: context.turn?.id ?? null,
-      flatPrompt,
-      messages: [{ role: 'user', content: flatPrompt }],
-      contextSections,
-      warnings: preview.warnings
-    };
-    res.json(response);
-  });
-
-  router.post('/ai/send-preview', async (req, res) => {
-    const input = aiTurnSendPreviewSchema.parse(req.body);
-    const previewRow = db.prepare('SELECT id, room_id as roomId, turn_id as turnId FROM ai_turn_previews WHERE id = ? AND room_id = ?')
-      .get(input.previewId, input.roomId) as { id: string; roomId: string; turnId: string | null } | undefined;
-    if (!previewRow) return res.status(404).json({ error: 'Prompt preview not found' });
-
-    const room = getRoom(db, input.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-
-    try {
-      assertPreviewMatchesCurrentReadyTurn(db, room, previewRow.turnId);
-    } catch (error) {
-      if (handleTurnReadinessError(error, res)) return;
-      throw error;
-    }
-
-    const { context } = await buildRoomPromptPreview(db, room);
-    const { turn, actions, players } = context;
-    if (!turn) return res.status(409).json({ error: 'Current turn not found' });
-
-    const providerConfig = getGlobalAiProviderConfig(db);
-    const sentAt = new Date().toISOString();
-    let aiProviderName: string = providerConfig.provider;
-    try {
-      const aiProvider = createAiProviderFromConfig(providerConfig);
-      aiProviderName = aiProvider.name;
-      const result = await aiProvider.generateTurnResult(input.flatPrompt);
-      const suggestedStateChanges = normalizeSuggestedStateChanges(result);
-      const warnings = [
-        ...validateAiTurnResultLengthWarnings(result),
-        ...collectPrivateUpdateRoutingWarnings(players, result.privateUpdatesByPlayer),
-        ...collectInteractionRoutingWarnings(players, result.interactionRequests),
-        ...collectDiceRequestRoutingWarnings(db, room.id, result.diceRequests ?? [])
-      ];
-      db.prepare(`
-        UPDATE ai_turn_previews
-        SET edited_prompt = ?, response_text = ?, suggested_state_changes_json = ?, raw_json = ?, status = ?, error_message = NULL, sent_at = ?
-        WHERE id = ?
-      `).run(
-        input.flatPrompt,
-        result.publicLog,
-        JSON.stringify(suggestedStateChanges),
-        JSON.stringify(result),
-        'sent',
-        sentAt,
-        input.previewId
-      );
-
-      const response: AiTurnPromptSendResponse = {
-        responseText: result.publicLog,
-        suggestedStateChanges,
-        raw: result,
-        applied: false,
-        resourceErrors: [],
-        warnings
-      };
-      res.json(response);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      db.prepare(`
-        UPDATE ai_turn_previews
-        SET edited_prompt = ?, status = ?, error_message = ?, sent_at = ?
-        WHERE id = ?
-      `).run(input.flatPrompt, 'failed', message, sentAt, input.previewId);
-      res.status(502).json({ error: message });
-    }
-  });
-
-  router.post('/ai/apply-preview', async (req, res) => {
-    const input = aiTurnApplyPreviewSchema.parse(req.body);
-    const previewRow = db.prepare('SELECT id, room_id as roomId, turn_id as turnId, raw_json as rawJson, status FROM ai_turn_previews WHERE id = ? AND room_id = ?')
-      .get(input.previewId, input.roomId) as { id: string; roomId: string; turnId: string | null; rawJson: string | null; status: string } | undefined;
-    if (!previewRow) return res.status(404).json({ error: 'Prompt preview not found' });
-    if (previewRow.status !== 'sent' || !previewRow.rawJson) {
-      return res.status(409).json({ error: 'AI_RESULT_NOT_READY', message: 'AI 结果尚未生成，不能应用。' });
-    }
-
-    const room = getRoom(db, input.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-
-    try {
-      assertPreviewMatchesCurrentReadyTurn(db, room, previewRow.turnId);
-    } catch (error) {
-      if (handleTurnReadinessError(error, res)) return;
-      throw error;
-    }
-
-    const { context } = await buildRoomPromptPreview(db, room);
-    const { turn, players, actions, ruleMatches } = context;
-    if (!turn) return res.status(409).json({ error: 'Current turn not found' });
-    if (!claimRoomTurnForProcessing(db, input.roomId, turn.id)) {
-      return res.status(409).json({ error: 'Turn is already processing or no longer open' });
-    }
-
-    const providerConfig = getGlobalAiProviderConfig(db);
-    const providerName = providerConfig.provider;
-    try {
-      const result = validateAiTurnResult(JSON.parse(previewRow.rawJson), { strictRequiredFields: true });
-      const materializedResult = buildConfirmedAiTurnResult(
-        result,
-        input.confirmedSuggestedStateChangeIndexes,
-        input.confirmedCharacterResourceChangeIndexes
-      );
-      const suggestedStateChanges = normalizeSuggestedStateChanges(result);
-      const { resourceErrors, warnings } = materializeAiTurnResult(db, {
-        room,
-        turn,
-        players,
-        actions,
-        result: materializedResult,
-        providerName,
-        inputSummary: `Applied preview for ${actions.length} actions`,
-        ruleMatches
-      });
-      const response: AiTurnPromptSendResponse = {
-        responseText: result.publicLog,
-        suggestedStateChanges,
-        raw: result,
-        applied: true,
-        resourceErrors,
-        warnings
-      };
-      publishRoomUpdate(input.roomId);
-      res.json(response);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const now = new Date().toISOString();
-      const tx = db.transaction(() => {
-        db.prepare('UPDATE rooms SET status = ? WHERE id = ?').run('needs_admin_attention', input.roomId);
-        db.prepare('UPDATE turns SET status = ? WHERE id = ?').run('needs_admin_attention', turn.id);
-        db.prepare('INSERT INTO ai_generations (id, room_id, turn_id, provider, input_summary, output, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(nanoid(), input.roomId, turn.id, providerName, `Failed applying preview for ${actions.length} actions`, previewRow.rawJson ?? '', message, now);
-      });
-      tx();
-      publishRoomUpdate(input.roomId);
-      res.status(500).json({ error: message });
-    }
   });
 
   router.get('/rooms/:roomId/presets', (req, res) => {
@@ -2116,7 +1750,7 @@ export function createAdminRouter(db: AppDatabase): Router {
           }
         }
 
-        applyPluginDatabaseChangesFromAiResult(db, req.params.roomId, result, resourceErrors);
+        applyPluginDatabaseChangesFromAiResult(db, req.params.roomId, turn.id, result, resourceErrors, now);
 
         const generationIssues = [...warnings, ...resourceErrors];
         const generationError = generationIssues.length > 0 ? generationIssues.join('\n') : null;
@@ -2183,406 +1817,6 @@ export function createAdminRouter(db: AppDatabase): Router {
       publishRoomUpdate(req.params.roomId);
       res.status(500).json({ error: message });
     }
-  });
-
-  // --- Character Resource Rest API ---
-
-  router.post('/rooms/:roomId/characters/:charId/rest', (req, res) => {
-    try {
-      const input = restSchema.parse(req.body);
-
-      // Validate character belongs to room
-      const char = db.prepare(
-        'SELECT c.id FROM characters c JOIN players p ON c.player_id = p.id WHERE c.id = ? AND p.room_id = ?'
-      ).get(req.params.charId, req.params.roomId);
-      if (!char) return res.status(404).json({ error: 'Character not found in room' });
-
-      if (input.action === 'short') {
-        const resources = shortRest(db, req.params.charId, {
-          roomId: req.params.roomId,
-          actorType: input.actorType,
-          actorId: input.actorId,
-          hitDiceSpent: input.hitDiceSpent,
-        });
-        res.json({ resources });
-      } else {
-        const resources = longRest(db, req.params.charId, {
-          roomId: req.params.roomId,
-          actorType: input.actorType,
-          actorId: input.actorId,
-        });
-        res.json({ resources });
-      }
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({ error: 'Invalid rest payload', issues: error.issues });
-        return;
-      }
-      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  router.get('/rooms/:roomId/character-resource-changes', (req, res) => {
-    try {
-      const characterId = typeof req.query.characterId === 'string' ? req.query.characterId : undefined;
-      const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) || 20 : 20;
-      const changes = listCharacterResourceChanges(db, req.params.roomId, { characterId, limit }).map((change) => ({
-        ...change,
-        before: JSON.parse(change.beforeJson),
-        after: JSON.parse(change.afterJson)
-      }));
-      res.json({ changes });
-    } catch (error) {
-      res.status(400).json({ error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  router.post('/rooms/:roomId/character-resource-changes/:changeId/rollback', (req, res) => {
-    try {
-      const input = rollbackSchema.parse(req.body);
-      const change = rollbackResourceChange(db, req.params.changeId, input.revertedBy);
-      res.json({
-        restored: true,
-        change: {
-          ...change,
-          before: JSON.parse(change.beforeJson),
-          after: JSON.parse(change.afterJson)
-        }
-      });
-    } catch (error) {
-      if (error instanceof z.ZodError) {
-        res.status(400).json({ error: 'Invalid rollback payload', issues: error.issues });
-        return;
-      }
-      const message = error instanceof Error ? error.message : String(error);
-      const statusCode = message.includes('not found') ? 404 : message.includes('already reverted') ? 409 : 400;
-      res.status(statusCode).json({ error: message });
-    }
-  });
-
-  // --- Dice / Combat Admin APIs ---
-
-  function insertDiceLog(
-    log: Omit<DiceLog, 'id' | 'timestamp'>
-  ): string {
-    const id = nanoid();
-    const timestamp = new Date().toISOString();
-    db.prepare(
-      `INSERT INTO dice_logs (id, room_id, turn_id, combat_id, character_id, dice_type, values_json, modifier, total, dc, success, is_public, reason, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      id,
-      log.roomId,
-      log.turnId ?? null,
-      log.combatId ?? null,
-      log.characterId ?? null,
-      log.diceType,
-      JSON.stringify(log.values),
-      log.modifier,
-      log.total,
-      log.dc ?? null,
-      log.success === null ? null : (log.success ? 1 : 0),
-      log.isPublic ? 1 : 0,
-      log.reason,
-      timestamp
-    );
-    return id;
-  }
-
-  router.post('/rooms/:roomId/dice/roll', (req, res) => {
-    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-
-    const input = diceRollSchema.parse(req.body);
-    const { values, total: baseTotal } = rollDice(input.diceType, 1);
-    const total = baseTotal + input.modifier;
-    const success = input.dc !== undefined ? total >= input.dc : null;
-
-    const diceLog: Omit<DiceLog, 'id' | 'timestamp'> = {
-      roomId: req.params.roomId,
-      turnId: null,
-      combatId: null,
-      characterId: null,
-      diceType: input.diceType,
-      values,
-      modifier: input.modifier,
-      total,
-      dc: input.dc ?? null,
-      success,
-      isPublic: true,
-      reason: input.reason,
-    };
-    const diceLogId = insertDiceLog(diceLog);
-
-    res.json({
-      values,
-      modifier: input.modifier,
-      total,
-      success,
-      diceLog: { id: diceLogId }
-    });
-  });
-
-  router.post('/rooms/:roomId/combat/start', (req, res) => {
-    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-
-    const input = combatStartSchema.parse(req.body);
-
-    // Create NPC records for combatants without characterId but with hp/ac
-    const now = new Date().toISOString();
-    const combatantSpecs: Array<{
-      characterId?: string;
-      npcId?: string;
-      name: string;
-      hp: number;
-      ac: number;
-      isPlayer: boolean;
-    }> = input.combatants.map((spec) => {
-      let npcId: string | undefined = spec.npcId ?? undefined;
-
-      if (!spec.characterId && !spec.npcId) {
-        // Create NPC record for this combatant
-        npcId = nanoid();
-        const dexScore = spec.dexMod !== undefined && spec.dexMod !== 0
-          ? 10 + spec.dexMod * 2 + 1  // Convert modifier to score: mod 2 → score 15
-          : 10;
-        db.prepare(
-          'INSERT INTO npcs (id, room_id, name, hp_max, hp_current, ac, str, dex, con, int, wis, cha, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-        ).run(npcId, req.params.roomId, spec.name, spec.hp, spec.hp, spec.ac, 10, dexScore, 10, 10, 10, 10, now);
-      }
-
-      return {
-        characterId: spec.characterId ?? undefined,
-        npcId,
-        name: spec.name,
-        hp: spec.hp ?? 1,
-        ac: spec.ac ?? 10,
-        isPlayer: !!spec.characterId,
-      };
-    });
-
-    const combatState = createCombat(db, req.params.roomId, combatantSpecs);
-    res.json({ combatState });
-  });
-
-  router.post('/rooms/:roomId/combat/roll-initiative', (req, res) => {
-    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-
-    const input = combatActionSchema.parse(req.body);
-    try {
-      const combatState = rollInitiative(db, input.combatId);
-      res.json({ combatState });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      res.status(message.includes('not found') ? 404 : 400).json({ error: message });
-    }
-  });
-
-  router.post('/rooms/:roomId/combat/attack', (req, res) => {
-    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-
-    const input = combatAttackSchema.parse(req.body);
-    try {
-      const result = processAttack(db, {
-        roomId: req.params.roomId,
-        combatId: input.combatId,
-        attackerIndex: input.attackerIndex,
-        targetIndex: input.targetIndex,
-      });
-      res.json({
-        combatState: result.state,
-        hit: result.attackResult.hit,
-        criticalHit: result.attackResult.criticalHit,
-        criticalMiss: result.attackResult.criticalMiss,
-        attackRoll: result.attackResult.roll,
-        attackTotal: result.attackResult.total,
-        damageTotal: result.damageResult?.total,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      res.status(message.includes('not found') ? 404 : 400).json({ error: message });
-    }
-  });
-
-  router.post('/rooms/:roomId/combat/next-turn', (req, res) => {
-    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-
-    const input = combatActionSchema.parse(req.body);
-    try {
-      const combatState = nextTurn(db, input.combatId);
-      res.json({ combatState });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      res.status(message.includes('not found') ? 404 : 400).json({ error: message });
-    }
-  });
-
-  router.get('/rooms/:roomId/combat', (req, res) => {
-    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-
-    const combatRows = db.prepare(
-      'SELECT state_json FROM combat_state WHERE room_id = ? AND state_json LIKE ? ORDER BY updated_at DESC LIMIT 1'
-    ).all(req.params.roomId, '%"status":"active"%') as Array<{ state_json: string }>;
-    if (combatRows.length === 0) return res.status(404).json({ error: 'No active combat found' });
-
-    res.json({ combatState: JSON.parse(combatRows[0].state_json) });
-  });
-
-  router.get('/rooms/:roomId/dice-logs', (req, res) => {
-    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-
-    const limit = typeof req.query.limit === 'string' ? parseInt(req.query.limit, 10) || 50 : 50;
-    const rows = db.prepare(
-      'SELECT id, room_id as roomId, turn_id as turnId, combat_id as combatId, character_id as characterId, dice_type as diceType, values_json as valuesJson, modifier, total, dc, success, is_public as isPublic, reason, created_at as createdAt FROM dice_logs WHERE room_id = ? ORDER BY created_at DESC LIMIT ?'
-    ).all(req.params.roomId, limit) as Array<{
-      id: string; roomId: string; turnId: string | null; combatId: string | null;
-      characterId: string | null; diceType: string; valuesJson: string;
-      modifier: number; total: number; dc: number | null; success: number | null;
-      isPublic: number; reason: string; createdAt: string;
-    }>;
-    const logs = rows.map((row) => ({
-      id: row.id,
-      roomId: row.roomId,
-      turnId: row.turnId,
-      combatId: row.combatId,
-      characterId: row.characterId,
-      diceType: row.diceType,
-      values: JSON.parse(row.valuesJson) as number[],
-      modifier: row.modifier,
-      total: row.total,
-      dc: row.dc,
-      success: row.success === null ? null : Boolean(row.success),
-      isPublic: Boolean(row.isPublic),
-      reason: row.reason,
-      timestamp: row.createdAt,
-    }));
-    res.json({ logs });
-  });
-
-  // --- Campaign Memory APIs ---
-
-  const questUpdateSchema = z.object({
-    title: z.string().min(1),
-    status: z.enum(['active', 'in_progress', 'completed', 'failed']),
-    description: z.string().default(''),
-  }).strict();
-
-  const npcUpdateSchema = z.object({
-    name: z.string().min(1),
-    role: z.string().default(''),
-    attitude: z.enum(['friendly', 'neutral', 'hostile', 'unknown']).default('unknown'),
-    notes: z.string().default(''),
-    location: z.string().default(''),
-  }).strict();
-
-  const locationUpdateSchema = z.object({
-    name: z.string().min(1),
-    description: z.string().default(''),
-  }).strict();
-
-  router.get('/rooms/:roomId/summaries', (req, res) => {
-    const room = getRoom(db, req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-    const summaries = listSessionSummaries(db, req.params.roomId);
-    res.json({ summaries });
-  });
-
-  router.post('/rooms/:roomId/summaries', async (req, res) => {
-    const room = getRoom(db, req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-    const providerConfig = getGlobalAiProviderConfig(db);
-    if (providerConfig.provider === 'mock') {
-      return res.status(400).json({ error: 'Manual summary generation requires a real AI provider (not mock).' });
-    }
-    try {
-      const recentLogs = db.prepare(
-        'SELECT content FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at DESC LIMIT 10'
-      ).all(req.params.roomId, 'public') as Array<{ content: string }>;
-
-      const prompt = `你是战役记录官。请根据以下公开回合日志，生成结构化战役摘要和可供管理员审核的长期状态更新建议。返回严格JSON：{summary,questUpdates,npcUpdates,locationUpdates,characterUpdates}。这些 updates 只是建议，不会自动写入任务、NPC 或地点事实。\n日志：\n${recentLogs.map((l) => l.content).join('\n')}`;
-
-      const { requestOpenAiCompatibleMessage } = await import('../services/aiProvider.js');
-      const summaryContent = await requestOpenAiCompatibleMessage(providerConfig as { provider: 'openai-compatible'; baseUrl: string; apiKey: string; model: string }, [
-        { role: 'system', content: '你是战役记录官。只返回严格JSON。' },
-        { role: 'user', content: prompt }
-      ]);
-
-      const summaryData = JSON.parse(summaryContent) as {
-        summary?: string;
-        questUpdates?: Array<{ title: string; status: string; description: string }>;
-        npcUpdates?: Array<{ name: string; role: string; attitude: string; notes: string; location: string }>;
-        locationUpdates?: Array<{ name: string; description: string }>;
-        characterUpdates?: Array<{ characterId: string; update: string }>;
-      };
-
-      const turnEnd = room.currentTurn;
-      const turnStart = Math.max(1, turnEnd - 4);
-
-      const summary = createSessionSummary(db, req.params.roomId, {
-        turnStart,
-        turnEnd,
-        summary: summaryData.summary ?? '',
-        questUpdates: (summaryData.questUpdates ?? []) as Array<{ title: string; status: import('../domain/types.js').CampaignQuest['status']; description: string }>,
-        npcUpdates: (summaryData.npcUpdates ?? []) as Array<{ name: string; role: string; attitude: import('../domain/types.js').CampaignNpc['attitude']; notes: string; location: string }>,
-        locationUpdates: summaryData.locationUpdates ?? [],
-        characterUpdates: summaryData.characterUpdates ?? [],
-      });
-
-      res.json({ summary });
-    } catch (error) {
-      res.status(502).json({ error: error instanceof Error ? error.message : String(error) });
-    }
-  });
-
-  router.get('/rooms/:roomId/quests', (req, res) => {
-    const room = getRoom(db, req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-    const quests = listCampaignQuests(db, req.params.roomId);
-    res.json({ quests });
-  });
-
-  router.put('/rooms/:roomId/quests', (req, res) => {
-    const room = getRoom(db, req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-    const input = questUpdateSchema.parse(req.body);
-    const quest = upsertCampaignQuest(db, req.params.roomId, input);
-    res.json({ quest });
-  });
-
-  router.get('/rooms/:roomId/npcs', (req, res) => {
-    const room = getRoom(db, req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-    const npcs = listCampaignNpcs(db, req.params.roomId);
-    res.json({ npcs });
-  });
-
-  router.put('/rooms/:roomId/npcs', (req, res) => {
-    const room = getRoom(db, req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-    const input = npcUpdateSchema.parse(req.body);
-    const npc = upsertCampaignNpc(db, req.params.roomId, input);
-    res.json({ npc });
-  });
-
-  router.get('/rooms/:roomId/locations', (req, res) => {
-    const room = getRoom(db, req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-    const locations = listCampaignLocations(db, req.params.roomId);
-    res.json({ locations });
-  });
-
-  router.put('/rooms/:roomId/locations', (req, res) => {
-    const room = getRoom(db, req.params.roomId);
-    if (!room) return res.status(404).json({ error: 'Room not found' });
-    const input = locationUpdateSchema.parse(req.body);
-    const location = upsertCampaignLocation(db, req.params.roomId, input);
-    res.json({ location });
   });
 
   return router;

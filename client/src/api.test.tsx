@@ -424,7 +424,21 @@ describe('resource API helpers', () => {
       suggestedStateChanges: [{ type: 'dice_request', reason: 'attack' }],
       raw: { publicLog: 'AI narration', privateUpdatesByPlayer: {}, ruleResults: [], interactionRequests: [] },
       applied: false,
-      warnings: ['publicLog 长度 320/300，超过上限。']
+      warnings: ['publicLog 长度 320/300，超过上限。'],
+      resolutionRunId: 'resolution-1',
+      seed: 'room-1:turn-1:preview-1',
+      resolutionEvents: [{
+        id: 'event-1',
+        roomId: 'room-1',
+        turnId: 'turn-1',
+        eventType: 'DICE_ROLLED',
+        visibilityScope: 'public',
+        playerId: null,
+        actorId: 'char-1',
+        payload: { total: 17 },
+        causalityId: 'diceRequests[0]',
+        createdAt: '2026-06-03T00:00:00.000Z'
+      }]
     };
     const applyResponse = { ...sendResponse, applied: true };
     const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');

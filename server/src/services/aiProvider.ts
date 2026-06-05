@@ -1,4 +1,5 @@
 import type { AiProviderConfig, AiTurnResult } from '../domain/types.js';
+import { defaultNarrativeLengthLimits, type NarrativeLengthLimits } from './aiContextBuilder.js';
 
 const AI_PROVIDER_TIMEOUT_MS = 120_000;
 const AI_PROVIDER_ERROR_BODY_MAX_CHARS = 1000;
@@ -112,9 +113,9 @@ const requiredAiTurnFields = [
 ];
 
 export const aiTurnLengthLimits = {
-  objectiveLog: 300,
-  publicLog: 300,
-  privateUpdate: 150,
+  objectiveLog: defaultNarrativeLengthLimits.objectiveLog,
+  publicLog: defaultNarrativeLengthLimits.publicLog,
+  privateUpdate: defaultNarrativeLengthLimits.privateUpdate,
   ruleResult: 120,
   interactionRequest: 120,
   suggestedStateChangeReason: 120,
@@ -131,12 +132,12 @@ function pushLengthWarning(warnings: string[], label: string, value: string, max
   if (current > max) warnings.push(`${label} 长度 ${current}/${max}，超过上限。`);
 }
 
-export function validateAiTurnResultLengthWarnings(result: AiTurnResult): string[] {
+export function validateAiTurnResultLengthWarnings(result: AiTurnResult, narrativeLimits: NarrativeLengthLimits = defaultNarrativeLengthLimits): string[] {
   const warnings: string[] = [];
-  pushLengthWarning(warnings, 'objectiveLog', result.objectiveLog ?? '', aiTurnLengthLimits.objectiveLog);
-  pushLengthWarning(warnings, 'publicLog', result.publicLog, aiTurnLengthLimits.publicLog);
+  pushLengthWarning(warnings, 'objectiveLog', result.objectiveLog ?? '', narrativeLimits.objectiveLog);
+  pushLengthWarning(warnings, 'publicLog', result.publicLog, narrativeLimits.publicLog);
   for (const [playerId, content] of Object.entries(result.privateUpdatesByPlayer)) {
-    pushLengthWarning(warnings, `privateUpdatesByPlayer.${playerId}`, content, aiTurnLengthLimits.privateUpdate);
+    pushLengthWarning(warnings, `privateUpdatesByPlayer.${playerId}`, content, narrativeLimits.privateUpdate);
   }
   for (const [index, item] of result.ruleResults.entries()) {
     pushLengthWarning(warnings, `ruleResults[${index}]`, item, aiTurnLengthLimits.ruleResult);

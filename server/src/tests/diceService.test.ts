@@ -5,7 +5,8 @@ import {
   abilityCheck,
   attackRoll,
   damageRoll,
-  abilityModifier
+  abilityModifier,
+  createSeededRng
 } from '../services/diceService.js';
 
 describe('rollDice', () => {
@@ -28,6 +29,15 @@ describe('rollDice', () => {
     expect(result.values[0]).toBeGreaterThanOrEqual(1);
     expect(result.values[0]).toBeLessThanOrEqual(8);
     vi.restoreAllMocks();
+  });
+
+  it('returns identical results when using the same seeded rng', () => {
+    const first = rollDice('d20', 4, { rng: createSeededRng('room-1:turn-1:preview-1') });
+    const second = rollDice('d20', 4, { rng: createSeededRng('room-1:turn-1:preview-1') });
+    const different = rollDice('d20', 4, { rng: createSeededRng('room-1:turn-1:preview-2') });
+
+    expect(second).toEqual(first);
+    expect(different).not.toEqual(first);
   });
 });
 

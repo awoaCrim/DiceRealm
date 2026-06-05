@@ -89,6 +89,13 @@ describe('characterResourceService', () => {
 
       const resources1 = getCharacterResources(db, characterId);
       expect(resources1.hitPoints.current).toBe(8);
+      const sheetAfterPatch = JSON.parse((db.prepare('SELECT sheet_json FROM characters WHERE id = ?').get(characterId) as { sheet_json: string }).sheet_json) as {
+        hitPoints: { current: number; max: number };
+        resources: { hitPoints: { current: number; max: number } };
+      };
+      expect(sheetAfterPatch.hitPoints.current).toBe(8);
+      expect(sheetAfterPatch.hitPoints.max).toBe(12);
+      expect(sheetAfterPatch.resources.hitPoints.current).toBe(8);
 
       // Invalid path
       expect(() =>

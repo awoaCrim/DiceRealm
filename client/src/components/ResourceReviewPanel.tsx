@@ -16,6 +16,37 @@ function isImportPayload(value: unknown): value is ResourceImportInput {
   return isObject(value) && typeof value.name === 'string' && Array.isArray(value.drafts);
 }
 
+function resourceDraftKindLabel(kind: string | undefined): string {
+  switch (kind) {
+    case 'rule_entry': return '规则条目';
+    case 'character_option': return '角色选项';
+    case 'resource_rule': return '资源规则';
+    default: return kind || '未知草稿';
+  }
+}
+
+function resourceDraftCategoryLabel(category: string | null | undefined): string {
+  switch (category) {
+    case 'combat': return '战斗';
+    case 'exploration': return '探索';
+    case 'social': return '社交';
+    case 'character_creation': return '角色创建';
+    case 'equipment': return '装备';
+    case 'spellcasting': return '施法';
+    case 'resource': return '资源';
+    default: return category || '未分类';
+  }
+}
+
+function resourceVisibilityLabel(visibility: string | undefined): string {
+  switch (visibility) {
+    case 'public': return '公开';
+    case 'private': return '私人';
+    case 'dm_only': return '仅主持人';
+    default: return visibility || '未指定可见性';
+  }
+}
+
 export function ResourceReviewPanel({ setError }: { setError: (message: string) => void }) {
   const [jobs, setJobs] = useState<ResourceImportJob[]>([]);
   const [drafts, setDrafts] = useState<ResourceImportDraft[]>([]);
@@ -109,7 +140,7 @@ export function ResourceReviewPanel({ setError }: { setError: (message: string) 
           {drafts.map((draft) => (
             <article className="subcard" key={draft.id}>
               <h4>{draft.title}</h4>
-              <p className="muted">{draft.kind} / {draft.category}</p>
+              <p className="muted">{resourceDraftKindLabel(draft.kind)} / {resourceDraftCategoryLabel(draft.category)} · {resourceVisibilityLabel(draft.visibility)}</p>
               <p>{draft.summary}</p>
               {draft.content ? <p>{draft.content}</p> : null}
               {draft.sourceRef ? <p className="muted">来源：{draft.sourceRef}</p> : null}

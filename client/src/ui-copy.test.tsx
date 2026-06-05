@@ -204,7 +204,21 @@ vi.mock('./api', () => ({
       }]
     },
     applied: false,
-    warnings: ['publicLog 长度 320/300，超过上限。']
+    warnings: ['publicLog 长度 320/300，超过上限。'],
+    resolutionRunId: 'resolution-1',
+    seed: 'room-1:turn-1:preview-1',
+    resolutionEvents: [{
+      id: 'event-1',
+      roomId: 'room-1',
+      turnId: 'turn-1',
+      eventType: 'DICE_ROLLED',
+      visibilityScope: 'public',
+      playerId: null,
+      actorId: 'char-1',
+      payload: { total: 17, reason: 'attack roll' },
+      causalityId: 'diceRequests[0]',
+      createdAt: '2026-06-03T00:00:00.000Z'
+    }]
   })),
   applyAiTurnPreview: vi.fn(async () => ({
     responseText: 'AI narration result',
@@ -227,7 +241,21 @@ vi.mock('./api', () => ({
       }]
     },
     applied: true,
-    warnings: ['publicLog 长度 320/300，超过上限。']
+    warnings: ['publicLog 长度 320/300，超过上限。'],
+    resolutionRunId: 'resolution-1',
+    seed: 'room-1:turn-1:preview-1',
+    resolutionEvents: [{
+      id: 'event-1',
+      roomId: 'room-1',
+      turnId: 'turn-1',
+      eventType: 'DICE_ROLLED',
+      visibilityScope: 'public',
+      playerId: null,
+      actorId: 'char-1',
+      payload: { total: 17, reason: 'attack roll' },
+      causalityId: 'diceRequests[0]',
+      createdAt: '2026-06-03T00:00:00.000Z'
+    }]
   })),
   getGlobalAiProviderConfig: vi.fn(async () => ({
     provider: 'mock',
@@ -456,7 +484,7 @@ describe('中文界面文案', () => {
           visibilityScope: 'public',
           playerId: null,
           title: '开场',
-          content: '队伍抵达路口。',
+          content: '队伍抵达路口。\n\n🎲 系统骰点：\n地精伏击射击 — 掷出 13 + 4 = 17，AC 11，命中。',
           createdAt: '2026-05-30T00:00:00.000Z'
         }]} />
       </>
@@ -476,6 +504,11 @@ describe('中文界面文案', () => {
     expect(screen.getByText('所有玩家都已提交。')).toBeInTheDocument();
     expect(screen.getByText('开场')).toBeInTheDocument();
     expect(screen.getByText('队伍抵达路口。')).toBeInTheDocument();
+    const diceBlock = screen.getByText(/（地精伏击射击/);
+    expect(diceBlock).toHaveClass('log-dice-block');
+    expect(diceBlock).toHaveTextContent('地精伏击射击');
+    expect(diceBlock).not.toHaveTextContent('🎲 系统骰点');
+    expect(diceBlock).toHaveTextContent('）');
     expect(screen.getByText('2026-05-30 00:00')).toBeInTheDocument();
     expect(screen.queryByText('暂无记录。')).not.toBeInTheDocument();
   });
@@ -842,9 +875,8 @@ describe('中文界面文案', () => {
     expect(screen.getAllByText('客观剧情').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: '公开剧情' })).toBeInTheDocument();
     expect(screen.getByText(/主持人控制台 · 第 1 回合 · 等待玩家行动/)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'AI 输出长度' })).toBeInTheDocument();
-    expect(screen.getByText(/客观剧情最多 300 字 · 公开剧情最多 300 字 · 私人剧情每名玩家最多 150 字/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '调整 AI 输出长度' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'AI 输出长度' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '调整 AI 输出长度' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'AI 接口' }));
     expect(screen.getByRole('heading', { name: 'AI 接口' })).toBeInTheDocument();
@@ -871,17 +903,6 @@ describe('中文界面文案', () => {
     expect(screen.getByRole('button', { name: '保存剧情长度硬上限' })).toBeInTheDocument();
     expect(screen.getByText('默认强约束预设（当前启用）')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '预览 AI 请求' })).toBeInTheDocument();
-  });
-
-  it('总览页可以直接跳转到 AI 输出长度配置', async () => {
-    const user = userEvent.setup();
-    render(<AdminPage roomId="room-1" />);
-
-    await user.click(await screen.findByRole('button', { name: '调整 AI 输出长度' }));
-
-    expect(screen.getByRole('heading', { name: 'Prompt 配置' })).toBeInTheDocument();
-    expect(screen.getByText('AI 输出剧情长度')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '保存剧情长度硬上限' })).toBeInTheDocument();
   });
 
   it('管理页行动区按玩家折叠展示行动', async () => {
@@ -974,6 +995,10 @@ describe('中文界面文案', () => {
     expect(screen.getAllByText('客观剧情').length).toBeGreaterThan(0);
     expect(screen.getAllByText('公开剧情').length).toBeGreaterThan(0);
     expect(screen.getByText('私人剧情')).toBeInTheDocument();
+    expect(screen.getByText('系统结算预览')).toBeInTheDocument();
+    expect(screen.getByText(/Seed: room-1:turn-1:preview-1/)).toBeInTheDocument();
+    expect(screen.getAllByText(/骰点/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/"total": 17/)).toBeInTheDocument();
     expect(screen.getByText('系统骰点请求')).toBeInTheDocument();
     expect(screen.getByText('角色资源变更')).toBeInTheDocument();
     expect(screen.getByText('原始 JSON')).toBeInTheDocument();
@@ -985,8 +1010,10 @@ describe('中文界面文案', () => {
     const suggestedChangeCheckbox = screen.getByRole('checkbox', { name: /确认应用建议状态变更 #1/ });
     const resourceChangeCheckbox = screen.getByRole('checkbox', { name: /确认应用角色资源变更 #1/ });
     expect(suggestedChangeCheckbox).not.toBeChecked();
-    expect(resourceChangeCheckbox).not.toBeChecked();
+    expect(resourceChangeCheckbox).toBeChecked();
     await user.click(suggestedChangeCheckbox);
+    await user.click(resourceChangeCheckbox);
+    expect(screen.getByText(/已取消 1 条角色资源变更/)).toBeInTheDocument();
     await user.click(resourceChangeCheckbox);
     await user.click(screen.getByRole('button', { name: '最终确认并应用' }));
     await waitFor(() => expect(api.applyAiTurnPreview).toHaveBeenCalledWith('room-1', 'preview-1', {
@@ -1596,9 +1623,39 @@ describe('中文界面文案', () => {
     await user.click(screen.getByRole('button', { name: '状态' }));
 
     expect(await screen.findByText('角色资源')).toBeInTheDocument();
-    expect(screen.getByText(/HP/)).toBeInTheDocument();
+    expect(screen.getByText((_content, element) => element?.tagName === 'STRONG' && element.textContent === 'HP: 28 / 28')).toBeInTheDocument();
     expect(screen.queryByText('短休')).not.toBeInTheDocument();
     expect(screen.queryByText('长休')).not.toBeInTheDocument();
+    const actionEconomy = screen.getByRole('heading', { name: '行动资源' }).closest('section')!;
+    expect(actionEconomy).toBeInTheDocument();
+    expect(within(actionEconomy).getByText('动作')).toBeInTheDocument();
+    expect(within(actionEconomy).getByText('附赠动作')).toBeInTheDocument();
+    expect(within(actionEconomy).getByText('反应')).toBeInTheDocument();
+    expect(within(actionEconomy).getByText('移动')).toBeInTheDocument();
+    expect(within(actionEconomy).getByText('30 尺 / 轮')).toBeInTheDocument();
+    expect(within(actionEconomy).getByText('物品互动')).toBeInTheDocument();
+    expect(within(actionEconomy).getByText('专注')).toBeInTheDocument();
+    const savingThrows = screen.getByRole('heading', { name: '豁免' }).closest('section')!;
+    expect(within(savingThrows).getByText('力量')).toBeInTheDocument();
+    expect(within(savingThrows).getAllByText('熟练').length).toBeGreaterThanOrEqual(2);
+    const skills = screen.getByRole('heading', { name: '技能检定' }).closest('section')!;
+    expect(within(skills).getByText('运动')).toBeInTheDocument();
+    expect(within(skills).getByText('察觉')).toBeInTheDocument();
+    expect(within(skills).getByText('+5')).toBeInTheDocument();
+    expect(within(skills).getByText('+3')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '可用行动' })).toBeInTheDocument();
+    const mainAttack = screen.getByText('主手武器攻击').closest('article')!;
+    expect(mainAttack).toBeInTheDocument();
+    expect(within(mainAttack).getByText('长剑')).toBeInTheDocument();
+    expect(within(mainAttack).getByText('攻击 +5')).toBeInTheDocument();
+    expect(within(mainAttack).getByText('伤害 1d8+3 挥砍')).toBeInTheDocument();
+    expect(screen.getByText('第二风')).toBeInTheDocument();
+    expect(screen.getByText('动作如潮')).toBeInTheDocument();
+    expect(screen.getByText('疾走')).toBeInTheDocument();
+    expect(screen.getByText('闪避')).toBeInTheDocument();
+    expect(screen.getByText('擒抱')).toBeInTheDocument();
+    expect(screen.getByText('借机攻击')).toBeInTheDocument();
+    expect(screen.queryByText('副手武器攻击')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '背包' }));
 
@@ -1609,6 +1666,61 @@ describe('中文界面文案', () => {
     expect(within(backpack).getByText(/弩矢: 20 \/ 20/)).toBeInTheDocument();
     expect(within(backpack).getByText(/治疗包: 1/)).toBeInTheDocument();
     expect(within(backpack).getByText(/15 gp/)).toBeInTheDocument();
+  });
+
+  it('玩家状态页展示副手攻击和法术行动', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getPlayerState).mockResolvedValueOnce({
+      room: { id: 'room-1', name: '测试房间', worldInfo: '测试世界', currentTurn: 1, status: 'waiting_for_actions' },
+      player: { id: 'player-1', name: '测试玩家' },
+      character: {
+        id: 'char-1',
+        playerId: 'player-1',
+        sheet: {
+          name: '艾拉',
+          species: '精灵',
+          className: '法师',
+          level: 1,
+          abilityScores: { str: 8, dex: 14, con: 12, int: 16, wis: 10, cha: 11 },
+          hitPoints: { current: 8, max: 8 },
+          armorClass: 12,
+          proficiencyBonus: 2,
+          skills: [],
+          equipment: ['匕首', '匕首', '奥术法器'],
+          spells: ['光亮术', '魔法飞弹'],
+          privateNotes: ''
+        },
+        draftSource: 'ai',
+        confirmed: true,
+        updatedAt: '2026-05-30T00:00:00.000Z'
+      },
+      publicLogs: [],
+      privateLogs: [],
+      pendingInteractions: [],
+      submittedPlayers: [],
+      waitingPlayers: [],
+      ruleSummaries: [],
+      resources: {
+        hitPoints: { current: 8, max: 8, temp: 0 },
+        hitDice: { total: 1, remaining: 1, die: 'd6' },
+        spellSlots: { level1: { total: 2, used: 1 } },
+        ammo: [],
+        consumables: [],
+        currency: { gp: 0, sp: 0, cp: 0 },
+        conditions: []
+      }
+    });
+
+    render(<PlayerPage token="token-1" />);
+
+    await user.click(await screen.findByRole('button', { name: '状态' }));
+
+    expect(await screen.findByRole('heading', { name: '可用行动' })).toBeInTheDocument();
+    expect(screen.getByText('主手武器攻击')).toBeInTheDocument();
+    expect(screen.getByText('副手武器攻击')).toBeInTheDocument();
+    expect(screen.getByText('施放法术')).toBeInTheDocument();
+    expect(screen.getByText('光亮术、魔法飞弹')).toBeInTheDocument();
+    expect(screen.getByText('可用法术位 level1: 1/2')).toBeInTheDocument();
   });
 
   it('管理员台资源变更列表展示并支持回滚', async () => {

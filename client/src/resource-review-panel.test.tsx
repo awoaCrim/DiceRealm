@@ -65,6 +65,8 @@ describe('ResourceReviewPanel', () => {
 
     expect(await screen.findByText('资源导入与审核')).toBeInTheDocument();
     expect(await screen.findByText('攻击检定')).toBeInTheDocument();
+    expect(screen.getByText('规则条目 / 战斗 · 私人')).toBeInTheDocument();
+    expect(screen.queryByText('rule_entry / combat')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '批准' }));
 
