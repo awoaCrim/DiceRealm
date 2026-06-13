@@ -1,13 +1,13 @@
-import type { AiProviderConfig, AiTurnResult } from '../domain/types.js';
+import type { AiProviderConfig, AiTurnResult, RuntimeSettings } from '../domain/types.js';
+import { defaultRuntimeSettings } from '../domain/types.js';
 import { defaultNarrativeLengthLimits, type NarrativeLengthLimits } from './aiContextBuilder.js';
 
-const AI_PROVIDER_TIMEOUT_MS = 120_000;
 const AI_PROVIDER_ERROR_BODY_MAX_CHARS = 1000;
-const AI_PROVIDER_MAX_ATTEMPTS = 3;
 
 export interface AiProvider {
   name: string;
   generateTurnResult(prompt: string): Promise<AiTurnResult>;
+  generateNarrativeText(prompt: string): Promise<string>;
 }
 
 export class MockAiProvider implements AiProvider {
@@ -25,6 +25,10 @@ export class MockAiProvider implements AiProvider {
       suggestedStateChanges: [],
       characterResourceChanges: []
     };
+  }
+
+  async generateNarrativeText(prompt: string): Promise<string> {
+    return `Mock narrative: ${prompt.slice(0, 200)}`;
   }
 }
 
@@ -341,20 +345,21 @@ export function validateAiTurnResult(value: unknown, options: { strictRequiredFi
   };
 }
 
-export async function requestOpenAiCompatibleMessage(config: AiProviderConfig, messages: Array<{ role: 'system' | 'user'; content: string }>): Promise<string> {
+export async function requestOpenAiCompatibleMessage(config: AiProviderConfig, messages: Array<{ role: 'system' | 'user'; content: string }>, runtimeSettings?: RuntimeSettings): Promise<string> {
   if (!config.apiKey) {
     throw new Error('apiKey is required when provider=openai-compatible');
   }
 
+  const settings = runtimeSettings ?? defaultRuntimeSettings;
   const url = chatCompletionsUrl(config.baseUrl);
   let lastError: Error | null = null;
-  for (let attempt = 1; attempt <= AI_PROVIDER_MAX_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= settings.maxAttempts; attempt += 1) {
     const controller = new AbortController();
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, AI_PROVIDER_TIMEOUT_MS);
+    }, settings.timeoutMs);
 
     try {
       const response = await fetch(url, {
@@ -366,7 +371,7 @@ export async function requestOpenAiCompatibleMessage(config: AiProviderConfig, m
         body: JSON.stringify({
           model: config.model,
           messages,
-          temperature: 0.7,
+          temperature: settings.temperature,
           stream: false
         }),
         signal: controller.signal
@@ -378,7 +383,7 @@ export async function requestOpenAiCompatibleMessage(config: AiProviderConfig, m
         const sanitizedBody = sanitizeProviderBody(responseText, config.apiKey);
         const error = new Error(`AI provider failed with ${response.status}${statusText}: ${sanitizedBody}`);
         lastError = error;
-        if (attempt < AI_PROVIDER_MAX_ATTEMPTS && isTransientProviderError(response.status, responseText)) {
+        if (attempt < settings.maxAttempts && isTransientProviderError(response.status, responseText)) {
           await delay(200 * attempt);
           continue;
         }
@@ -397,10 +402,10 @@ export async function requestOpenAiCompatibleMessage(config: AiProviderConfig, m
       return content;
     } catch (error) {
       if (timedOut || (error instanceof Error && error.name === 'AbortError')) {
-        throw new Error(`AI provider request timed out after ${AI_PROVIDER_TIMEOUT_MS}ms`);
+        throw new Error(`AI provider request timed out after ${settings.timeoutMs}ms`);
       }
       lastError = error instanceof Error ? error : new Error(String(error));
-      if (attempt < AI_PROVIDER_MAX_ATTEMPTS && isTransientFetchError(error)) {
+      if (attempt < settings.maxAttempts && isTransientFetchError(error)) {
         await delay(200 * attempt);
         continue;
       }
@@ -416,15 +421,26 @@ export async function requestOpenAiCompatibleMessage(config: AiProviderConfig, m
 export class OpenAiCompatibleProvider implements AiProvider {
   name = 'openai-compatible';
 
-  constructor(private readonly config: AiProviderConfig) {}
+  constructor(
+    private readonly config: AiProviderConfig,
+    private readonly runtimeSettings?: RuntimeSettings
+  ) {}
 
   async generateTurnResult(prompt: string): Promise<AiTurnResult> {
     const content = await requestOpenAiCompatibleMessage(this.config, [
       { role: 'system', content: 'Follow the DND output contract embedded in the user message: write narrative prose as publicLog, then a separator line, then a strict JSON object with the remaining fields.' },
       { role: 'user', content: prompt }
-    ]);
+    ], this.runtimeSettings);
 
     return parseTurnResultFromProviderText(content);
+  }
+
+  async generateNarrativeText(prompt: string): Promise<string> {
+    const content = await requestOpenAiCompatibleMessage(this.config, [
+      { role: 'system', content: '你是一名中文小说作者。直接输出故事正文，不要写字段名、不要写 JSON、不要写 Markdown 代码块、不要解释。' },
+      { role: 'user', content: prompt }
+    ], this.runtimeSettings);
+    return content.trim();
   }
 }
 
@@ -461,10 +477,10 @@ export function parseTurnResultFromProviderText(content: string): AiTurnResult {
   return validateAiTurnResult(parsed, { strictRequiredFields: false });
 }
 
-export function createAiProviderFromConfig(config: AiProviderConfig): AiProvider {
+export function createAiProviderFromConfig(config: AiProviderConfig, runtimeSettings?: RuntimeSettings): AiProvider {
   if (config.provider === 'openai-compatible') {
     assertHttpUrl(new URL(config.baseUrl));
-    return new OpenAiCompatibleProvider(config);
+    return new OpenAiCompatibleProvider(config, runtimeSettings);
   }
   return new MockAiProvider();
 }

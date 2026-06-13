@@ -10,6 +10,16 @@ import {
   loadCharacterStatusSection
 } from './promptPreviewService.js';
 import { parseNarrativeLengthLimitsFromPromptBlocks } from './aiContextBuilder.js';
+import type { PresetNumericConfig } from '../domain/types.js';
+import { defaultPresetNumericConfig } from '../domain/types.js';
+import {
+  getActiveNumericConfig,
+  getActiveRewriteAntiClichePrompt,
+  getActiveRewriteCotPrompt,
+  getActiveRewriteStylePrompt,
+  getActiveRewriteTaskPrompt
+} from './presetConfigService.js';
+import { getGlobalRuntimeSettings } from './globalConfigService.js';
 import {
   assertPreviewMatchesCurrentReadyTurn,
   assertTurnReadyForAi,
@@ -111,6 +121,226 @@ function recoverReadyTurnAfterApplyFailure(db: AppDatabase, roomId: string, prev
 
 function joinNarrativeParts(parts: Array<string | undefined>): string {
   return parts.map((part) => part?.trim()).filter((part): part is string => Boolean(part)).join('\n\n');
+}
+
+const DEFAULT_REWRITE_MIN_CHARS = 500;
+const DEFAULT_REWRITE_MAX_CHARS = 1500;
+
+const REWRITE_FACTUAL_SECTION_HEADINGS = [
+  '## Campaign State',
+  '## Character Status',
+  '## Current Turn Actions',
+  '## Interaction Requests',
+  '## Recent Public Logs',
+  '## Relevant Worldbook And Approved Rules',
+  '## Campaign Memory And Plugin Database'
+];
+
+export function extractFactualPromptSections(originalPrompt: string): string {
+  if (!originalPrompt) return '';
+  const lines = originalPrompt.split(/\r?\n/);
+  const blocks: Array<{ heading: string; body: string[] }> = [];
+  let current: { heading: string; body: string[] } | null = null;
+  for (const line of lines) {
+    const headingMatch = line.match(/^##\s+\S/);
+    if (headingMatch) {
+      if (current) blocks.push(current);
+      current = { heading: line.trim(), body: [] };
+      continue;
+    }
+    if (current) current.body.push(line);
+  }
+  if (current) blocks.push(current);
+  const allowed = new Set(REWRITE_FACTUAL_SECTION_HEADINGS.map((h) => h.toLowerCase()));
+  const kept = blocks.filter((block) => allowed.has(block.heading.toLowerCase()));
+  if (kept.length === 0) return '';
+  return kept.map((block) => [block.heading, ...block.body].join('\n').trimEnd()).join('\n\n');
+}
+
+export const DEFAULT_REWRITE_TASK_PROMPT = [
+  '你是中文 DND 跑团的「公开剧情重写者」。前一步 DM 已经完成本回合裁定（包括客观真相、私人剧情、骰点结果、状态变更）。你的唯一任务是把"所有玩家共同可见或共同已知的公开剧情"用生动的中文写成一段或多段叙事正文。'
+].join('\n');
+
+export const DEFAULT_REWRITE_STYLE_PROMPT = [
+  '- 这是一场严肃的中文 DND 5e 跑团，画面感优先于解释。',
+  '- 动词优先，少形容词。让动作本身说话："布兰横步上前，盾牌在岩壁上擦出火星" 优于 "布兰勇敢地走上前去，他的盾牌看起来很坚固"。',
+  '- 感官细节具体到可观察：火光投在岩壁上的角度、潮湿空气里的铁锈味、湿泥踩下去的咕叽声、皮甲皮带摩擦的吱呀。每段至少一处感官锚点，但不要堆。',
+  '- NPC 反应有性格、有立场、有局限：布兰沉默靠盾，希拉警惕治疗符记，米瑞尔蹲下查痕。NPC 不全知、不抢戏、不替玩家判断。',
+  '- 节奏：呈现 → 角色反应 → 留出抉择空间。不要在段尾"那一刻她明白了""于是命运悄然改变"之类总结升华。',
+  '- 对话只为线索、行动、性格服务。NPC 一段对白不超过 2 句，不写大段独白。',
+  '- 失败的检定写成"风声水声盖过细微动静""火光照不到通道深处"这种环境层的"挡住了"，不要写成"角色没用"。'
+].join('\n');
+
+export const DEFAULT_REWRITE_ANTI_CLICHE_PROMPT = [
+  '以下是中文 LLM 的常见套路腔，绝对避免：',
+  '- ❌ "不是……而是……" / "与其说是……不如说是……" 这类反复否定句式 → ✅ 直接陈述事实。',
+  '- ❌ "如蒙大赦" / "松了一大口气，仿佛卸下千斤重担" / "心头一紧" / "不可置信" → ✅ "肩头塌了下来" / "呼吸顿了一拍" / "皱起眉" 等具体身体反应。',
+  '- ❌ "一丝/一抹/一缕/一股 + 抽象名词"（一丝寒意 / 一抹疑虑 / 一股不祥）→ ✅ 用具体细节替代："后颈起了鸡皮疙瘩" / "他下意识握紧了剑柄"。',
+  '- ❌ "像是/仿佛要将 X 吞噬" / "宛如墨汁般浓稠的黑暗" 这种比喻堆叠 → ✅ 直接写黑暗的可观察后果："火把照不出三步外的轮廓"。严禁使用"像是"，全部用直陈或感官细节替代。',
+  '- ❌ "喉结滚动" / "指节发白" / "嘴角勾起一抹弧度" → ✅ 不要写这些刻板细节。',
+  '- ❌ "破折号 ——" → ✅ 严禁使用破折号，全部用逗号或句号替代。',
+  '- ❌ 段尾"那一刻他明白了……" / "于是真相浮出水面" / "命运的齿轮开始转动" 这类升华 → ✅ 直接停在动作或环境反馈，把判断留给玩家。',
+  '- ❌ "AI" "本回合" "上一稿" "DM" "publicLog" "objectiveLog" "玩家" "Player" 等元词汇 → ✅ 直接用角色名和场景词。',
+  '- ❌ NPC 替玩家说"我们应该……吧" / "也许该……" 这种暗示性建议 → ✅ NPC 表达自己的判断或情绪，但不替玩家做决定。',
+  '- ❌ 数字编号化分点 / Markdown 标题 / 列表符号 → ✅ 自然段落叙事。'
+].join('\n');
+
+export const DEFAULT_REWRITE_COT_PROMPT = [
+  '在写公开剧情正文之前，先写一段隐藏思维链，用 `<draft_notes>` 标签包起来。这段内容只供你自己整理思路，服务端在保存前会自动剥离 `<draft_notes>...</draft_notes>` 整段，玩家与 DM 都看不到。',
+  '`<draft_notes>` 内必须依次回答以下 6 点（每点 1-2 句中文）：',
+  '1. 重构现状：上一回合公开剧情末尾发生了什么？玩家此次行动是否被前一幕的状态、位置、姿态合理承接？',
+  '2. 玩家行动可行性：玩家提交的行动是否在角色当前能力、资源、所处环境内合理？是否被某个骰点结果约束？',
+  '3. NPC 反应：在场 NPC 各自基于其性格、立场、知识边界，会做出什么样的可观察反应？谁先动？谁旁观？谁有保留？',
+  '4. 时间与环境推进：本回合内场景时间从 X 推进到 Y；雨势 / 火光 / 通道深度 / 风向等环境元素本回合如何变化？',
+  '5. 字数与文风自检：本段计划写多少字，写几段，每段的感官锚点和动词锚点准备用什么？是否绕开了套路黑名单？',
+  '6. 信息隔离自检：本回合有没有 DM-only 隐藏事实需要绝对避免泄漏给玩家？有没有失败检定需要写成"未能确认"而非"确认没有"？',
+  '回答完 6 点之后，写 `</draft_notes>`，然后另起一行直接开始公开剧情正文。',
+  '警告：除 `<draft_notes>...</draft_notes>` 这一对标签之外，全文不得出现任何其他 XML/HTML 标签、Markdown 标题、代码块、分隔符或元说明。'
+].join('\n');
+
+export interface PublicLogRewriteOverrides {
+  numericConfig?: PresetNumericConfig;
+  taskPrompt?: string | null;
+  stylePrompt?: string | null;
+  antiClichePrompt?: string | null;
+  cotPrompt?: string | null;
+}
+
+export function buildRewriteOverridesFromDb(db: AppDatabase): PublicLogRewriteOverrides {
+  return {
+    numericConfig: getActiveNumericConfig(db),
+    taskPrompt: getActiveRewriteTaskPrompt(db),
+    stylePrompt: getActiveRewriteStylePrompt(db),
+    antiClichePrompt: getActiveRewriteAntiClichePrompt(db),
+    cotPrompt: getActiveRewriteCotPrompt(db)
+  };
+}
+
+export function buildPublicLogRewritePrompt(
+  originalPrompt: string,
+  finalResult: AiTurnResult,
+  overrides: PublicLogRewriteOverrides = {}
+): string {
+  const numericConfig = overrides.numericConfig ?? defaultPresetNumericConfig;
+  const minChars = numericConfig.rewriteMinChars ?? DEFAULT_REWRITE_MIN_CHARS;
+  const maxChars = numericConfig.rewriteMaxChars ?? DEFAULT_REWRITE_MAX_CHARS;
+  const taskPrompt = overrides.taskPrompt?.trim() || DEFAULT_REWRITE_TASK_PROMPT;
+  const stylePrompt = overrides.stylePrompt?.trim() || DEFAULT_REWRITE_STYLE_PROMPT;
+  const antiClichePrompt = overrides.antiClichePrompt?.trim() || DEFAULT_REWRITE_ANTI_CLICHE_PROMPT;
+  const cotPrompt = overrides.cotPrompt?.trim() || DEFAULT_REWRITE_COT_PROMPT;
+
+  const sections: string[] = [];
+  sections.push('# 任务');
+  sections.push(taskPrompt);
+  sections.push('');
+  sections.push('# 输出要求');
+  sections.push(`- 直接输出公开剧情正文，不要写字段名、不要写 JSON、不要写 Markdown 代码块、不要写"publicLog:"之类前缀、不要写解释或元说明。`);
+  sections.push('- 不要输出 ===STATE PATCH===、状态补丁、双段契约等任何分隔符或结构化尾段；本任务的输出从头到尾都是纯叙事正文。');
+  sections.push(`- 字数：常规多人行动回合写 ${minChars}-${Math.min(900, maxChars)} 个中文字符，2-4 段可读场景；只有单人简短问答、等待/跳过或纯过场等信息极少的回合才可短于 ${minChars}，但绝不可超过 ${maxChars}。`);
+  sections.push('- 视角：默认第三人称或客观陈述，例如"赛琳检查洞口"。仅 NPC 台词、引用玩家原话或自然对话中可使用"你/你们"。');
+  sections.push('- 信息隔离：仅写所有玩家共同可见或共同已知的内容。绝不能透露 DM 客观日志中尚未公开的隐藏事实、隐藏敌人、陷阱、秘密动机；失败的察觉/调查只能写"未能确认/暂时无法判断"。');
+  sections.push('- 不要复述上一回合的同一行动结果；本回合 publicLog 应推进剧情或给出新可见信息。');
+  sections.push('');
+  sections.push('# 文风：DND 战役 / 暗黑奇幻基调');
+  sections.push(stylePrompt);
+  sections.push('');
+  sections.push('# 反 AI 套路（命中即重写）');
+  sections.push(antiClichePrompt);
+  sections.push('');
+  sections.push('# DM 已确定的客观真相（仅供你写公开剧情时参考，不要直接抄写隐藏内容）');
+  sections.push(finalResult.objectiveLog?.trim() || '（DM 未提供额外客观真相，依据玩家行动写作。）');
+  sections.push('');
+  if (finalResult.diceResults && finalResult.diceResults.length > 0) {
+    sections.push('# 已确定的骰点结果');
+    for (const dice of finalResult.diceResults) {
+      const success = dice.success === undefined ? '' : dice.success ? '（成功）' : '（失败）';
+      const reason = dice.publicReason || dice.reason || '';
+      sections.push(`- ${dice.diceType} ${reason}: ${dice.total}${dice.dc !== undefined && dice.dc !== null ? ` (DC ${dice.dc})` : ''}${success}`);
+    }
+    sections.push('');
+  }
+  if (finalResult.publicLog?.trim()) {
+    sections.push('# 上一稿（仅供参考，可大幅改写以达到字数和生动度要求）');
+    sections.push(finalResult.publicLog.trim());
+    sections.push('');
+  }
+  const factual = extractFactualPromptSections(originalPrompt);
+  if (factual) {
+    sections.push('# 事实上下文（玩家本回合行动、角色/房间状态、最近公开剧情、世界书与战役记忆）');
+    sections.push(factual);
+    sections.push('');
+  }
+  sections.push('# 输出格式（重要）');
+  sections.push(cotPrompt);
+  sections.push('');
+  sections.push('# 现在开始：先写 <draft_notes>...</draft_notes> 思考块，再写公开剧情正文：');
+  return sections.join('\n');
+}
+
+export function stripDraftNotes(text: string): string {
+  return text.replace(/<draft_notes>[\s\S]*?<\/draft_notes>/gi, '').trim();
+}
+
+export function stripStatePatchTail(text: string): string {
+  let trimmed = text.trim();
+  if (!trimmed) return trimmed;
+  const separatorMatch = trimmed.match(/={2,}\s*STATE\s*PATCH\s*={2,}/i);
+  if (separatorMatch && separatorMatch.index !== undefined) {
+    trimmed = trimmed.slice(0, separatorMatch.index).trim();
+  }
+  const fenceIndex = trimmed.search(/```|\{\s*"(?:objectiveLog|publicLog|privateUpdatesByPlayer|ruleResults|interactionRequests|diceRequests|suggestedStateChanges|characterResourceChanges)"/);
+  if (fenceIndex > 0) {
+    trimmed = trimmed.slice(0, fenceIndex).trim();
+  }
+  return trimmed;
+}
+
+async function rewritePublicLog(
+  aiProvider: ReturnType<typeof createAiProviderFromConfig>,
+  originalPrompt: string,
+  finalResult: AiTurnResult,
+  warnings: string[],
+  overrides: PublicLogRewriteOverrides = {}
+): Promise<AiTurnResult> {
+  try {
+    const rewritePrompt = buildPublicLogRewritePrompt(originalPrompt, finalResult, overrides);
+    const raw = (await aiProvider.generateNarrativeText(rewritePrompt)).trim();
+    if (!raw) {
+      warnings.push('公开剧情重写返回空内容，已保留原始 publicLog。');
+      return finalResult;
+    }
+    const withoutDraft = stripDraftNotes(raw);
+    const narrative = stripStatePatchTail(withoutDraft);
+    if (!narrative) {
+      warnings.push('公开剧情重写返回内容在剥离思维链和尾部 JSON 后为空，已保留原始 publicLog。');
+      return finalResult;
+    }
+    if (looksLikeJsonOrFenced(narrative)) {
+      warnings.push('公开剧情重写返回的不是叙事正文（疑似 JSON 或代码块），已保留原始 publicLog。');
+      return finalResult;
+    }
+    const strippedSomething = narrative.length < raw.length;
+    if (strippedSomething) {
+      const parts: string[] = [];
+      if (withoutDraft.length < raw.length) parts.push('隐藏思维链 <draft_notes>');
+      if (narrative.length < withoutDraft.length) parts.push('===STATE PATCH=== 或 JSON 尾段');
+      warnings.push(`公开剧情重写返回包含 ${parts.join(' 和 ')}，已自动剥离仅保留叙事正文。`);
+    }
+    return { ...finalResult, publicLog: narrative };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`公开剧情重写失败，已保留原始 publicLog：${message}`);
+    return finalResult;
+  }
+}
+
+function looksLikeJsonOrFenced(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) return true;
+  if (trimmed.startsWith('```')) return true;
+  if (/^"\s*(publicLog|objectiveLog|privateUpdatesByPlayer)\s*:/i.test(trimmed)) return true;
+  return false;
 }
 
 function mergePrivateNarratives(
@@ -298,7 +528,7 @@ export async function sendAiTurnPreview(db: AppDatabase, input: { roomId: string
   const sentAt = new Date().toISOString();
   let aiProviderName: string = providerConfig.provider;
   try {
-    const aiProvider = createAiProviderFromConfig(providerConfig);
+    const aiProvider = createAiProviderFromConfig(providerConfig, getGlobalRuntimeSettings(db));
     aiProviderName = aiProvider.name;
     const preliminaryResult = await aiProvider.generateTurnResult(input.flatPrompt);
     const routingWarnings = [
@@ -314,7 +544,7 @@ export async function sendAiTurnPreview(db: AppDatabase, input: { roomId: string
       seed: `${room.id}:${turn.id}:${input.previewId}`
     });
     const postResolutionWarnings: string[] = [];
-    const result = await completePostResolutionNarration(
+    const resolvedResult = await completePostResolutionNarration(
       db,
       aiProvider,
       input.flatPrompt,
@@ -322,13 +552,17 @@ export async function sendAiTurnPreview(db: AppDatabase, input: { roomId: string
       resolutionRun,
       postResolutionWarnings
     );
+    const rewriteWarnings: string[] = [];
+    const rewriteOverrides = buildRewriteOverridesFromDb(db);
+    const result = await rewritePublicLog(aiProvider, input.flatPrompt, resolvedResult, rewriteWarnings, rewriteOverrides);
     const suggestedStateChanges = normalizeSuggestedStateChanges(result);
     const warnings = [
       ...validateAiTurnResultLengthWarnings(result, narrativeLengthLimits),
       ...routingWarnings,
       ...collectPrivateUpdateRoutingWarnings(players, result.privateUpdatesByPlayer),
       ...collectInteractionRoutingWarnings(players, result.interactionRequests),
-      ...postResolutionWarnings
+      ...postResolutionWarnings,
+      ...rewriteWarnings
     ];
     db.prepare(`
       UPDATE ai_turn_previews

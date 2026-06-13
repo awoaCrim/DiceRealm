@@ -5,7 +5,20 @@ export type VisibilityScope = 'objective' | 'public' | 'private' | 'admin';
 export type ActionVisibility = 'public' | 'private' | 'dm_only';
 export type InteractionStatus = 'pending_target' | 'ready_for_ai' | 'resolved';
 export type PromptBlockRole = 'system' | 'user' | 'assistant';
-export type PromptBlockPosition = 'before_world' | 'after_world' | 'before_actions' | 'after_actions' | 'final';
+export type PromptBlockPosition =
+  | 'before_world'
+  | 'after_world'
+  | 'before_actions'
+  | 'after_actions'
+  | 'final'
+  | 'output_contract'
+  | 'rewrite_task'
+  | 'rewrite_style'
+  | 'rewrite_anti_cliche'
+  | 'rewrite_cot'
+  | 'opening_prompt'
+  | 'opening_fallback'
+  | 'post_resolution_prompt';
 export type WorldBookPosition = 'before_world' | 'after_world' | 'before_actions' | 'after_actions';
 export type PresetType = 'tutorial' | 'rules_strict' | 'story_first' | 'combat_first' | 'casual' | 'dark_fantasy' | 'sandbox' | 'epic';
 export type ModuleCategory = 'core_identity' | 'player_boundary' | 'npc_autonomy' | 'anti_omniscience' | 'style' | 'perspective' | 'pacing' | 'rules_judgment' | 'status_update' | 'summary' | 'worldbook_injection';
@@ -90,7 +103,34 @@ export interface PromptPreset {
   updatedAt: string;
   presetType?: PresetType;
   isTemplate?: boolean;
+  numericConfig?: PresetNumericConfig;
 }
+
+export interface PresetNumericConfig {
+  rewriteMinChars: number;
+  rewriteMaxChars: number;
+  openingMinChars: number;
+  narrativeLimits: { objective: number; public: number; private: number };
+}
+
+export const defaultPresetNumericConfig: PresetNumericConfig = {
+  rewriteMinChars: 500,
+  rewriteMaxChars: 1500,
+  openingMinChars: 350,
+  narrativeLimits: { objective: 300, public: 1500, private: 300 }
+};
+
+export interface RuntimeSettings {
+  timeoutMs: number;
+  maxAttempts: number;
+  temperature: number;
+}
+
+export const defaultRuntimeSettings: RuntimeSettings = {
+  timeoutMs: 240_000,
+  maxAttempts: 3,
+  temperature: 0.7
+};
 
 export interface WorldBook {
   id: string;

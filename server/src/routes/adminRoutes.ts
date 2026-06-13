@@ -7,7 +7,6 @@ import { buildCampaignContext, createSessionSummary, listSessionSummaries, listC
 import { createEmbeddingProviderFromConfig, testEmbeddingProviderConfig } from '../services/embeddingService.js';
 import { createStarterCharacter, createEmptyCharacterBuilderSheet } from '../services/characterService.js';
 import { applyResourcePatch, getCharacterResources, shortRest, longRest } from '../services/characterResourceService.js';
-import { ensureAutoCompanionNpcs } from '../services/autoCompanionNpcService.js';
 import { listCharacterResourceChanges, rollbackResourceChange } from '../services/characterAuditService.js';
 import { importRuleSource, listRuleSources } from '../services/rulesService.js';
 import { processTurnActions } from '../services/turnEngine.js';
@@ -17,6 +16,8 @@ import { buildWorldBookScanText, matchWorldBookEntries } from '../services/world
 import { indexApprovedRuleEntries, retrieveRuleMatches, storeRuleContextHits } from '../services/ruleRetrievalService.js';
 import { buildSillyTavernPromptPreview } from '../services/sillyTavernPromptBuilder.js';
 import { applyPresetTemplate, getActivePresetType, listPresetTemplates } from '../services/dmPresetService.js';
+import { getGlobalRuntimeSettings } from '../services/globalConfigService.js';
+import { getActiveOpeningFallback, getActiveOpeningPrompt } from '../services/presetConfigService.js';
 import {
   activateGlobalPreset,
   clearGlobalPresetPackage,
@@ -832,15 +833,30 @@ function handleGlobalConfigResourceError(error: unknown, res: { status: (code: n
   res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
 }
 
-const fallbackOpeningScene = [
-  '午后，灰松镇外的旧矿道驿站被低云压得发闷，木栅栏旁还挂着未干的雨珠。队伍沿着碎石路抵达时，镇长已经等在工具棚前，外套下摆沾满泥水，身后围着几名焦急的矿工家属。昨夜那名失踪的矿工是在换班后不见的，最后一次被人看见是在工具棚附近；那条小路再往前，就是多年前封停的废弃矿道。',
-  '工具棚门口的泥地被踩得凌乱，脚印深浅不一，其中几道拖痕从棚边延向矿道方向，又在湿泥与碎石交界处变得模糊。棚内油灯还留着冷却后的焦味，墙角散着一截断绳和几枚沾泥的铁钉。镇民们七嘴八舌地说着昨夜的风声、犬吠和一声短促的呼喊，但没有人敢靠近矿道口确认。',
-  '驿站另一侧，几辆原本要运往主路的矿车停在雨棚下，车斗里只剩半车潮湿矿石。失踪者的妻子握着一只磨旧的皮手套，说那是丈夫平日不会离身的东西；年轻矿工们则互相推诿，没人愿意承认昨夜是谁最先离开守夜位置。矿道口吹出的冷风带着铁锈和潮土气味，让工具棚里那盏已经熄灭的油灯轻轻晃了一下。',
-  '镇长压低声音请队伍尽快判断：这是普通失足、有人故意掩盖，还是矿道深处有什么东西被惊醒？队伍现在可以先安抚家属、追问目击细节、检查工具棚和泥地痕迹，或直接沿拖痕向废弃矿道推进。'
+const DEFAULT_FALLBACK_OPENING_SCENE = [
+  '午后，灰松镇外的旧矿道驿站被低云压得发闷，雨意未散，木栅栏上还挂着昨夜的水珠。碎石路两侧是被踩得发亮的湿泥，空气里混着潮土、铁锈与远处烟囱里飘来的烧柴味。驿站门前的雨棚下停着几辆半空的矿车，旁边几只狗散漫地蜷在门槛旁，没什么人特别留意远来的旅人。',
+  '驿站的小广场上人影不多。几名矿工换班归来，皮甲皮带在湿气里发出吱呀声；木门后传来酒馆模样的杯盘碰撞声和压低的交谈。镇长模样的中年男人正在不远处与几名妇人低声说话，神色不太轻松，但他暂时没有注意到队伍的到达。',
+  '从这里向北望去，碎石路尽头通向矿工聚居的老坡；向东是被树丛遮住一半的小教堂尖顶；向南那条几乎被杂草吞没的小道则蜿蜒着消失在山脚阴影里。雨意正在重新聚拢，远处的山脊被一层薄雾压低了轮廓。',
+  '队伍此刻只是这片镇外的一群陌生旅人。要去酒馆里喝口热汤、去问路、去四处走走，还是先找个地方歇脚，全看队伍自己。'
 ].join('\n\n');
 
+const DEFAULT_AI_OPENING_SCENE_PROMPT = [
+  '你是 D&D 5e 中文跑团的主持人助手。请根据给定素材，为新房间生成公开开场场景设定。',
+  '',
+  '输出要求：',
+  '- 只输出正文纯文本，不要 JSON、Markdown 标题、列表或解释。',
+  '- 至少 1000 个中文字符，建议 4-6 段。',
+  '- 使用第三人称或客观叙述，不要默认写"你们"。',
+  '- 公开开场只包含所有玩家共同可见或共同可知的信息，不泄露隐藏敌人、秘密动机或未来真相。',
+  '- 只写场景设定：开场地点、时间、天气/氛围、可见的 NPC 群像（他们各自在做什么）、可观察的环境细节。',
+  '- 绝对不要在开场抛任务钩子、行动菜单、剧情勾子或"队伍可以选择"之类的引导。主线任务是世界客观存在的事实，但不要主动告诉玩家。',
+  '- 让玩家自己决定何时与谁接触、往哪里走。玩家主动靠近任务源时，后续回合自然会展开剧情。',
+  '- 不要替玩家决定未来行动、台词、情绪或资源变化；不要写骰点和规则结算。',
+  '- 文风适合中文跑团记录：具体、可承接、信息密度高，不要像简介或摘要。'
+].join('\n');
+
 const MIN_STANDALONE_OPENING_SCENE_LENGTH = 420;
-const MIN_AI_OPENING_SCENE_LENGTH = 1000;
+const MIN_AI_OPENING_SCENE_LENGTH = 350;
 
 function cleanOpeningScenePart(value: string | null | undefined): string {
   return value?.trim().replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n') ?? '';
@@ -853,9 +869,27 @@ function appendOpeningScenePart(parts: string[], value: string | null | undefine
   parts.push(cleaned);
 }
 
+function getFallbackOpeningScene(db: AppDatabase): string {
+  return getActiveOpeningFallback(db) ?? DEFAULT_FALLBACK_OPENING_SCENE;
+}
+
+function getOpeningMinChars(db: AppDatabase): number {
+  const presets = db.prepare('SELECT numeric_config_json as numericConfigJson FROM global_prompt_presets WHERE is_active = 1 LIMIT 1').get() as { numericConfigJson: string | null } | undefined;
+  if (presets?.numericConfigJson) {
+    try {
+      const parsed = JSON.parse(presets.numericConfigJson);
+      if (typeof parsed?.openingMinChars === 'number' && parsed.openingMinChars > 0) return parsed.openingMinChars;
+    } catch {
+      // fall through
+    }
+  }
+  return MIN_AI_OPENING_SCENE_LENGTH;
+}
+
 function globalOpeningScene(db: AppDatabase): string {
+  const fallback = getFallbackOpeningScene(db);
   const scriptCard = getActiveGlobalScriptCard(db);
-  if (!scriptCard) return fallbackOpeningScene;
+  if (!scriptCard) return fallback;
 
   const firstMes = cleanOpeningScenePart(scriptCard.firstMes);
   if (firstMes.length >= MIN_STANDALONE_OPENING_SCENE_LENGTH) return firstMes;
@@ -865,21 +899,13 @@ function globalOpeningScene(db: AppDatabase): string {
   appendOpeningScenePart(parts, scriptCard.description);
   appendOpeningScenePart(parts, firstMes);
   const combined = parts.join('\n\n').trim();
-  return combined || fallbackOpeningScene;
+  return combined || fallback;
 }
 
-function buildAiOpeningScenePrompt(input: { roomName: string; sourceOpeningScene: string }): string {
+function buildAiOpeningScenePrompt(db: AppDatabase, input: { roomName: string; sourceOpeningScene: string }): string {
+  const promptHead = getActiveOpeningPrompt(db) ?? DEFAULT_AI_OPENING_SCENE_PROMPT;
   return [
-    '你是 D&D 5e 中文跑团的主持人助手。请根据给定素材，为新房间生成公开开场剧情。',
-    '',
-    '输出要求：',
-    '- 只输出正文纯文本，不要 JSON、Markdown 标题、列表或解释。',
-    '- 至少 1000 个中文字符，建议 4-6 段。',
-    '- 使用第三人称或客观叙述，不要默认写“你们”。',
-    '- 公开开场只包含所有玩家共同可见或共同可知的信息，不泄露隐藏敌人、秘密动机或未来真相。',
-    '- 内容要包含：开场地点、当前气氛、可观察线索、重要 NPC/环境压力、队伍当下可以选择的行动方向。',
-    '- 不要替玩家决定未来行动、台词、情绪或资源变化；不要写骰点和规则结算。',
-    '- 文风适合中文跑团记录：具体、可承接、信息密度高，不要像简介或摘要。',
+    promptHead,
     '',
     `房间名：${input.roomName}`,
     '',
@@ -898,32 +924,32 @@ function sanitizeOpeningSceneText(value: string): string {
     .trim();
 }
 
-function ensureMinimumOpeningSceneLength(value: string): string {
+function ensureMinimumOpeningSceneLength(db: AppDatabase, value: string): string {
+  const minChars = getOpeningMinChars(db);
   const parts: string[] = [];
   appendOpeningScenePart(parts, sanitizeOpeningSceneText(value));
-  if (parts.join('\n\n').length >= MIN_AI_OPENING_SCENE_LENGTH) return parts.join('\n\n');
+  if (parts.join('\n\n').length >= minChars) return parts.join('\n\n');
 
-  appendOpeningScenePart(parts, fallbackOpeningScene);
-  appendOpeningScenePart(parts, '驿站周围的公开信息仍在不断累积：马车夫提到午后主路曾短暂堵塞，矿工学徒说工具棚的门闩不像是被风吹开的，几名家属则记得霍伯最近反复询问旧矿道支撑柱的编号。没有人能给出完整答案，但每一条说法都能成为调查的起点。队伍可以分头核对证词、保护泥地痕迹、检查矿道旧图，也可以先安抚情绪最激动的家属，避免现场在恐惧中失控。');
-  appendOpeningScenePart(parts, '对所有人来说，这一幕的重点并不是立即揭开真相，而是把冒险的入口清楚摆在眼前。公开可见的风险包括即将变大的雨势、可能被破坏的现场、镇民之间彼此矛盾的说法，以及废弃矿道本身带来的坍塌和迷路危险。队伍还没有做出选择，因此开场只停留在可观察事实和可行动方向上，等待玩家决定先追问、侦查、安抚、准备装备，还是直接向矿道推进。');
+  appendOpeningScenePart(parts, getFallbackOpeningScene(db));
 
   const text = parts.join('\n\n').trim();
-  if (text.length >= MIN_AI_OPENING_SCENE_LENGTH) return text;
-  return `${text}\n\n队伍面前的道路仍然敞开，所有公开线索都指向同一个事实：越早开始行动，越可能在雨水、恐惧和流言抹平现场之前抓住真正有用的细节。镇民们等待着队伍开口或迈步，驿站、工具棚、林线与矿道口也都已经准备好承接第一轮调查；无论玩家选择谨慎询问、分头搜证、整备装备，还是直接冒险推进，场景都有清楚的回应方向。若队伍暂时犹豫，时间压力也会自然推动局势：雨势会改变痕迹，围观者会散去，某些愿意开口的目击者也可能被恐惧重新压回沉默。`;
+  if (text.length >= minChars) return text;
+  return text;
 }
 
 async function generateOpeningScene(db: AppDatabase, input: { roomName: string }): Promise<string> {
-  const sourceOpeningScene = ensureMinimumOpeningSceneLength(globalOpeningScene(db));
+  const sourceOpeningScene = ensureMinimumOpeningSceneLength(db, globalOpeningScene(db));
   const config = getGlobalAiProviderConfig(db);
   if (config.provider === 'mock') return sourceOpeningScene;
 
   try {
     const output = await requestOpenAiCompatibleMessage(config, [
       { role: 'system', content: '你是中文 D&D 跑团开场剧情写手。只输出玩家共同可见的开场正文纯文本。' },
-      { role: 'user', content: buildAiOpeningScenePrompt({ roomName: input.roomName, sourceOpeningScene }) }
-    ]);
+      { role: 'user', content: buildAiOpeningScenePrompt(db, { roomName: input.roomName, sourceOpeningScene }) }
+    ], getGlobalRuntimeSettings(db));
     const openingScene = sanitizeOpeningSceneText(output);
-    return openingScene.length >= MIN_AI_OPENING_SCENE_LENGTH ? openingScene : ensureMinimumOpeningSceneLength(openingScene);
+    const minChars = getOpeningMinChars(db);
+    return openingScene.length >= minChars ? openingScene : ensureMinimumOpeningSceneLength(db, openingScene);
   } catch {
     return sourceOpeningScene;
   }
@@ -1501,7 +1527,7 @@ export function createAdminRouter(db: AppDatabase): Router {
     const roomId = nanoid();
     const turnId = nanoid();
     const now = new Date().toISOString();
-    const openingScene = ensureMinimumOpeningSceneLength(globalOpeningScene(db));
+    const openingScene = ensureMinimumOpeningSceneLength(db, globalOpeningScene(db));
 
     const tx = db.transaction(() => {
       db.prepare('INSERT INTO rooms (id, name, system_prompt, world_info, current_turn, status, expected_player_count, ai_config_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -1512,7 +1538,6 @@ export function createAdminRouter(db: AppDatabase): Router {
         .run(nanoid(), roomId, turnId, 'objective', null, '客观开场', openingScene, now);
       db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         .run(nanoid(), roomId, turnId, 'public', null, '公开开场', openingScene, now);
-      ensureAutoCompanionNpcs(db, roomId, input.expectedPlayerCount);
     });
     tx();
     startOpeningSceneGeneration(db, { roomId, turnId, roomName: input.name });
@@ -1532,7 +1557,6 @@ export function createAdminRouter(db: AppDatabase): Router {
     const tx = db.transaction(() => {
       db.prepare('UPDATE rooms SET expected_player_count = ? WHERE id = ?')
         .run(parsed.data.expectedPlayerCount, req.params.roomId);
-      ensureAutoCompanionNpcs(db, req.params.roomId, parsed.data.expectedPlayerCount);
     });
     tx();
     publishRoomUpdate(req.params.roomId);
@@ -1831,7 +1855,7 @@ export function createAdminRouter(db: AppDatabase): Router {
     let aiProviderName: string = providerConfig.provider;
 
     try {
-      const aiProvider = createAiProviderFromConfig(providerConfig);
+      const aiProvider = createAiProviderFromConfig(providerConfig, getGlobalRuntimeSettings(db));
       aiProviderName = aiProvider.name;
       const result = await processTurnActions({
         room,

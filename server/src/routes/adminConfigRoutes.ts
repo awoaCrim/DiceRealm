@@ -16,6 +16,7 @@ import {
   getGlobalAiProviderConfig,
   getGlobalEmbeddingProviderConfig,
   getGlobalConfigSnapshot,
+  getGlobalRuntimeSettings,
   getGlobalWorldBookEntries,
   GlobalConfigResourceError,
   normalizeAiProviderConfig,
@@ -27,6 +28,8 @@ import {
   updateGlobalAiConfig,
   updateGlobalAiProviderConfig,
   updateGlobalEmbeddingProviderConfig,
+  updateGlobalPresetNumericConfig,
+  updateGlobalRuntimeSettings,
   updateGlobalWorldBookEntry
 } from '../services/globalConfigService.js';
 
@@ -242,6 +245,27 @@ export function registerAdminConfigRoutes(router: Router, db: AppDatabase): void
     try {
       const preset = activateGlobalPreset(db, req.params.presetId);
       res.json({ preset, presets: getGlobalConfigSnapshot(db).presets });
+    } catch (error) {
+      handleGlobalConfigResourceError(error, res);
+    }
+  });
+
+  router.put('/config/presets/:presetId/numeric-config', (req, res) => {
+    try {
+      const preset = updateGlobalPresetNumericConfig(db, req.params.presetId, req.body);
+      res.json({ preset, presets: getGlobalConfigSnapshot(db).presets });
+    } catch (error) {
+      handleGlobalConfigResourceError(error, res);
+    }
+  });
+
+  router.get('/config/runtime-settings', (_req, res) => {
+    res.json(getGlobalRuntimeSettings(db));
+  });
+
+  router.put('/config/runtime-settings', (req, res) => {
+    try {
+      res.json(updateGlobalRuntimeSettings(db, req.body));
     } catch (error) {
       handleGlobalConfigResourceError(error, res);
     }

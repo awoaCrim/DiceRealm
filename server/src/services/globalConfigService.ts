@@ -6,17 +6,20 @@ import type {
   EmbeddingProviderConfig,
   GlobalConfigSnapshot,
   GlobalResourceWorldBookBinding,
+  PresetNumericConfig,
   PromptBlock,
   PromptBlockPosition,
   PromptPreset,
   PromptPresetPackage,
   ResourceWorldBookEntry,
+  RuntimeSettings,
   ScriptCard,
   WorldBook,
   WorldBookEntry,
   WorldBookPosition
 } from '../domain/types.js';
-import { defaultAiConfig, defaultNarrativeLengthRules, normalizeAiConfig, parseAiConfigJson } from './aiContextBuilder.js';
+import { defaultPresetNumericConfig, defaultRuntimeSettings } from '../domain/types.js';
+import { defaultAiConfig, defaultNarrativeLengthRules, normalizeAiConfig, parseAiConfigJson, sanitizeContractContent } from './aiContextBuilder.js';
 import { getPresetPackage, getResourceWorldBook, getResourceWorldBookEntries, getScriptCard, listResourceLibrary } from './resourceLibrary.js';
 
 export const GLOBAL_CONFIG_ID = 'default';
@@ -52,6 +55,7 @@ interface GlobalConfigRow {
   embedding_provider_config_json: string;
   active_script_card_id: string | null;
   active_preset_package_id: string | null;
+  runtime_settings_json: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -63,6 +67,7 @@ interface GlobalPromptPresetRow {
   isActive: number;
   presetType: string | null;
   isTemplate: number;
+  numericConfigJson: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -272,6 +277,44 @@ function repairGlobalActivePresetUniqueness(db: AppDatabase): void {
   db.prepare('CREATE UNIQUE INDEX IF NOT EXISTS global_prompt_presets_one_active_idx ON global_prompt_presets(is_active) WHERE is_active = 1').run();
 }
 
+function migrateLegacyOutputContractContent(db: AppDatabase): void {
+  const blockRows = db.prepare('SELECT id, content FROM global_prompt_blocks').all() as Array<{ id: string; content: string }>;
+  for (const row of blockRows) {
+    const sanitized = sanitizeContractContent(row.content);
+    if (sanitized !== row.content) {
+      db.prepare('UPDATE global_prompt_blocks SET content = ? WHERE id = ?').run(sanitized, row.id);
+    }
+  }
+  const packageRows = db.prepare('SELECT id, openai_settings_json FROM prompt_preset_packages').all() as Array<{ id: string; openai_settings_json: string | null }>;
+  for (const row of packageRows) {
+    if (!row.openai_settings_json) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(row.openai_settings_json);
+    } catch {
+      continue;
+    }
+    if (!parsed || typeof parsed !== 'object') continue;
+    const settings = parsed as { prompts?: unknown };
+    if (!Array.isArray(settings.prompts)) continue;
+    let mutated = false;
+    for (const prompt of settings.prompts) {
+      if (!prompt || typeof prompt !== 'object') continue;
+      const promptObj = prompt as { content?: unknown };
+      if (typeof promptObj.content !== 'string') continue;
+      const sanitized = sanitizeContractContent(promptObj.content);
+      if (sanitized !== promptObj.content) {
+        promptObj.content = sanitized;
+        mutated = true;
+      }
+    }
+    if (mutated) {
+      db.prepare('UPDATE prompt_preset_packages SET openai_settings_json = ?, updated_at = ? WHERE id = ?')
+        .run(JSON.stringify(settings), new Date().toISOString(), row.id);
+    }
+  }
+}
+
 function ensureDefaultGlobalPresetInitialized(db: AppDatabase): void {
   const tx = db.transaction(() => {
     repairGlobalActivePresetUniqueness(db);
@@ -282,6 +325,7 @@ function ensureDefaultGlobalPresetInitialized(db: AppDatabase): void {
       ensureNarrativeLengthBlockForBuiltinDefaultPreset(db);
     }
     upgradeLegacyBuiltinNarrativeLengthBlocks(db);
+    migrateLegacyOutputContractContent(db);
   });
   tx();
 }
@@ -439,8 +483,86 @@ function mapGlobalPresetWithBlocks(presetRows: GlobalPromptPresetRow[], blockRow
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     presetType: (row.presetType as PromptPreset['presetType']) ?? undefined,
-    isTemplate: Boolean(row.isTemplate)
+    isTemplate: Boolean(row.isTemplate),
+    numericConfig: parseNumericConfigJson(row.numericConfigJson)
   }));
+}
+
+export function parseNumericConfigJson(json: string | null | undefined): PresetNumericConfig {
+  if (!json) return defaultPresetNumericConfig;
+  try {
+    const parsed = JSON.parse(json) as Partial<PresetNumericConfig>;
+    return normalizeNumericConfig(parsed);
+  } catch {
+    return defaultPresetNumericConfig;
+  }
+}
+
+export function normalizeNumericConfig(input: unknown): PresetNumericConfig {
+  if (!input || typeof input !== 'object') return defaultPresetNumericConfig;
+  const value = input as Partial<PresetNumericConfig>;
+  const limits = (value.narrativeLimits ?? {}) as Partial<PresetNumericConfig['narrativeLimits']>;
+  return {
+    rewriteMinChars: positiveInteger(value.rewriteMinChars, defaultPresetNumericConfig.rewriteMinChars),
+    rewriteMaxChars: positiveInteger(value.rewriteMaxChars, defaultPresetNumericConfig.rewriteMaxChars),
+    openingMinChars: positiveInteger(value.openingMinChars, defaultPresetNumericConfig.openingMinChars),
+    narrativeLimits: {
+      objective: positiveInteger(limits.objective, defaultPresetNumericConfig.narrativeLimits.objective),
+      public: positiveInteger(limits.public, defaultPresetNumericConfig.narrativeLimits.public),
+      private: positiveInteger(limits.private, defaultPresetNumericConfig.narrativeLimits.private)
+    }
+  };
+}
+
+function positiveInteger(value: unknown, fallback: number): number {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) return Math.floor(value);
+  return fallback;
+}
+
+export function parseRuntimeSettingsJson(json: string | null | undefined): RuntimeSettings {
+  if (!json) return defaultRuntimeSettings;
+  try {
+    const parsed = JSON.parse(json) as Partial<RuntimeSettings>;
+    return normalizeRuntimeSettings(parsed);
+  } catch {
+    return defaultRuntimeSettings;
+  }
+}
+
+export function normalizeRuntimeSettings(input: unknown): RuntimeSettings {
+  if (!input || typeof input !== 'object') return defaultRuntimeSettings;
+  const value = input as Partial<RuntimeSettings>;
+  const temperature = typeof value.temperature === 'number' && value.temperature >= 0 && value.temperature <= 2
+    ? value.temperature
+    : defaultRuntimeSettings.temperature;
+  return {
+    timeoutMs: positiveInteger(value.timeoutMs, defaultRuntimeSettings.timeoutMs),
+    maxAttempts: positiveInteger(value.maxAttempts, defaultRuntimeSettings.maxAttempts),
+    temperature
+  };
+}
+
+export function getGlobalRuntimeSettings(db: AppDatabase): RuntimeSettings {
+  return parseRuntimeSettingsJson(ensureGlobalConfig(db).runtime_settings_json);
+}
+
+export function updateGlobalRuntimeSettings(db: AppDatabase, input: unknown): RuntimeSettings {
+  const normalized = normalizeRuntimeSettings(input);
+  ensureGlobalConfig(db);
+  db.prepare('UPDATE global_config SET runtime_settings_json = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(normalized), new Date().toISOString(), GLOBAL_CONFIG_ID);
+  return normalized;
+}
+
+export function updateGlobalPresetNumericConfig(db: AppDatabase, presetId: string, input: unknown): PromptPreset {
+  const existing = db.prepare('SELECT id FROM global_prompt_presets WHERE id = ?').get(presetId) as { id: string } | undefined;
+  if (!existing) throw new GlobalConfigResourceError('Preset not found', 404);
+  const normalized = normalizeNumericConfig(input);
+  db.prepare('UPDATE global_prompt_presets SET numeric_config_json = ?, updated_at = ? WHERE id = ?')
+    .run(JSON.stringify(normalized), new Date().toISOString(), presetId);
+  const preset = getGlobalPresets(db).find((p) => p.id === presetId);
+  if (!preset) throw new Error('Preset disappeared after update');
+  return preset;
 }
 
 function getGlobalPresetById(db: AppDatabase, presetId: string): PromptPreset | null {
@@ -532,7 +654,7 @@ export function updateGlobalWorldBookEntry(db: AppDatabase, entryId: string, inp
 }
 
 export function getGlobalPresets(db: AppDatabase): PromptPreset[] {
-  const presetRows = db.prepare('SELECT id, name, description, is_active as isActive, preset_type as presetType, is_template as isTemplate, created_at as createdAt, updated_at as updatedAt FROM global_prompt_presets ORDER BY is_active DESC, updated_at DESC').all() as GlobalPromptPresetRow[];
+  const presetRows = db.prepare('SELECT id, name, description, is_active as isActive, preset_type as presetType, is_template as isTemplate, numeric_config_json as numericConfigJson, created_at as createdAt, updated_at as updatedAt FROM global_prompt_presets ORDER BY is_active DESC, updated_at DESC').all() as GlobalPromptPresetRow[];
   const blockRows = db.prepare('SELECT id, preset_id as presetId, name, role, position, enabled, order_index as orderIndex, content, category, scene_type as sceneType FROM global_prompt_blocks ORDER BY order_index ASC').all() as GlobalPromptBlockRow[];
   return mapGlobalPresetWithBlocks(presetRows, blockRows);
 }

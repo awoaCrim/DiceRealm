@@ -689,6 +689,8 @@ export function migrate(db: AppDatabase): void {
   addColumnIfMissing(db, 'global_prompt_blocks', 'scene_type', "TEXT DEFAULT 'all'");
   addColumnIfMissing(db, 'global_prompt_presets', 'preset_type', 'TEXT');
   addColumnIfMissing(db, 'global_prompt_presets', 'is_template', 'INTEGER DEFAULT 0');
+  addColumnIfMissing(db, 'global_prompt_presets', 'numeric_config_json', 'TEXT');
+  addColumnIfMissing(db, 'global_config', 'runtime_settings_json', 'TEXT');
 
   // --- Exploration & Social ---
   addColumnIfMissing(db, 'actions', 'action_type', 'TEXT');
