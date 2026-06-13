@@ -647,7 +647,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
         await updatePresetNumericConfig(nextPreset.id, {
           rewriteMinChars: 500,
           rewriteMaxChars: limits.publicMax,
-          openingMinChars: 350,
+          openingMinChars: 1000,
           narrativeLimits: { objective: limits.objectiveMax, public: limits.publicMax, private: limits.privateMax }
         });
       } catch {

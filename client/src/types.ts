@@ -384,7 +384,7 @@ export interface PresetNumericConfig {
 export const defaultPresetNumericConfig: PresetNumericConfig = {
   rewriteMinChars: 500,
   rewriteMaxChars: 1500,
-  openingMinChars: 350,
+  openingMinChars: 1000,
   narrativeLimits: { objective: 300, public: 1500, private: 300 }
 };
 

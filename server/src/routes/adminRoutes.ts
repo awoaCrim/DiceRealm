@@ -856,7 +856,7 @@ const DEFAULT_AI_OPENING_SCENE_PROMPT = [
 ].join('\n');
 
 const MIN_STANDALONE_OPENING_SCENE_LENGTH = 420;
-const MIN_AI_OPENING_SCENE_LENGTH = 350;
+const MIN_AI_OPENING_SCENE_LENGTH = 1000;
 
 function cleanOpeningScenePart(value: string | null | undefined): string {
   return value?.trim().replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n') ?? '';
