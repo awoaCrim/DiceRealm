@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { activatePreset, addPlayer, adminSkipPlayerTurn, applyAiTurnPreview, applyPresetTemplate, checkDbSourceUpdates, createAiTurnPreview, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, listCharacterResourceChanges, listDbSourceSheets, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listRoomDbRows, listRoomDbSheets, listRoomDbSourceBindings, listSessionSummaries, previewAiPrompt, putRoomDbRow, putRoomDbSourceBindings, reindexRuleEmbeddings, rollbackCharacterResourceChange, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, sendAiTurnPreview, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updateQuest, updateRoomExpectedPlayerCount } from '../api';
+import { activatePreset, addPlayer, adminSkipPlayerTurn, applyAiTurnPreview, applyPresetTemplate, checkDbSourceUpdates, createAiTurnPreview, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, getRuntimeSettings, listCharacterResourceChanges, listDbSourceSheets, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listRoomDbRows, listRoomDbSheets, listRoomDbSourceBindings, listSessionSummaries, previewAiPrompt, putRoomDbRow, putRoomDbSourceBindings, reindexRuleEmbeddings, rollbackCharacterResourceChange, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, sendAiTurnPreview, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updatePresetNumericConfig, updateQuest, updateRoomExpectedPlayerCount, updateRuntimeSettings } from '../api';
 import { LogList } from '../components/LogList';
 import { CharacterCard } from '../components/CharacterCard';
 import { PromptPreviewPanel } from '../components/PromptPreviewPanel';
 import { ResourceImportPanel } from '../components/ResourceImportPanel';
 import { GlobalResourceConfigPanel } from '../components/RoomResourceBindingsPanel';
 import { actorTypeLabel, dbSourceTypeLabel, formatFileSize, formatIsoDateTime, moduleCategoryLabel, npcAttitudeLabel, presetTypeLabel, promptBlockPositionLabel, promptRoleLabel, questStatusLabel, roomStatusLabel, sceneTypeLabel } from '../displayLabels';
-import type { AdminState, AiProviderConfig, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, CampaignLocation, CampaignNpc, CampaignQuest, CharacterResourceChange, EmbeddingProviderConfig, PresetTemplateMeta, PresetType, PromptBlock, PromptPreset, PromptPresetPackage, PromptPreviewResponse, RemoteDbRow, RemoteDbSheet, RemoteDbSource, RoomDbSourceBinding, SessionSummary, WorldBookEntry } from '../types';
+import type { AdminState, AiProviderConfig, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, CampaignLocation, CampaignNpc, CampaignQuest, CharacterResourceChange, EmbeddingProviderConfig, PresetTemplateMeta, PresetType, PromptBlock, PromptPreset, PromptPresetPackage, PromptPreviewResponse, RemoteDbRow, RemoteDbSheet, RemoteDbSource, RoomDbSourceBinding, RuntimeSettings, SessionSummary, WorldBookEntry } from '../types';
+import { defaultRuntimeSettings } from '../types';
 import { actionStatusLabel, actionTypeLabel, actionVisibilityLabel, aiResultHasInteractionRequests, appliedAiResultMessage, defaultNarrativeLengthLimits, eventTypeLabel, isJsonRecord, parseJsonArrayText, promptPackageBlockContent, promptPackageBlocks, readJsonArray, readNarrativeLengthLimits, renderJsonArraySection, renderJsonValue, renderTextValue, upsertNarrativeLengthBlock, visibilityScopeLabel, type NarrativeLengthLimits } from './admin/adminPageUtils';
 
 type AdminTab = 'overview' | 'play' | 'campaignDatabase' | 'aiHost' | 'players' | 'settings';
@@ -74,6 +75,9 @@ export function AdminPage({ roomId }: { roomId: string }) {
   const [narrativeLengthDraft, setNarrativeLengthDraft] = useState<NarrativeLengthLimits>(defaultNarrativeLengthLimits);
   const [narrativeLengthMessage, setNarrativeLengthMessage] = useState('');
   const [narrativeLengthSaving, setNarrativeLengthSaving] = useState(false);
+  const [runtimeSettingsDraft, setRuntimeSettingsDraft] = useState<RuntimeSettings>(defaultRuntimeSettings);
+  const [runtimeSettingsMessage, setRuntimeSettingsMessage] = useState('');
+  const [runtimeSettingsSaving, setRuntimeSettingsSaving] = useState(false);
   const [resourceChanges, setResourceChanges] = useState<CharacterResourceChange[]>([]);
   const [resourceChangeLoading, setResourceChangeLoading] = useState(false);
   const [skippingPlayerId, setSkippingPlayerId] = useState('');
@@ -184,6 +188,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
   useEffect(() => {
     if (activeTab === 'aiHost') {
       void loadPresetTemplatesData();
+      void loadRuntimeSettings();
     }
   }, [activeTab]);
 
@@ -638,12 +643,46 @@ export function AdminPage({ roomId }: { roomId: string }) {
       const result = await savePreset(nextPreset);
       setState((current) => current ? { ...current, presets: result.presets } : current);
       setPresetDraft((current) => current && current.id === nextPreset.id ? { ...nextPreset, blocks: nextPreset.blocks.map((block) => ({ ...block })) } : current);
+      try {
+        await updatePresetNumericConfig(nextPreset.id, {
+          rewriteMinChars: 500,
+          rewriteMaxChars: limits.publicMax,
+          openingMinChars: 350,
+          narrativeLimits: { objective: limits.objectiveMax, public: limits.publicMax, private: limits.privateMax }
+        });
+      } catch {
+        // numeric config persistence is best-effort; the prompt block fallback still works
+      }
       setNarrativeLengthMessage('剧情长度硬上限已保存，并会进入最终 AI prompt。');
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setNarrativeLengthSaving(false);
+    }
+  }
+
+  async function loadRuntimeSettings() {
+    try {
+      const settings = await getRuntimeSettings();
+      setRuntimeSettingsDraft(settings);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function saveRuntimeSettings() {
+    setError('');
+    setRuntimeSettingsSaving(true);
+    setRuntimeSettingsMessage('');
+    try {
+      const updated = await updateRuntimeSettings(runtimeSettingsDraft);
+      setRuntimeSettingsDraft(updated);
+      setRuntimeSettingsMessage('运行参数已保存，下一次 AI 请求开始生效。');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRuntimeSettingsSaving(false);
     }
   }
 
@@ -2094,6 +2133,28 @@ export function AdminPage({ roomId }: { roomId: string }) {
         <PromptPreviewPanel preview={promptPreview} />
 
         <div className="subcard" style={{ marginTop: '16px' }}>
+          <h3>运行参数</h3>
+          <p className="muted">AI 请求超时、重试次数、采样温度。修改后下一次 AI 请求开始生效。</p>
+          <div className="form-grid">
+            <label>请求超时（毫秒）
+              <input type="number" min={10000} step={10000} value={runtimeSettingsDraft.timeoutMs} onChange={(event) => setRuntimeSettingsDraft({ ...runtimeSettingsDraft, timeoutMs: Number(event.target.value) })} />
+            </label>
+            <label>重试次数
+              <input type="number" min={1} max={10} value={runtimeSettingsDraft.maxAttempts} onChange={(event) => setRuntimeSettingsDraft({ ...runtimeSettingsDraft, maxAttempts: Number(event.target.value) })} />
+            </label>
+            <label>采样温度
+              <input type="number" min={0} max={2} step={0.1} value={runtimeSettingsDraft.temperature} onChange={(event) => setRuntimeSettingsDraft({ ...runtimeSettingsDraft, temperature: Number(event.target.value) })} />
+            </label>
+          </div>
+          <div className="button-row">
+            <button onClick={saveRuntimeSettings} disabled={runtimeSettingsSaving}>
+              {runtimeSettingsSaving ? '保存中...' : '保存运行参数'}
+            </button>
+          </div>
+          {runtimeSettingsMessage ? <p className="form-success">{runtimeSettingsMessage}</p> : null}
+        </div>
+
+        <div className="subcard" style={{ marginTop: '16px' }}>
           <h3>AI 输出剧情长度</h3>
           <p className="muted">这里控制 AI 返回的客观剧情、公开剧情、私人剧情硬上限。保存后会写入当前启用预设，并注入最终 AI prompt。</p>
           <div className="form-grid">
@@ -2208,39 +2269,83 @@ export function AdminPage({ roomId }: { roomId: string }) {
             <label>预设名称<input value={presetDraft.name} onChange={(event) => setPresetDraft({ ...presetDraft, name: event.target.value })} /></label>
             <label>预设描述<textarea value={presetDraft.description} onChange={(event) => setPresetDraft({ ...presetDraft, description: event.target.value })} /></label>
             <label className="check-row"><input type="checkbox" checked={presetDraft.isActive} onChange={(event) => setPresetDraft({ ...presetDraft, isActive: event.target.checked })} /> 设为启用预设</label>
-            {presetDraft.blocks.map((block, index) => {
-              const blockKey = presetBlockKey(block, index);
-              const expanded = expandedPresetBlockKey === blockKey;
+            {(() => {
+              const blocksWithIndex = presetDraft.blocks.map((block, index) => ({ block, index }));
+              const groups: Array<{ key: string; label: string; positions: PromptBlock['position'][] }> = [
+                { key: 'main', label: '主流程（世界、行动、最终）', positions: ['before_world', 'after_world', 'before_actions', 'after_actions', 'final'] },
+                { key: 'rewrite', label: '输出与重写（公开剧情重写器）', positions: ['output_contract', 'rewrite_task', 'rewrite_style', 'rewrite_anti_cliche', 'rewrite_cot', 'post_resolution_prompt'] },
+                { key: 'opening', label: '开局（房间创建时使用）', positions: ['opening_prompt', 'opening_fallback'] }
+              ];
+              const knownPositions = new Set(groups.flatMap((g) => g.positions));
+              const otherBlocks = blocksWithIndex.filter(({ block }) => !knownPositions.has(block.position));
+              const renderBlock = (block: PromptBlock, index: number) => {
+                const blockKey = presetBlockKey(block, index);
+                const expanded = expandedPresetBlockKey === blockKey;
+                return (
+                  <div className="subcard collapsible-card" key={blockKey}>
+                    <button className="collapsible-header" type="button" onClick={() => togglePresetBlock(block, index)}>
+                      <span>{expanded ? '收起' : '展开'} · {block.name || '未命名提示词块'}</span>
+                      <span className="meta-row">
+                        {promptBlockPositionLabel(block.position)} · {promptRoleLabel(block.role)} · {block.enabled ? '启用' : '停用'} · 排序 {block.orderIndex}
+                        {block.category ? ` · ${moduleCategoryLabel(block.category)}` : ''}
+                        {block.sceneType ? ` · 场景：${sceneTypeLabel(block.sceneType)}` : ''}
+                      </span>
+                    </button>
+                    {expanded ? (
+                      <div className="collapsible-body">
+                        <label>块名称<input value={block.name} onChange={(event) => updatePresetBlock(index, { name: event.target.value })} /></label>
+                        <label>注入位置
+                          <select value={block.position} onChange={(event) => updatePresetBlock(index, { position: event.target.value as PromptBlock['position'] })}>
+                            <optgroup label="主流程">
+                              <option value="before_world">世界信息前</option>
+                              <option value="after_world">世界信息后</option>
+                              <option value="before_actions">行动前</option>
+                              <option value="after_actions">行动后</option>
+                              <option value="final">最终输出前</option>
+                            </optgroup>
+                            <optgroup label="输出与重写">
+                              <option value="output_contract">输出契约</option>
+                              <option value="rewrite_task">重写任务</option>
+                              <option value="rewrite_style">文风</option>
+                              <option value="rewrite_anti_cliche">反套路</option>
+                              <option value="rewrite_cot">隐藏思维链</option>
+                              <option value="post_resolution_prompt">骰后改写</option>
+                            </optgroup>
+                            <optgroup label="开局">
+                              <option value="opening_prompt">开局生成</option>
+                              <option value="opening_fallback">开局备用</option>
+                            </optgroup>
+                          </select>
+                        </label>
+                        <label>排序<input type="number" value={block.orderIndex} onChange={(event) => updatePresetBlock(index, { orderIndex: Number(event.target.value) })} /></label>
+                        <label className="check-row"><input type="checkbox" checked={block.enabled} onChange={(event) => updatePresetBlock(index, { enabled: event.target.checked })} /> 启用此块</label>
+                        <textarea value={block.content} onChange={(event) => updatePresetBlock(index, { content: event.target.value })} />
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              };
               return (
-                <div className="subcard collapsible-card" key={blockKey}>
-                  <button className="collapsible-header" type="button" onClick={() => togglePresetBlock(block, index)}>
-                    <span>{expanded ? '收起' : '展开'} · {block.name || '未命名提示词块'}</span>
-                    <span className="meta-row">
-                      {promptBlockPositionLabel(block.position)} · {promptRoleLabel(block.role)} · {block.enabled ? '启用' : '停用'} · 排序 {block.orderIndex}
-                      {block.category ? ` · ${moduleCategoryLabel(block.category)}` : ''}
-                      {block.sceneType ? ` · 场景：${sceneTypeLabel(block.sceneType)}` : ''}
-                    </span>
-                  </button>
-                  {expanded ? (
-                    <div className="collapsible-body">
-                      <label>块名称<input value={block.name} onChange={(event) => updatePresetBlock(index, { name: event.target.value })} /></label>
-                      <label>注入位置
-                        <select value={block.position} onChange={(event) => updatePresetBlock(index, { position: event.target.value as PromptBlock['position'] })}>
-                          <option value="before_world">世界信息前</option>
-                          <option value="after_world">世界信息后</option>
-                          <option value="before_actions">行动前</option>
-                          <option value="after_actions">行动后</option>
-                          <option value="final">最终输出前</option>
-                        </select>
-                      </label>
-                      <label>排序<input type="number" value={block.orderIndex} onChange={(event) => updatePresetBlock(index, { orderIndex: Number(event.target.value) })} /></label>
-                      <label className="check-row"><input type="checkbox" checked={block.enabled} onChange={(event) => updatePresetBlock(index, { enabled: event.target.checked })} /> 启用此块</label>
-                      <textarea value={block.content} onChange={(event) => updatePresetBlock(index, { content: event.target.value })} />
-                    </div>
+                <>
+                  {groups.map((group) => {
+                    const items = blocksWithIndex.filter(({ block }) => group.positions.includes(block.position));
+                    return (
+                      <details className="preset-editor-group" key={group.key} open={group.key === 'main'}>
+                        <summary><strong>{group.label}</strong>（{items.length} 块）</summary>
+                        {items.length === 0 ? <p className="muted">该组暂无提示词块。点击下方"新增提示词块"后将注入位置改为该组任一项。</p> : null}
+                        {items.map(({ block, index }) => renderBlock(block, index))}
+                      </details>
+                    );
+                  })}
+                  {otherBlocks.length > 0 ? (
+                    <details className="preset-editor-group">
+                      <summary><strong>其他</strong>（{otherBlocks.length} 块）</summary>
+                      {otherBlocks.map(({ block, index }) => renderBlock(block, index))}
+                    </details>
                   ) : null}
-                </div>
+                </>
               );
-            })}
+            })()}
             <div className="button-row">
               <button onClick={addPresetBlock}>新增提示词块</button>
               <button onClick={persistPresetDraft}>保存预设</button>

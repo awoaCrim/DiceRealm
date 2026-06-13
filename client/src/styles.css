@@ -1126,6 +1126,22 @@ select + button {
   margin-bottom: 0.25rem;
 }
 
+.preset-editor-group {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+}
+
+.preset-editor-group summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.preset-editor-group summary strong {
+  font-size: 0.95rem;
+}
+
 .page-header {
   display: flex;
   justify-content: space-between;

@@ -85,6 +85,14 @@ export function promptBlockPositionLabel(position: string | undefined): string {
     case 'before_actions': return '行动前';
     case 'after_actions': return '行动后';
     case 'final': return '最终输出前';
+    case 'output_contract': return '输出契约';
+    case 'rewrite_task': return '重写任务';
+    case 'rewrite_style': return '文风';
+    case 'rewrite_anti_cliche': return '反套路';
+    case 'rewrite_cot': return '隐藏思维链';
+    case 'opening_prompt': return '开局生成';
+    case 'opening_fallback': return '开局备用';
+    case 'post_resolution_prompt': return '骰后改写';
     default: return position || '未知位置';
   }
 }

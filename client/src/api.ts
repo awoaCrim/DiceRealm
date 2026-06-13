@@ -257,6 +257,18 @@ export function activatePreset(presetId: string) {
   return jsonRequest<{ preset: PromptPreset; presets: PromptPreset[] }>(`/api/admin/config/presets/${presetId}/activate`, { method: 'POST' });
 }
 
+export function updatePresetNumericConfig(presetId: string, config: unknown) {
+  return jsonRequest<{ preset: PromptPreset; presets: PromptPreset[] }>(`/api/admin/config/presets/${presetId}/numeric-config`, { method: 'PUT', body: JSON.stringify(config) });
+}
+
+export function getRuntimeSettings() {
+  return jsonRequest<{ timeoutMs: number; maxAttempts: number; temperature: number }>('/api/admin/config/runtime-settings');
+}
+
+export function updateRuntimeSettings(settings: unknown) {
+  return jsonRequest<{ timeoutMs: number; maxAttempts: number; temperature: number }>('/api/admin/config/runtime-settings', { method: 'PUT', body: JSON.stringify(settings) });
+}
+
 export function createWorldBook(input: { name: string; description: string; enabled: boolean }) {
   return jsonRequest<{ worldBook: WorldBook; worldBooks: WorldBook[] }>('/api/admin/config/world-books', { method: 'POST', body: JSON.stringify(input) });
 }
