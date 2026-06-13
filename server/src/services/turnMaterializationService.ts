@@ -123,6 +123,24 @@ function ensureObjectiveLog(result: AiTurnResult): void {
   }
 }
 
+export function isNativeCombatStatePluginDatabaseChange(change: unknown): boolean {
+  if (!change || typeof change !== 'object' || Array.isArray(change)) return false;
+  const record = change as Record<string, unknown>;
+  const changeType = String(record.changeType ?? record.type ?? '');
+  if (changeType !== 'database_row_upsert' && changeType !== 'database_row_delete') return false;
+
+  const targetId = [
+    record.targetId,
+    record.target,
+    record.sheetId
+  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0)?.trim().toLowerCase() ?? '';
+
+  return targetId === 'combat_state'
+    || targetId === 'sheet:combat_state'
+    || targetId.endsWith('/combat_state')
+    || targetId.includes('sheet:combat_state/');
+}
+
 function applyPluginDatabaseChangesFromAiResult(
   db: AppDatabase,
   roomId: string,
@@ -134,6 +152,7 @@ function applyPluginDatabaseChangesFromAiResult(
   const events: GameEvent[] = [];
   for (const change of result.suggestedStateChanges ?? []) {
     if (!change || typeof change !== 'object' || Array.isArray(change)) continue;
+    if (isNativeCombatStatePluginDatabaseChange(change)) continue;
     try {
       const outcome = applyPluginDatabaseChange(db, roomId, change);
       if (!outcome.applied && outcome.message) errors.push(outcome.message);
@@ -189,9 +208,9 @@ export function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTur
     }
 
     db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(nanoid(), room.id, turn.id, 'objective', null, `Objective Turn ${room.currentTurn}`, result.objectiveLog ?? result.publicLog, now);
+      .run(nanoid(), room.id, turn.id, 'objective', null, `客观回合 ${room.currentTurn}`, result.objectiveLog ?? result.publicLog, now);
     db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(nanoid(), room.id, turn.id, 'public', null, `Turn ${room.currentTurn}`, result.publicLog, now);
+      .run(nanoid(), room.id, turn.id, 'public', null, `第 ${room.currentTurn} 回合`, result.publicLog, now);
     appliedEvents.push(createTurnLogMaterializedEvent(room.id, turn.id, {
       objectiveLog: result.objectiveLog ?? result.publicLog,
       publicLog: result.publicLog,
@@ -199,7 +218,7 @@ export function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTur
     }, now));
     for (const [playerId, content] of Object.entries(result.privateUpdatesByPlayer)) {
       db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(nanoid(), room.id, turn.id, 'private', playerId, `Private Turn ${room.currentTurn}`, content, now);
+        .run(nanoid(), room.id, turn.id, 'private', playerId, `私人回合 ${room.currentTurn}`, content, now);
     }
     for (const interaction of result.interactionRequests) {
       const interactionId = nanoid();
@@ -257,6 +276,9 @@ export function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTur
     }
 
     appliedEvents.push(...applyPluginDatabaseChangesFromAiResult(db, room.id, turn.id, result, resourceErrors, now));
+    if (resourceErrors.length > 0) {
+      throw new Error(resourceErrors.join('\n'));
+    }
     appliedEvents.push(...syncCombatStateFromAiTurnResult(db, { room, turn, players, result, resolutionRun, createdAt: now }));
     persistGameEvents(db, appliedEvents);
     markTurnResolutionRunApplied(db, resolutionRun.id, now);

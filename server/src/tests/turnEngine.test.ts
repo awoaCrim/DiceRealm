@@ -11,6 +11,7 @@ const room: Room = {
   worldInfo: 'A narrow bridge.',
   currentTurn: 1,
   status: 'processing',
+  expectedPlayerCount: null,
   aiConfig: defaultAiConfig,
   createdAt: '2026-05-27T00:00:00.000Z'
 };

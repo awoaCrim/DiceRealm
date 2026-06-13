@@ -12,7 +12,8 @@ import {
 import { parseNarrativeLengthLimitsFromPromptBlocks } from './aiContextBuilder.js';
 import {
   assertPreviewMatchesCurrentReadyTurn,
-  assertTurnReadyForAi
+  assertTurnReadyForAi,
+  getTurnReadiness
 } from './turnReadinessService.js';
 import {
   buildConfirmedAiTurnResult,
@@ -47,7 +48,7 @@ export interface AiTurnApplyInput {
 }
 
 function getRoom(db: AppDatabase, roomId: string): Room | null {
-  const row = db.prepare('SELECT id, name, system_prompt as systemPrompt, world_info as worldInfo, current_turn as currentTurn, status, ai_config_json as aiConfigJson, created_at as createdAt FROM rooms WHERE id = ?').get(roomId) as any;
+  const row = db.prepare('SELECT id, name, system_prompt as systemPrompt, world_info as worldInfo, current_turn as currentTurn, status, expected_player_count as expectedPlayerCount, ai_config_json as aiConfigJson, created_at as createdAt FROM rooms WHERE id = ?').get(roomId) as any;
   if (!row) return null;
   return {
     id: row.id,
@@ -56,6 +57,7 @@ function getRoom(db: AppDatabase, roomId: string): Room | null {
     worldInfo: row.worldInfo,
     currentTurn: row.currentTurn,
     status: row.status,
+    expectedPlayerCount: row.expectedPlayerCount ?? null,
     aiConfig: JSON.parse(row.aiConfigJson),
     createdAt: row.createdAt
   };
@@ -76,18 +78,53 @@ function claimRoomTurnForProcessing(db: AppDatabase, roomId: string, turnId: str
   })();
 }
 
+function restoreRetryableApplyFailure(db: AppDatabase, roomId: string, turnId: string): void {
+  db.transaction(() => {
+    db.prepare('UPDATE rooms SET status = ? WHERE id = ? AND status IN (?, ?)')
+      .run('ready_to_resolve', roomId, 'processing', 'needs_admin_attention');
+    db.prepare('UPDATE turns SET status = ?, ended_at = NULL WHERE id = ? AND status IN (?, ?)')
+      .run('ready_to_resolve', turnId, 'processing', 'needs_admin_attention');
+  })();
+}
+
+function recoverReadyTurnAfterApplyFailure(db: AppDatabase, roomId: string, previewTurnId: string | null = null): void {
+  const row = db.prepare(`
+    SELECT
+      r.id as roomId,
+      r.current_turn as currentTurn,
+      r.status as roomStatus,
+      t.id as turnId,
+      t.status as turnStatus
+    FROM rooms r
+    LEFT JOIN turns t ON t.room_id = r.id AND t.number = r.current_turn
+    WHERE r.id = ?
+  `).get(roomId) as { roomId: string; currentTurn: number; roomStatus: Room['status']; turnId: string | null; turnStatus: string | null } | undefined;
+  if (!row?.turnId) return;
+  if (previewTurnId && row.turnId !== previewTurnId) return;
+  if (row.roomStatus !== 'needs_admin_attention' || row.turnStatus !== 'needs_admin_attention') return;
+
+  const readiness = getTurnReadiness(db, { id: roomId, currentTurn: row.currentTurn, status: row.roomStatus }, { updateStatus: false });
+  if (readiness.requiredActorIds.length > 0 && readiness.missingActorIds.length === 0) {
+    restoreRetryableApplyFailure(db, roomId, row.turnId);
+  }
+}
+
 function joinNarrativeParts(parts: Array<string | undefined>): string {
   return parts.map((part) => part?.trim()).filter((part): part is string => Boolean(part)).join('\n\n');
 }
 
 function mergePrivateNarratives(
   preliminary: Record<string, string>,
-  postResolution: Record<string, string>
+  postResolution: Record<string, string>,
+  replacePreliminaryForPlayerIds: string[] = []
 ): Record<string, string> {
   const playerIds = new Set([...Object.keys(preliminary), ...Object.keys(postResolution)]);
+  const replacementIds = new Set(replacePreliminaryForPlayerIds);
   return Object.fromEntries([...playerIds].map((playerId) => [
     playerId,
-    joinNarrativeParts([preliminary[playerId], postResolution[playerId]])
+    replacementIds.has(playerId) && postResolution[playerId]
+      ? postResolution[playerId].trim()
+      : joinNarrativeParts([preliminary[playerId], postResolution[playerId]])
   ]).filter(([, content]) => content));
 }
 
@@ -99,7 +136,7 @@ function privatePlayerIdsForResolutionRun(db: AppDatabase, resolutionRun: TurnRe
   })));
 }
 
-function buildPostResolutionNarrationPrompt(
+export function buildPostResolutionNarrationPrompt(
   originalPrompt: string,
   preliminaryResult: AiTurnResult,
   resolutionRun: TurnResolutionRun,
@@ -124,6 +161,8 @@ function buildPostResolutionNarrationPrompt(
     'The preliminary JSON requested system dice. The dice above are now authoritative and must not be rerolled.',
     'Return a complete AiTurnResult JSON object for the final post-roll outcome.',
     'Write publicLog as ONLY the post-roll consequence narrative; do not repeat the pre-roll narration and do not repeat the dice summary block.',
+    'For a normal multi-player action round, write publicLog as 500-900 Chinese characters in 2-4 readable scene paragraphs; keep it under 500 only for a single brief question, waiting/skip, or very small transition.',
+    'Narrative voice: write publicLog and objectiveLog in third person or objective narration, not default second-person "you/you all" narration. Write privateUpdatesByPlayer in second person for the target player.',
     'If the authoritative dice result is DM-only hidden or character-private, put that consequence in privateUpdatesByPlayer for the listed target playerIds and leave publicLog empty unless other characters can directly see, hear, or be told that consequence.',
     'Write objectiveLog as ONLY DM-facing post-roll consequences, including hidden truths that are justified by the actual dice results.',
     'privateUpdatesByPlayer should contain only post-roll private consequences, keyed by playerId.',
@@ -133,7 +172,7 @@ function buildPostResolutionNarrationPrompt(
   ].filter(Boolean).join('\n');
 }
 
-function combinePostResolutionResult(
+export function combinePostResolutionResult(
   db: AppDatabase,
   preliminaryResult: AiTurnResult,
   postResolutionResult: AiTurnResult,
@@ -142,36 +181,20 @@ function combinePostResolutionResult(
   const sections = buildResolutionNarrationSections(resolutionRun);
   const privatePlayerIds = privatePlayerIdsForResolutionRun(db, resolutionRun);
   const postResolutionPublicLog = postResolutionResult.publicLog.trim();
-  const shouldRoutePostResolutionPublicLogToPrivate =
-    privatePlayerIds.length > 0
-    && sections.publicSummaries.length === 0
-    && postResolutionPublicLog.length > 0;
   const postResolutionPrivateUpdates = { ...postResolutionResult.privateUpdatesByPlayer };
-  if (shouldRoutePostResolutionPublicLogToPrivate) {
-    for (const playerId of privatePlayerIds) {
-      postResolutionPrivateUpdates[playerId] = joinNarrativeParts([
-        postResolutionPrivateUpdates[playerId],
-        postResolutionPublicLog
-      ]);
-    }
-  }
 
   return {
     ...postResolutionResult,
-    publicLog: joinNarrativeParts([
-      preliminaryResult.publicLog,
-      sections.publicDiceBlock,
-      shouldRoutePostResolutionPublicLogToPrivate ? '' : postResolutionResult.publicLog
-    ]),
+    publicLog: postResolutionPublicLog || sections.publicDiceBlock || preliminaryResult.publicLog,
     objectiveLog: joinNarrativeParts([
-      preliminaryResult.objectiveLog || preliminaryResult.publicLog,
+      postResolutionResult.objectiveLog || postResolutionResult.publicLog || preliminaryResult.objectiveLog || preliminaryResult.publicLog,
       sections.objectivePublicDiceBlock,
-      sections.hiddenObjectiveDiceBlock,
-      postResolutionResult.objectiveLog || postResolutionResult.publicLog
+      sections.hiddenObjectiveDiceBlock
     ]),
     privateUpdatesByPlayer: mergePrivateNarratives(
       preliminaryResult.privateUpdatesByPlayer,
-      postResolutionPrivateUpdates
+      postResolutionPrivateUpdates,
+      privatePlayerIds
     ),
     diceRequests: preliminaryResult.diceRequests ?? [],
     diceResults: resolutionRun.diceLogs
@@ -227,6 +250,7 @@ async function completePostResolutionNarration(
 }
 
 export async function createAiTurnPreview(db: AppDatabase, roomId: string): Promise<AiTurnPromptPreviewResponse> {
+  recoverReadyTurnAfterApplyFailure(db, roomId);
   const room = getRoom(db, roomId);
   if (!room) throw new AiTurnWorkflowHttpError(404, { error: 'Room not found' });
 
@@ -262,6 +286,7 @@ export async function sendAiTurnPreview(db: AppDatabase, input: { roomId: string
   const room = getRoom(db, input.roomId);
   if (!room) throw new AiTurnWorkflowHttpError(404, { error: 'Room not found' });
 
+  recoverReadyTurnAfterApplyFailure(db, input.roomId, previewRow.turnId);
   assertPreviewMatchesCurrentReadyTurn(db, room, previewRow.turnId);
 
   const { context } = await buildRoomPromptPreview(db, room);
@@ -360,6 +385,7 @@ export async function applyAiTurnPreview(db: AppDatabase, input: AiTurnApplyInpu
   const room = getRoom(db, input.roomId);
   if (!room) throw new AiTurnWorkflowHttpError(404, { error: 'Room not found' });
 
+  recoverReadyTurnAfterApplyFailure(db, input.roomId, previewRow.turnId);
   assertPreviewMatchesCurrentReadyTurn(db, room, previewRow.turnId);
 
   const { context } = await buildRoomPromptPreview(db, room);
@@ -425,8 +451,9 @@ export async function applyAiTurnPreview(db: AppDatabase, input: AiTurnApplyInpu
     const message = error instanceof Error ? error.message : String(error);
     const now = new Date().toISOString();
     const tx = db.transaction(() => {
-      db.prepare('UPDATE rooms SET status = ? WHERE id = ?').run('needs_admin_attention', input.roomId);
-      db.prepare('UPDATE turns SET status = ? WHERE id = ?').run('needs_admin_attention', turn.id);
+      db.prepare('UPDATE rooms SET status = ? WHERE id = ?').run('ready_to_resolve', input.roomId);
+      db.prepare('UPDATE turns SET status = ?, ended_at = NULL WHERE id = ?').run('ready_to_resolve', turn.id);
+      db.prepare('UPDATE ai_turn_previews SET error_message = ? WHERE id = ?').run(message, input.previewId);
       db.prepare('INSERT INTO ai_generations (id, room_id, turn_id, provider, input_summary, output, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
         .run(nanoid(), input.roomId, turn.id, providerName, `Failed applying preview for ${actions.length} actions`, previewRow.rawJson ?? '', message, now);
     });

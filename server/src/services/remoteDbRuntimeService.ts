@@ -243,6 +243,15 @@ function resolveSheetId(db: AppDatabase, roomId: string, targetId: string): stri
   return row?.id ?? null;
 }
 
+function isVirtualNarrativeStateTarget(targetId: string): boolean {
+  const normalized = (targetId.startsWith('sheet:') ? targetId.slice('sheet:'.length) : targetId)
+    .trim()
+    .toLowerCase();
+  const pathParts = normalized.split('/').map((part) => part.trim()).filter(Boolean);
+  const candidates = new Set([normalized, ...pathParts]);
+  return candidates.has('campaign_state') || candidates.has('combat_state');
+}
+
 function pluginDatabaseAutoApplyWhitelist(): Set<string> {
   return new Set((process.env.PLUGIN_DB_AUTO_APPLY_WHITELIST ?? '')
     .split(',')
@@ -270,6 +279,7 @@ export function applyPluginDatabaseChange(
   }
   const targetId = typeof change.targetId === 'string' ? change.targetId : '';
   const sheetId = resolveSheetId(db, roomId, targetId);
+  if (!sheetId && isVirtualNarrativeStateTarget(targetId)) return { applied: false };
   if (!sheetId) return { applied: false, message: `Pending admin review: plugin database sheet not found or not enabled: ${targetId}` };
 
   const whitelist = pluginDatabaseAutoApplyWhitelist();

@@ -10,7 +10,15 @@ server/dnd.sqlite-*
 .env.*
 .claude/
 .playwright-mcp/
+.codex-tmp/
+.npm-cache/
+.playwright-cli/
+output/
+playwright-browsers/
 SillyTavern/
+task_plan.md
+progress.md
+findings.md
 scripts/adapt-tgbreak-preset.cjs
 dnd相关/5eDnD_玩家手册PHB_中译v1.72版.pdf
 dnd相关/5eDnD_失落矿坑_新手套组_模组_中译(2校）.pdf

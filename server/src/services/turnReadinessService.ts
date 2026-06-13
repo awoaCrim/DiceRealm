@@ -45,31 +45,68 @@ function currentTurn(db: AppDatabase, room: Pick<Room, 'id' | 'currentTurn'>): T
     .get(room.id, room.currentTurn) as Turn | undefined ?? null;
 }
 
+function roomRequiresConfirmedActors(db: AppDatabase, roomId: string): boolean {
+  const room = db.prepare('SELECT expected_player_count as expectedPlayerCount FROM rooms WHERE id = ?')
+    .get(roomId) as { expectedPlayerCount: number | null } | undefined;
+  if (!room?.expectedPlayerCount) return false;
+  const playerCount = db.prepare('SELECT COUNT(*) as count FROM players WHERE room_id = ?')
+    .get(roomId) as { count: number };
+  return playerCount.count >= room.expectedPlayerCount;
+}
+
 function requiredActorsForCurrentScene(db: AppDatabase, roomId: string): string[] {
   const players = db.prepare('SELECT id FROM players WHERE room_id = ? ORDER BY created_at ASC').all(roomId) as Array<{ id: string }>;
   return players.map((player) => player.id);
 }
 
-function submittedActorsForTurn(db: AppDatabase, turnId: string): string[] {
-  const actions = db.prepare(`
-    SELECT player_id as playerId
-    FROM actions
-    WHERE turn_id = ?
-      AND status = ?
-      AND COALESCE(action_type, '') NOT IN ('skip')
-  `).all(turnId, 'submitted') as Pick<PlayerAction, 'playerId'>[];
+function submittedActorsForTurn(db: AppDatabase, turnId: string, requireConfirmedActors: boolean): string[] {
+  const actions = requireConfirmedActors
+    ? db.prepare(`
+        SELECT a.player_id as playerId
+        FROM actions a
+        JOIN characters c ON c.player_id = a.player_id AND c.confirmed = 1
+        WHERE a.turn_id = ?
+          AND a.status = ?
+          AND COALESCE(a.action_type, '') NOT IN ('skip')
+      `).all(turnId, 'submitted') as Pick<PlayerAction, 'playerId'>[]
+    : db.prepare(`
+        SELECT player_id as playerId
+        FROM actions
+        WHERE turn_id = ?
+          AND status = ?
+          AND COALESCE(action_type, '') NOT IN ('skip')
+      `).all(turnId, 'submitted') as Pick<PlayerAction, 'playerId'>[];
   return actions.map((action) => action.playerId);
 }
 
-function skippedActorsForTurn(db: AppDatabase, turnId: string): string[] {
-  const actions = db.prepare(`
-    SELECT player_id as playerId
-    FROM actions
-    WHERE turn_id = ?
-      AND status = ?
-      AND action_type = 'skip'
-  `).all(turnId, 'submitted') as Pick<PlayerAction, 'playerId'>[];
+function skippedActorsForTurn(db: AppDatabase, turnId: string, requireConfirmedActors: boolean): string[] {
+  const actions = requireConfirmedActors
+    ? db.prepare(`
+        SELECT a.player_id as playerId
+        FROM actions a
+        JOIN characters c ON c.player_id = a.player_id AND c.confirmed = 1
+        WHERE a.turn_id = ?
+          AND a.status = ?
+          AND a.action_type = 'skip'
+      `).all(turnId, 'submitted') as Pick<PlayerAction, 'playerId'>[]
+    : db.prepare(`
+        SELECT player_id as playerId
+        FROM actions
+        WHERE turn_id = ?
+          AND status = ?
+          AND action_type = 'skip'
+      `).all(turnId, 'submitted') as Pick<PlayerAction, 'playerId'>[];
   return actions.map((action) => action.playerId);
+}
+
+function confirmedActorIdsForRoom(db: AppDatabase, roomId: string): Set<string> {
+  const rows = db.prepare(`
+    SELECT p.id
+    FROM players p
+    JOIN characters c ON c.player_id = p.id AND c.confirmed = 1
+    WHERE p.room_id = ?
+  `).all(roomId) as Array<{ id: string }>;
+  return new Set(rows.map((row) => row.id));
 }
 
 function roomStatusForRoom(db: AppDatabase, roomId: string): Room['status'] | null {
@@ -115,8 +152,12 @@ export function getTurnReadiness(db: AppDatabase, room: Pick<Room, 'id' | 'curre
   const configuredRequired = parseStringArray(row?.requiredActorIdsJson);
   const currentSceneRequired = requiredActorsForCurrentScene(db, room.id);
   const required = unique([...currentSceneRequired, ...configuredRequired]);
-  const submitted = submittedActorsForTurn(db, turn.id);
-  const skipped = unique([...parseStringArray(row?.skippedActorIdsJson), ...skippedActorsForTurn(db, turn.id)]);
+  const requireConfirmedActors = roomRequiresConfirmedActors(db, room.id);
+  const submitted = submittedActorsForTurn(db, turn.id, requireConfirmedActors);
+  const confirmedActorIds = requireConfirmedActors ? confirmedActorIdsForRoom(db, room.id) : null;
+  const configuredSkipped = parseStringArray(row?.skippedActorIdsJson)
+    .filter((id) => !confirmedActorIds || confirmedActorIds.has(id));
+  const skipped = unique([...configuredSkipped, ...skippedActorsForTurn(db, turn.id, requireConfirmedActors)]);
   const excluded = parseStringArray(row?.excludedActorIdsJson);
   const completedSet = new Set(unique([...submitted, ...skipped, ...excluded]));
   const readyByActors = required.length > 0 && required.every((id) => completedSet.has(id));

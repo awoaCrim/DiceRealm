@@ -5,6 +5,7 @@ import type { RoomSummary } from '../types';
 
 export function HomePage() {
   const [name, setName] = useState('烛堡之门');
+  const [expectedPlayerCount, setExpectedPlayerCount] = useState(4);
   const [error, setError] = useState('');
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
@@ -29,7 +30,7 @@ export function HomePage() {
   async function submit() {
     setError('');
     try {
-      const room = await createRoom({ name });
+      const room = await createRoom({ name, expectedPlayerCount });
       window.location.href = room.adminUrl;
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -43,6 +44,7 @@ export function HomePage() {
     try {
       await deleteRoom(room.id);
       setRooms((current) => current.filter((item) => item.id !== room.id));
+      await loadRooms();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -59,6 +61,16 @@ export function HomePage() {
           <p className="muted">所有房间都会实时使用当前全局配置。</p>
         </div>
         <label>房间名称<input value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <label>预期玩家人数
+          <input
+            min={1}
+            max={12}
+            type="number"
+            value={expectedPlayerCount}
+            onChange={(event) => setExpectedPlayerCount(Math.max(1, Number(event.target.value) || 1))}
+          />
+        </label>
+        <p className="muted">少于 4 名真实玩家时，系统会自动补足友好同伴 NPC。</p>
         {error ? <p>{error}</p> : null}
         <button onClick={submit}>创建房间</button>
       </section>
@@ -76,7 +88,7 @@ export function HomePage() {
                 <div>
                   <strong>{room.name}</strong>
                   <p className="muted">
-                    第 {room.currentTurn} 回合 · {roomStatusLabel(room.status)} · {room.playerCount} 名玩家 · 创建时间 {formatIsoDateTime(room.createdAt)}
+                    第 {room.currentTurn} 回合 · {roomStatusLabel(room.status)} · 玩家 {room.playerCount}/{room.expectedPlayerCount ?? '未设置'} · 创建时间 {formatIsoDateTime(room.createdAt)}
                   </p>
                 </div>
                 <div className="button-row">

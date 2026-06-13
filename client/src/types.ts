@@ -69,6 +69,7 @@ export interface Room {
   worldInfo: string;
   currentTurn: number;
   status: RoomStatus;
+  expectedPlayerCount: number | null;
   aiConfig: AiConfig;
   createdAt: string;
 }
@@ -79,6 +80,7 @@ export interface RoomSummary {
   currentTurn: number;
   status: RoomStatus;
   playerCount: number;
+  expectedPlayerCount: number | null;
   createdAt: string;
   adminUrl: string;
 }
@@ -143,6 +145,7 @@ export interface CharacterBuilderAuditIssue {
 export interface CharacterBuilderAudit {
   valid: boolean;
   issues: CharacterBuilderAuditIssue[];
+  warnings: CharacterBuilderAuditIssue[];
 }
 
 export interface CharacterSheet {
@@ -248,6 +251,16 @@ export interface PlayerAction {
   isHiddenRoll?: boolean;
 }
 
+export type PlayerTurnSuggestionStatus = 'missing' | 'ready' | 'failed';
+
+export interface PlayerTurnSuggestion {
+  id: string;
+  title: string;
+  actionText: string;
+  actionType: NonNullable<PlayerAction['actionType']>;
+  hint: string;
+}
+
 export interface InteractionRequest {
   id: string;
   roomId: string;
@@ -291,6 +304,9 @@ export interface PlayerVisibleState {
   privateLogs: LogEntry[];
   pendingInteractions: InteractionRequest[];
   currentAction?: PlayerAction | null;
+  turnSuggestions?: PlayerTurnSuggestion[];
+  turnSuggestionStatus?: PlayerTurnSuggestionStatus;
+  turnSuggestionError?: string | null;
   submittedPlayers: string[];
   waitingPlayers: string[];
   ruleSummaries: RuleSummary[];

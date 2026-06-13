@@ -205,11 +205,44 @@ function insertDefaultGlobalPresetBlocks(db: AppDatabase, aiConfig: AiConfig): v
   }
 }
 
+function isLegacyDefaultNarrativeLengthRules(content: string): boolean {
+  if (!content.includes('剧情字数硬上限') || !content.includes('objectiveLog：最多 300')) return false;
+  const earliestDefault = content.includes('publicLog：最多 300')
+    && content.includes('privateUpdatesByPlayer：每名玩家最多 150');
+  const previousDefault = content.includes('publicLog：最多 600')
+    && content.includes('privateUpdatesByPlayer：每名玩家最多 300');
+  const currentBeforeExpansion = content.includes('publicLog：最多 1000')
+    && content.includes('privateUpdatesByPlayer：每名玩家最多 300');
+  const currentBeforeMinimumGuidance = content.includes('publicLog：最多 1500')
+    && content.includes('通常写 500-900 个中文字符')
+    && content.includes('privateUpdatesByPlayer：每名玩家最多 300');
+  return earliestDefault || previousDefault || currentBeforeExpansion || currentBeforeMinimumGuidance;
+}
+
+function isLegacyBuiltinNarrativeLengthRules(content: string): boolean {
+  if (isLegacyDefaultNarrativeLengthRules(content)) return true;
+  return content.includes('剧情字数限制：控制 AI 本回合输出的三层剧情长度')
+    && content.includes('objectiveLog：建议 500-1000')
+    && content.includes('publicLog：建议 500-1500')
+    && content.includes('privateUpdatesByPlayer：每名玩家建议 300-800');
+}
+
+function upgradeLegacyBuiltinNarrativeLengthBlocks(db: AppDatabase): void {
+  const rows = db.prepare('SELECT id, content FROM global_prompt_blocks WHERE name = ?')
+    .all('剧情字数限制') as Array<{ id: string; content: string }>;
+  for (const row of rows) {
+    if (row.content !== defaultNarrativeLengthRules && isLegacyBuiltinNarrativeLengthRules(row.content)) {
+      db.prepare('UPDATE global_prompt_blocks SET content = ?, position = ?, role = ?, order_index = ?, enabled = ? WHERE id = ?')
+        .run(defaultNarrativeLengthRules, 'final', 'system', 850, 1, row.id);
+    }
+  }
+}
+
 function ensureNarrativeLengthBlockForBuiltinDefaultPreset(db: AppDatabase): void {
   const rows = db.prepare('SELECT id, name, content FROM global_prompt_blocks WHERE preset_id = ? ORDER BY order_index ASC').all(DEFAULT_GLOBAL_PRESET_ID) as Array<{ id: string; name: string; content: string }>;
   const existing = rows.find((row) => row.name === '剧情字数限制');
   if (existing) {
-    if (existing.content !== defaultNarrativeLengthRules) {
+    if (existing.content !== defaultNarrativeLengthRules && isLegacyDefaultNarrativeLengthRules(existing.content)) {
       db.prepare('UPDATE global_prompt_blocks SET content = ?, position = ?, role = ?, order_index = ?, enabled = ? WHERE id = ?')
         .run(defaultNarrativeLengthRules, 'final', 'system', 850, 1, existing.id);
     }
@@ -248,6 +281,7 @@ function ensureDefaultGlobalPresetInitialized(db: AppDatabase): void {
     } else {
       ensureNarrativeLengthBlockForBuiltinDefaultPreset(db);
     }
+    upgradeLegacyBuiltinNarrativeLengthBlocks(db);
   });
   tx();
 }

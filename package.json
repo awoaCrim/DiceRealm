@@ -22,5 +22,8 @@
     "jsdom": "latest",
     "typescript": "latest",
     "vitest": "latest"
+  },
+  "dependencies": {
+    "playwright": "^1.54.1"
   }
 }

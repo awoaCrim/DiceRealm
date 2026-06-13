@@ -11,6 +11,7 @@ import {
   deletePresetPackage,
   deleteResourceWorldBook,
   deleteScriptCard,
+  generatePlayerTurnSuggestions,
   getCharacterBuilderOptions,
   getGlobalConfig,
   getGlobalAiProviderConfig,
@@ -53,7 +54,8 @@ import {
   listNpcs,
   updateNpc,
   listLocations,
-  updateLocation
+  updateLocation,
+  updateRoomExpectedPlayerCount
 } from './api';
 import type { AiProviderConfig, EmbeddingProviderConfig, PromptPreviewResponse } from './types';
 
@@ -320,27 +322,36 @@ describe('resource API helpers', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/admin/active-preset-type', expect.objectContaining({ headers: expect.any(Object) }));
   });
 
-  it('creates rooms with only a name because configuration is global', async () => {
+  it('creates rooms with expected player count because configuration is global', async () => {
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     const fetchMock = mockFetchJson({ roomId: 'room-1', adminUrl: '/admin/room-1' });
 
-    const createInput = { name: '全局配置房间', worldInfo: '不应发送', systemPrompt: '不应发送' } as { name: string };
+    const createInput = { name: '全局配置房间', expectedPlayerCount: 4, worldInfo: '不应发送', systemPrompt: '不应发送' } as { name: string; expectedPlayerCount: number };
 
     await createRoom(createInput);
 
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/rooms', expect.objectContaining({
       method: 'POST',
-      body: JSON.stringify({ name: '全局配置房间' })
+      body: JSON.stringify({ name: '全局配置房间', expectedPlayerCount: 4 })
     }));
+    expect(timeoutSpy.mock.calls.some((call) => call[1] === 120000)).toBe(true);
+    timeoutSpy.mockRestore();
   });
 
-  it('lists and deletes rooms through admin APIs', async () => {
+  it('lists, fills expected player count, and deletes rooms through admin APIs', async () => {
     const fetchMock = mockFetchJson({ rooms: [] });
 
     await listRooms();
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/admin/rooms', expect.objectContaining({ headers: expect.any(Object) }));
 
+    await updateRoomExpectedPlayerCount('room-1', 4);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/admin/rooms/room-1/expected-player-count', expect.objectContaining({
+      method: 'PUT',
+      body: JSON.stringify({ expectedPlayerCount: 4 })
+    }));
+
     await deleteRoom('room-1');
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/admin/rooms/room-1', expect.objectContaining({ method: 'DELETE' }));
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/admin/rooms/room-1', expect.objectContaining({ method: 'DELETE' }));
   });
 
   it('imports and reviews PHB extraction drafts through admin resource APIs', async () => {
@@ -645,6 +656,7 @@ describe('resource API helpers', () => {
 
   it('calls player character builder APIs', async () => {
     const draft = { name: '洛林', concept: '', species: '', subSpecies: '', className: '', classDetail: '', background: '', abilityScores: { str: 0, dex: 0, con: 0, int: 0, wis: 0, cha: 0 }, skills: [], equipment: [], spells: [], languages: [], proficiencies: [], personality: '', ideal: '', bond: '', flaw: '', notes: '' };
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce({
         ok: true,
@@ -685,8 +697,29 @@ describe('resource API helpers', () => {
       method: 'POST',
       body: JSON.stringify({ draft })
     }));
+    expect(timeoutSpy.mock.calls.some((call) => call[1] === 120000)).toBe(true);
 
     fetchMock.mockRestore();
+    timeoutSpy.mockRestore();
+  });
+
+  it('calls player turn suggestion generation API with AI timeout', async () => {
+    const response = {
+      suggestions: [
+        { id: 'suggestion-1', title: '观察出口', actionText: '我观察出口附近是否有埋伏。', actionType: 'observe', hint: '先确认风险。' }
+      ],
+      status: 'ready'
+    };
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout');
+    const fetchMock = mockFetchJson(response);
+
+    await expect(generatePlayerTurnSuggestions('token-1')).resolves.toEqual(response);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/player/token-1/turn-suggestions', expect.objectContaining({
+      method: 'POST'
+    }));
+    expect(timeoutSpy.mock.calls.some((call) => call[1] === 120000)).toBe(true);
+    timeoutSpy.mockRestore();
   });
 
   it('calls campaign memory APIs for summaries, quests, NPCs, and locations', async () => {

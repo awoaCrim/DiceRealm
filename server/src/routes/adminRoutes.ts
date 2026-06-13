@@ -7,6 +7,7 @@ import { buildCampaignContext, createSessionSummary, listSessionSummaries, listC
 import { createEmbeddingProviderFromConfig, testEmbeddingProviderConfig } from '../services/embeddingService.js';
 import { createStarterCharacter, createEmptyCharacterBuilderSheet } from '../services/characterService.js';
 import { applyResourcePatch, getCharacterResources, shortRest, longRest } from '../services/characterResourceService.js';
+import { ensureAutoCompanionNpcs } from '../services/autoCompanionNpcService.js';
 import { listCharacterResourceChanges, rollbackResourceChange } from '../services/characterAuditService.js';
 import { importRuleSource, listRuleSources } from '../services/rulesService.js';
 import { processTurnActions } from '../services/turnEngine.js';
@@ -56,6 +57,7 @@ import { abilityCheck, abilityModifier, attackRoll, damageRoll, rollDice } from 
 import { createCombat, rollInitiative, nextTurn, processAttack } from '../services/combatService.js';
 import { assertPreviewMatchesCurrentReadyTurn, assertTurnReadyForAi, getTurnReadiness, playerNamesById, StaleTurnPreviewError, TurnNotReadyError, turnNotReadyPayload } from '../services/turnReadinessService.js';
 import { persistGameEvents } from '../services/gameEventService.js';
+import { isNativeCombatStatePluginDatabaseChange } from '../services/turnMaterializationService.js';
 import {
   applyResolutionRunToAiTurnResult,
   buildConfirmedAiTurnResult as buildConfirmedResolvedAiTurnResult,
@@ -71,10 +73,17 @@ import {
 import type { AiConfig, AiTurnPromptContextSection, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, AiTurnResult, CharacterSheet, DiceLog, GameEvent, InteractionRequest, LogEntry, Player, PlayerAction, PromptBlock, PromptBlockPosition, PromptPreviewResponse, PromptPreset, Room, RuleRetrievalMatch, ScriptCard, Turn, TurnResolutionRun, WorldBook, WorldBookEntry, WorldBookMatch, WorldBookPosition } from '../domain/types.js';
 
 const createRoomSchema = z.object({
-  name: z.string().min(1)
+  name: z.string().min(1),
+  expectedPlayerCount: z.number().int().min(1).max(12)
 }).strict();
 
 const addPlayerSchema = z.object({ name: z.string().min(1) });
+const skipPlayerTurnSchema = z.object({
+  reason: z.string().trim().max(240).optional()
+}).strict();
+const expectedPlayerCountSchema = z.object({
+  expectedPlayerCount: z.number().int().min(1).max(12)
+}).strict();
 const submitRuleSchema = z.object({ name: z.string().min(1), content: z.unknown() });
 const aiConfigSchema = z.object({
   coreRules: z.string().min(1),
@@ -209,13 +218,14 @@ function mapRoomRow(row: any): Room {
     worldInfo: row.worldInfo,
     currentTurn: row.currentTurn,
     status: row.status,
+    expectedPlayerCount: row.expectedPlayerCount ?? null,
     aiConfig: parseAiConfigJson(row.aiConfigJson),
     createdAt: row.createdAt
   };
 }
 
 function getRoom(db: AppDatabase, roomId: string): Room | null {
-  const row = db.prepare('SELECT id, name, system_prompt as systemPrompt, world_info as worldInfo, current_turn as currentTurn, status, ai_config_json as aiConfigJson, created_at as createdAt FROM rooms WHERE id = ?').get(roomId) as any;
+  const row = db.prepare('SELECT id, name, system_prompt as systemPrompt, world_info as worldInfo, current_turn as currentTurn, status, expected_player_count as expectedPlayerCount, ai_config_json as aiConfigJson, created_at as createdAt FROM rooms WHERE id = ?').get(roomId) as any;
   return row ? mapRoomRow(row) : null;
 }
 
@@ -742,6 +752,7 @@ function applyPluginDatabaseChangesFromAiResult(
   const events: GameEvent[] = [];
   for (const change of result.suggestedStateChanges ?? []) {
     if (!change || typeof change !== 'object' || Array.isArray(change)) continue;
+    if (isNativeCombatStatePluginDatabaseChange(change)) continue;
     try {
       const outcome = applyPluginDatabaseChange(db, roomId, change);
       if (!outcome.applied && outcome.message) errors.push(outcome.message);
@@ -821,9 +832,129 @@ function handleGlobalConfigResourceError(error: unknown, res: { status: (code: n
   res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
 }
 
+const fallbackOpeningScene = [
+  '午后，灰松镇外的旧矿道驿站被低云压得发闷，木栅栏旁还挂着未干的雨珠。队伍沿着碎石路抵达时，镇长已经等在工具棚前，外套下摆沾满泥水，身后围着几名焦急的矿工家属。昨夜那名失踪的矿工是在换班后不见的，最后一次被人看见是在工具棚附近；那条小路再往前，就是多年前封停的废弃矿道。',
+  '工具棚门口的泥地被踩得凌乱，脚印深浅不一，其中几道拖痕从棚边延向矿道方向，又在湿泥与碎石交界处变得模糊。棚内油灯还留着冷却后的焦味，墙角散着一截断绳和几枚沾泥的铁钉。镇民们七嘴八舌地说着昨夜的风声、犬吠和一声短促的呼喊，但没有人敢靠近矿道口确认。',
+  '驿站另一侧，几辆原本要运往主路的矿车停在雨棚下，车斗里只剩半车潮湿矿石。失踪者的妻子握着一只磨旧的皮手套，说那是丈夫平日不会离身的东西；年轻矿工们则互相推诿，没人愿意承认昨夜是谁最先离开守夜位置。矿道口吹出的冷风带着铁锈和潮土气味，让工具棚里那盏已经熄灭的油灯轻轻晃了一下。',
+  '镇长压低声音请队伍尽快判断：这是普通失足、有人故意掩盖，还是矿道深处有什么东西被惊醒？队伍现在可以先安抚家属、追问目击细节、检查工具棚和泥地痕迹，或直接沿拖痕向废弃矿道推进。'
+].join('\n\n');
+
+const MIN_STANDALONE_OPENING_SCENE_LENGTH = 420;
+const MIN_AI_OPENING_SCENE_LENGTH = 1000;
+
+function cleanOpeningScenePart(value: string | null | undefined): string {
+  return value?.trim().replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n') ?? '';
+}
+
+function appendOpeningScenePart(parts: string[], value: string | null | undefined): void {
+  const cleaned = cleanOpeningScenePart(value);
+  if (!cleaned) return;
+  if (parts.some((part) => part === cleaned || part.includes(cleaned) || cleaned.includes(part))) return;
+  parts.push(cleaned);
+}
+
 function globalOpeningScene(db: AppDatabase): string {
   const scriptCard = getActiveGlobalScriptCard(db);
-  return scriptCard?.firstMes || scriptCard?.scenario || '此房间已创建。请在全局配置中选择主剧本卡后开始游戏。';
+  if (!scriptCard) return fallbackOpeningScene;
+
+  const firstMes = cleanOpeningScenePart(scriptCard.firstMes);
+  if (firstMes.length >= MIN_STANDALONE_OPENING_SCENE_LENGTH) return firstMes;
+
+  const parts: string[] = [];
+  appendOpeningScenePart(parts, scriptCard.scenario);
+  appendOpeningScenePart(parts, scriptCard.description);
+  appendOpeningScenePart(parts, firstMes);
+  const combined = parts.join('\n\n').trim();
+  return combined || fallbackOpeningScene;
+}
+
+function buildAiOpeningScenePrompt(input: { roomName: string; sourceOpeningScene: string }): string {
+  return [
+    '你是 D&D 5e 中文跑团的主持人助手。请根据给定素材，为新房间生成公开开场剧情。',
+    '',
+    '输出要求：',
+    '- 只输出正文纯文本，不要 JSON、Markdown 标题、列表或解释。',
+    '- 至少 1000 个中文字符，建议 4-6 段。',
+    '- 使用第三人称或客观叙述，不要默认写“你们”。',
+    '- 公开开场只包含所有玩家共同可见或共同可知的信息，不泄露隐藏敌人、秘密动机或未来真相。',
+    '- 内容要包含：开场地点、当前气氛、可观察线索、重要 NPC/环境压力、队伍当下可以选择的行动方向。',
+    '- 不要替玩家决定未来行动、台词、情绪或资源变化；不要写骰点和规则结算。',
+    '- 文风适合中文跑团记录：具体、可承接、信息密度高，不要像简介或摘要。',
+    '',
+    `房间名：${input.roomName}`,
+    '',
+    '开场素材：',
+    input.sourceOpeningScene
+  ].join('\n');
+}
+
+function sanitizeOpeningSceneText(value: string): string {
+  return value
+    .trim()
+    .replace(/^```(?:text|markdown)?\s*/i, '')
+    .replace(/\s*```$/i, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function ensureMinimumOpeningSceneLength(value: string): string {
+  const parts: string[] = [];
+  appendOpeningScenePart(parts, sanitizeOpeningSceneText(value));
+  if (parts.join('\n\n').length >= MIN_AI_OPENING_SCENE_LENGTH) return parts.join('\n\n');
+
+  appendOpeningScenePart(parts, fallbackOpeningScene);
+  appendOpeningScenePart(parts, '驿站周围的公开信息仍在不断累积：马车夫提到午后主路曾短暂堵塞，矿工学徒说工具棚的门闩不像是被风吹开的，几名家属则记得霍伯最近反复询问旧矿道支撑柱的编号。没有人能给出完整答案，但每一条说法都能成为调查的起点。队伍可以分头核对证词、保护泥地痕迹、检查矿道旧图，也可以先安抚情绪最激动的家属，避免现场在恐惧中失控。');
+  appendOpeningScenePart(parts, '对所有人来说，这一幕的重点并不是立即揭开真相，而是把冒险的入口清楚摆在眼前。公开可见的风险包括即将变大的雨势、可能被破坏的现场、镇民之间彼此矛盾的说法，以及废弃矿道本身带来的坍塌和迷路危险。队伍还没有做出选择，因此开场只停留在可观察事实和可行动方向上，等待玩家决定先追问、侦查、安抚、准备装备，还是直接向矿道推进。');
+
+  const text = parts.join('\n\n').trim();
+  if (text.length >= MIN_AI_OPENING_SCENE_LENGTH) return text;
+  return `${text}\n\n队伍面前的道路仍然敞开，所有公开线索都指向同一个事实：越早开始行动，越可能在雨水、恐惧和流言抹平现场之前抓住真正有用的细节。镇民们等待着队伍开口或迈步，驿站、工具棚、林线与矿道口也都已经准备好承接第一轮调查；无论玩家选择谨慎询问、分头搜证、整备装备，还是直接冒险推进，场景都有清楚的回应方向。若队伍暂时犹豫，时间压力也会自然推动局势：雨势会改变痕迹，围观者会散去，某些愿意开口的目击者也可能被恐惧重新压回沉默。`;
+}
+
+async function generateOpeningScene(db: AppDatabase, input: { roomName: string }): Promise<string> {
+  const sourceOpeningScene = ensureMinimumOpeningSceneLength(globalOpeningScene(db));
+  const config = getGlobalAiProviderConfig(db);
+  if (config.provider === 'mock') return sourceOpeningScene;
+
+  try {
+    const output = await requestOpenAiCompatibleMessage(config, [
+      { role: 'system', content: '你是中文 D&D 跑团开场剧情写手。只输出玩家共同可见的开场正文纯文本。' },
+      { role: 'user', content: buildAiOpeningScenePrompt({ roomName: input.roomName, sourceOpeningScene }) }
+    ]);
+    const openingScene = sanitizeOpeningSceneText(output);
+    return openingScene.length >= MIN_AI_OPENING_SCENE_LENGTH ? openingScene : ensureMinimumOpeningSceneLength(openingScene);
+  } catch {
+    return sourceOpeningScene;
+  }
+}
+
+function startOpeningSceneGeneration(db: AppDatabase, input: { roomId: string; turnId: string; roomName: string }): void {
+  const config = getGlobalAiProviderConfig(db);
+  if (config.provider === 'mock') return;
+
+  void (async () => {
+    const openingScene = await generateOpeningScene(db, { roomName: input.roomName });
+    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(input.roomId);
+    if (!room) return;
+    const result = db.prepare(`
+      UPDATE log_entries
+      SET content = ?
+      WHERE room_id = ? AND turn_id = ? AND visibility_scope IN ('objective', 'public') AND title IN ('客观开场', '公开开场')
+    `).run(openingScene, input.roomId, input.turnId);
+    if (result.changes > 0) publishRoomUpdate(input.roomId);
+  })().catch(() => {
+  });
+}
+
+function parseJsonStringArray(value: string | null | undefined): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
 }
 
 interface ProcessedDiceResult {
@@ -1146,7 +1277,6 @@ function processAiTurnDiceAndPrivateResults(db: AppDatabase, result: AiTurnResul
   if (publicResults.length > 0) {
     const diceSummary = publicResults.map((dr) => dr.summary).join('\n');
     const objectiveDiceSummary = publicResults.map((dr) => dr.objectiveSummary).join('\n');
-    result.publicLog += `\n\n🎲 系统骰点：\n${diceSummary}`;
     appendObjectiveLog(result, `🎲 系统骰点：\n${objectiveDiceSummary}`);
   }
 
@@ -1238,9 +1368,9 @@ function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTurnInput)
     }
 
     db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(nanoid(), room.id, turn.id, 'objective', null, `Objective Turn ${room.currentTurn}`, result.objectiveLog ?? result.publicLog, now);
+      .run(nanoid(), room.id, turn.id, 'objective', null, `客观回合 ${room.currentTurn}`, result.objectiveLog ?? result.publicLog, now);
     db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(nanoid(), room.id, turn.id, 'public', null, `Turn ${room.currentTurn}`, result.publicLog, now);
+      .run(nanoid(), room.id, turn.id, 'public', null, `第 ${room.currentTurn} 回合`, result.publicLog, now);
     appliedEvents.push(createTurnLogMaterializedEvent(room.id, turn.id, {
       objectiveLog: result.objectiveLog ?? result.publicLog,
       publicLog: result.publicLog,
@@ -1248,7 +1378,7 @@ function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTurnInput)
     }, now));
     for (const [playerId, content] of Object.entries(result.privateUpdatesByPlayer)) {
       db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(nanoid(), room.id, turn.id, 'private', playerId, `Private Turn ${room.currentTurn}`, content, now);
+        .run(nanoid(), room.id, turn.id, 'private', playerId, `私人回合 ${room.currentTurn}`, content, now);
     }
     for (const interaction of result.interactionRequests) {
       const interactionId = nanoid();
@@ -1306,6 +1436,9 @@ function materializeAiTurnResult(db: AppDatabase, input: MaterializeAiTurnInput)
     }
 
     appliedEvents.push(...applyPluginDatabaseChangesFromAiResult(db, room.id, turn.id, result, resourceErrors, now));
+    if (resourceErrors.length > 0) {
+      throw new Error(resourceErrors.join('\n'));
+    }
     persistGameEvents(db, appliedEvents);
     markTurnResolutionRunApplied(db, resolutionRun.id, now);
 
@@ -1337,6 +1470,7 @@ export function createAdminRouter(db: AppDatabase): Router {
         r.name,
         r.current_turn as currentTurn,
         r.status,
+        r.expected_player_count as expectedPlayerCount,
         r.created_at as createdAt,
         COUNT(p.id) as playerCount
       FROM rooms r
@@ -1348,6 +1482,7 @@ export function createAdminRouter(db: AppDatabase): Router {
       name: string;
       currentTurn: number;
       status: string;
+      expectedPlayerCount: number | null;
       createdAt: string;
       playerCount: number;
     }>;
@@ -1366,21 +1501,43 @@ export function createAdminRouter(db: AppDatabase): Router {
     const roomId = nanoid();
     const turnId = nanoid();
     const now = new Date().toISOString();
+    const openingScene = ensureMinimumOpeningSceneLength(globalOpeningScene(db));
 
     const tx = db.transaction(() => {
-      db.prepare('INSERT INTO rooms (id, name, system_prompt, world_info, current_turn, status, ai_config_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(roomId, input.name, '', '此房间实时使用当前全局配置。', 1, 'waiting_for_actions', JSON.stringify(defaultAiConfig), now);
+      db.prepare('INSERT INTO rooms (id, name, system_prompt, world_info, current_turn, status, expected_player_count, ai_config_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(roomId, input.name, '', '此房间实时使用当前全局配置。', 1, 'waiting_for_actions', input.expectedPlayerCount, JSON.stringify(defaultAiConfig), now);
       db.prepare('INSERT INTO turns (id, room_id, number, status, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?)')
         .run(turnId, roomId, 1, 'open', now, null);
-      const openingScene = globalOpeningScene(db);
       db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(nanoid(), roomId, turnId, 'objective', null, 'Objective Opening Scene', openingScene, now);
+        .run(nanoid(), roomId, turnId, 'objective', null, '客观开场', openingScene, now);
       db.prepare('INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(nanoid(), roomId, turnId, 'public', null, 'Opening Scene', openingScene, now);
+        .run(nanoid(), roomId, turnId, 'public', null, '公开开场', openingScene, now);
+      ensureAutoCompanionNpcs(db, roomId, input.expectedPlayerCount);
     });
     tx();
+    startOpeningSceneGeneration(db, { roomId, turnId, roomName: input.name });
 
     res.json({ roomId, adminUrl: `/admin/${roomId}` });
+  });
+
+  router.put('/rooms/:roomId/expected-player-count', (req, res) => {
+    const parsed = expectedPlayerCountSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid expected player count payload' });
+    const room = db.prepare('SELECT id, expected_player_count as expectedPlayerCount FROM rooms WHERE id = ?')
+      .get(req.params.roomId) as { id: string; expectedPlayerCount: number | null } | undefined;
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+    if (room.expectedPlayerCount !== null) {
+      return res.status(409).json({ error: 'EXPECTED_PLAYER_COUNT_LOCKED', message: '预期玩家人数已设置，不能再次修改。' });
+    }
+    const tx = db.transaction(() => {
+      db.prepare('UPDATE rooms SET expected_player_count = ? WHERE id = ?')
+        .run(parsed.data.expectedPlayerCount, req.params.roomId);
+      ensureAutoCompanionNpcs(db, req.params.roomId, parsed.data.expectedPlayerCount);
+    });
+    tx();
+    publishRoomUpdate(req.params.roomId);
+    const updated = getRoom(db, req.params.roomId);
+    res.json({ room: updated });
   });
 
   router.delete('/rooms/:roomId', (req, res) => {
@@ -1393,8 +1550,15 @@ export function createAdminRouter(db: AppDatabase): Router {
 
   router.post('/rooms/:roomId/players', (req, res) => {
     const input = addPlayerSchema.parse(req.body);
-    const room = db.prepare('SELECT id FROM rooms WHERE id = ?').get(req.params.roomId);
+    const room = db.prepare('SELECT id, expected_player_count as expectedPlayerCount FROM rooms WHERE id = ?').get(req.params.roomId) as { id: string; expectedPlayerCount: number | null } | undefined;
     if (!room) return res.status(404).json({ error: 'Room not found' });
+    if (room.expectedPlayerCount === null) {
+      return res.status(400).json({ error: 'EXPECTED_PLAYER_COUNT_REQUIRED', message: '旧房间需要先补填预期玩家人数，才能创建玩家链接。' });
+    }
+    const playerCount = db.prepare('SELECT COUNT(*) as count FROM players WHERE room_id = ?').get(req.params.roomId) as { count: number };
+    if (playerCount.count >= room.expectedPlayerCount) {
+      return res.status(409).json({ error: 'ROOM_PLAYER_LIMIT_REACHED', message: `房间已达到预期玩家人数 ${room.expectedPlayerCount}，不能继续添加玩家。` });
+    }
 
     const playerId = nanoid();
     const characterId = nanoid();
@@ -1414,6 +1578,49 @@ export function createAdminRouter(db: AppDatabase): Router {
     publishRoomUpdate(req.params.roomId);
 
     res.json({ playerId, token, playerUrl: `/player/${token}` });
+  });
+
+  router.post('/rooms/:roomId/players/:playerId/skip-turn', (req, res) => {
+    const input = skipPlayerTurnSchema.parse(req.body ?? {});
+    const room = db.prepare('SELECT id, current_turn as currentTurn, status FROM rooms WHERE id = ?')
+      .get(req.params.roomId) as Pick<Room, 'id' | 'currentTurn' | 'status'> | undefined;
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+    const player = db.prepare('SELECT id, name FROM players WHERE id = ? AND room_id = ?')
+      .get(req.params.playerId, req.params.roomId) as Pick<Player, 'id' | 'name'> | undefined;
+    if (!player) return res.status(404).json({ error: 'Player not found' });
+    const character = db.prepare('SELECT confirmed FROM characters WHERE player_id = ?')
+      .get(player.id) as { confirmed: number } | undefined;
+    if (!character?.confirmed) {
+      return res.status(409).json({
+        error: 'CHARACTER_NOT_CONFIRMED',
+        message: '该玩家还没有确认角色，不能标记为本回合跳过。请先等待其确认角色，或由管理员移除/调整玩家。'
+      });
+    }
+    const turn = db.prepare('SELECT id, status FROM turns WHERE room_id = ? AND number = ?')
+      .get(req.params.roomId, room.currentTurn) as Pick<Turn, 'id' | 'status'> | undefined;
+    if (!turn) return res.status(409).json({ error: 'TURN_NOT_OPEN', message: '当前没有可跳过的回合。' });
+    if (room.status !== 'waiting_for_actions' || !['open', 'waiting_for_actions', 'ready_to_resolve'].includes(turn.status)) {
+      return res.status(409).json({ error: 'ACTIONS_CLOSED', message: '当前回合已锁定或正在结算，不能标记跳过。' });
+    }
+
+    const now = new Date().toISOString();
+    const row = db.prepare('SELECT skipped_actor_ids_json as skippedActorIdsJson FROM turns WHERE id = ?')
+      .get(turn.id) as { skippedActorIdsJson: string } | undefined;
+    const skippedActorIds = new Set(parseJsonStringArray(row?.skippedActorIdsJson));
+    skippedActorIds.add(player.id);
+    const text = input.reason?.trim() || `${player.name} 本回合暂不主动行动。`;
+    const tx = db.transaction(() => {
+      db.prepare('UPDATE turns SET skipped_actor_ids_json = ? WHERE id = ?')
+        .run(JSON.stringify(Array.from(skippedActorIds)), turn.id);
+      db.prepare(`
+        INSERT OR REPLACE INTO actions (id, room_id, turn_id, player_id, text, submitted_at, status, action_type, visibility, is_hidden_roll)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(nanoid(), req.params.roomId, turn.id, player.id, text, now, 'submitted', 'skip', 'public', 0);
+      getTurnReadiness(db, room);
+    });
+    tx();
+    publishRoomUpdate(req.params.roomId);
+    res.json({ ok: true });
   });
 
   router.get('/rooms/:roomId', (req, res) => {
@@ -1653,7 +1860,6 @@ export function createAdminRouter(db: AppDatabase): Router {
           if (publicResults.length > 0) {
             const diceSummary = publicResults.map((dr) => dr.summary).join('\n');
             const objectiveDiceSummary = publicResults.map((dr) => dr.objectiveSummary).join('\n');
-            result.publicLog += `\n\n🎲 系统骰点：\n${diceSummary}`;
             appendObjectiveLog(result, `🎲 系统骰点：\n${objectiveDiceSummary}`);
           }
 
@@ -1751,6 +1957,9 @@ export function createAdminRouter(db: AppDatabase): Router {
         }
 
         applyPluginDatabaseChangesFromAiResult(db, req.params.roomId, turn.id, result, resourceErrors, now);
+        if (resourceErrors.length > 0) {
+          throw new Error(resourceErrors.join('\n'));
+        }
 
         const generationIssues = [...warnings, ...resourceErrors];
         const generationError = generationIssues.length > 0 ? generationIssues.join('\n') : null;
@@ -1808,8 +2017,8 @@ export function createAdminRouter(db: AppDatabase): Router {
       const message = error instanceof Error ? error.message : String(error);
       const now = new Date().toISOString();
       const tx = db.transaction(() => {
-        db.prepare('UPDATE rooms SET status = ? WHERE id = ?').run('needs_admin_attention', req.params.roomId);
-        db.prepare('UPDATE turns SET status = ? WHERE id = ?').run('needs_admin_attention', turn.id);
+        db.prepare('UPDATE rooms SET status = ? WHERE id = ?').run('ready_to_resolve', req.params.roomId);
+        db.prepare('UPDATE turns SET status = ?, ended_at = NULL WHERE id = ?').run('ready_to_resolve', turn.id);
         db.prepare('INSERT INTO ai_generations (id, room_id, turn_id, provider, input_summary, output, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
           .run(nanoid(), req.params.roomId, turn.id, aiProviderName, `Failed processing ${actions.length} actions`, '', message, now);
       });

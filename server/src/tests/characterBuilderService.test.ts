@@ -19,6 +19,7 @@ function seedOptions(db: ReturnType<typeof createMemoryDb>) {
       { kind: 'character_option', optionType: 'background', title: '士兵', summary: '曾在军队服役。' },
       { kind: 'character_option', optionType: 'skill', title: 'Athletics', summary: '运动技能。' },
       { kind: 'character_option', optionType: 'equipment', title: '长剑', summary: '一把标准的剑。' },
+      { kind: 'character_option', optionType: 'equipment', title: '圣武士圣徽', summary: '只适合圣武士的圣徽。', prerequisites: { classNames: ['圣武士'] } },
       { kind: 'character_option', optionType: 'language', title: '通用语', summary: '常见语言。' },
       { kind: 'character_option', optionType: 'proficiency', title: '盾牌熟练', summary: '盾牌熟练项。' },
       { kind: 'rule_entry', title: '不应出现在角色选项', summary: '这条规则不应该出现在角色选项中。' },
@@ -100,6 +101,81 @@ describe('characterBuilderService', () => {
     expect(audit.valid).toBe(false);
     const fieldNames = audit.issues.map((issue) => issue.field);
     expect(fieldNames).toEqual(['species', 'className', 'background', 'abilityScores', 'skills', 'equipment']);
+    expect(audit.warnings).toEqual([]);
+  });
+
+  it('blocks directory choices that conflict with selected upstream options', () => {
+    const draft = normalizeCharacterBuilderDraft({
+      name: '米拉',
+      species: '精灵',
+      subSpecies: '变体人类',
+      className: '战士',
+      background: '士兵',
+      abilityScores: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 },
+      skills: ['运动'],
+      equipment: ['长剑'],
+      spells: ['魔法飞弹'],
+    });
+
+    const audit = auditCharacterBuilderDraft(draft);
+
+    expect(audit.valid).toBe(false);
+    expect(audit.issues).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: 'subSpecies', message: expect.stringContaining('仅适用于：人类') }),
+      expect.objectContaining({ field: 'spells', message: expect.stringContaining('仅适用于职业') }),
+    ]));
+  });
+
+  it('warns about custom choices without blocking an otherwise valid draft', () => {
+    const draft = normalizeCharacterBuilderDraft({
+      name: '星图师',
+      species: '人类',
+      subSpecies: '星裔血统',
+      className: '战士',
+      background: '士兵',
+      abilityScores: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 },
+      skills: ['运动'],
+      equipment: ['黄铜罗盘'],
+      spells: ['星光术'],
+    });
+
+    const audit = auditCharacterBuilderDraft(draft);
+
+    expect(audit.valid).toBe(true);
+    expect(audit.warnings).toEqual(expect.arrayContaining([
+      expect.objectContaining({ field: 'subSpecies', message: expect.stringContaining('DM 复核') }),
+      expect.objectContaining({ field: 'equipment', message: expect.stringContaining('DM 复核') }),
+      expect.objectContaining({ field: 'spells', message: expect.stringContaining('DM 复核') }),
+    ]));
+  });
+
+  it('applies prerequisites from approved imported options', () => {
+    const db = createMemoryDb();
+    migrate(db);
+
+    try {
+      seedOptions(db);
+      const options = listCharacterBuilderOptions(db);
+      const draft = normalizeCharacterBuilderDraft({
+        name: '洛林',
+        species: '人类',
+        subSpecies: '变体人类',
+        className: '战士',
+        background: '士兵',
+        abilityScores: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 },
+        skills: ['运动'],
+        equipment: ['圣武士圣徽'],
+      });
+
+      const audit = auditCharacterBuilderDraft(draft, options);
+
+      expect(audit.valid).toBe(false);
+      expect(audit.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ field: 'equipment', message: expect.stringContaining('仅适用于职业：圣武士') }),
+      ]));
+    } finally {
+      db.close();
+    }
   });
 
   it('builds a confirmed level-1 character sheet from a valid draft', () => {

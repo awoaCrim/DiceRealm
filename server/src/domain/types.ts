@@ -316,6 +316,7 @@ export interface Room {
   worldInfo: string;
   currentTurn: number;
   status: RoomStatus;
+  expectedPlayerCount: number | null;
   aiConfig: AiConfig;
   createdAt: string;
 }
@@ -429,6 +430,27 @@ export interface PlayerAction {
   actionType?: 'narrative' | 'exploration' | 'social' | 'combat' | 'ooc' | 'in_character_action' | 'player_question' | 'meta_question' | 'observe' | 'wait' | 'skip' | 'ready' | 'follow' | 'combat_action';
   visibility?: ActionVisibility;
   isHiddenRoll?: boolean;
+}
+
+export type PlayerTurnSuggestionStatus = 'missing' | 'ready' | 'failed';
+
+export interface PlayerTurnSuggestion {
+  id: string;
+  title: string;
+  actionText: string;
+  actionType: NonNullable<PlayerAction['actionType']>;
+  hint: string;
+}
+
+export interface PlayerTurnSuggestionsCache {
+  roomId: string;
+  turnId: string | null;
+  playerId: string;
+  status: PlayerTurnSuggestionStatus;
+  options: PlayerTurnSuggestion[];
+  error: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
 }
 
 export interface InteractionRequest {
@@ -599,6 +621,7 @@ export interface CharacterBuilderAuditIssue {
 export interface CharacterBuilderAudit {
   valid: boolean;
   issues: CharacterBuilderAuditIssue[];
+  warnings: CharacterBuilderAuditIssue[];
 }
 
 export interface RuleWorldBookEntry {
@@ -662,6 +685,9 @@ export interface PlayerVisibleState {
   privateLogs: LogEntry[];
   pendingInteractions: InteractionRequest[];
   currentAction: PlayerAction | null;
+  turnSuggestions: PlayerTurnSuggestion[];
+  turnSuggestionStatus: PlayerTurnSuggestionStatus;
+  turnSuggestionError?: string | null;
   submittedPlayers: string[];
   waitingPlayers: string[];
   ruleSummaries: RuleSummary[];

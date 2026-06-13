@@ -20,7 +20,7 @@ describe('AI Context Builder scene filtering', () => {
 
   function makeBaseInput() {
     return {
-      room: { id: 'r1', name: 'Test Room', systemPrompt: '', worldInfo: 'Test World', currentTurn: 1, status: 'waiting_for_actions' as const, aiConfig: {} as any, createdAt: '' },
+      room: { id: 'r1', name: 'Test Room', systemPrompt: '', worldInfo: 'Test World', currentTurn: 1, status: 'waiting_for_actions' as const, expectedPlayerCount: null, aiConfig: {} as any, createdAt: '' },
       players: [],
       publicLogs: [],
       actions: [],

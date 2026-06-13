@@ -3,6 +3,7 @@ import { defaultNarrativeLengthLimits, type NarrativeLengthLimits } from './aiCo
 
 const AI_PROVIDER_TIMEOUT_MS = 120_000;
 const AI_PROVIDER_ERROR_BODY_MAX_CHARS = 1000;
+const AI_PROVIDER_MAX_ATTEMPTS = 3;
 
 export interface AiProvider {
   name: string;
@@ -51,6 +52,19 @@ function chatCompletionsUrl(baseUrl: string): string {
   return new URL('chat/completions', base).toString();
 }
 
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientProviderError(status: number, body: string): boolean {
+  return status === 429 || status >= 500 || /\b(EOF|ECONNRESET|ETIMEDOUT|timeout|temporarily unavailable|connection)\b/i.test(body);
+}
+
+function isTransientFetchError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return /\b(EOF|ECONNRESET|ETIMEDOUT|fetch failed|socket|network|connection)\b/i.test(`${error.name} ${error.message}`);
+}
+
 function extractJsonCandidate(text: string): string | null {
   const trimmed = text.trim();
   if (!trimmed) return null;
@@ -82,6 +96,36 @@ function parseJsonWithMessage(text: string, message: string, allowEmbeddedJson =
     }
     throw new Error(message);
   }
+}
+
+function parseOpenAiCompatibleResponseText(responseText: string): unknown {
+  const trimmed = responseText.trim();
+  if (!trimmed.startsWith('data:')) {
+    return parseJsonWithMessage(responseText, 'AI provider returned invalid JSON response');
+  }
+
+  let content = '';
+  const choices: unknown[] = [];
+  for (const line of trimmed.split(/\r?\n/)) {
+    const data = line.trim().startsWith('data:')
+      ? line.trim().slice('data:'.length).trim()
+      : '';
+    if (!data || data === '[DONE]') continue;
+    const chunk = parseJsonWithMessage(data, 'AI provider returned invalid streaming JSON chunk');
+    if (!isPlainObject(chunk)) continue;
+    const chunkChoices = chunk.choices;
+    if (!Array.isArray(chunkChoices)) continue;
+    choices.push(...chunkChoices);
+    for (const choice of chunkChoices) {
+      if (!isPlainObject(choice)) continue;
+      const delta = choice.delta;
+      const message = choice.message;
+      if (isPlainObject(delta) && typeof delta.content === 'string') content += delta.content;
+      if (isPlainObject(message) && typeof message.content === 'string') content += message.content;
+    }
+  }
+
+  return { choices: choices.length > 0 ? [{ message: { content } }] : [] };
 }
 
 function optionalStringArray(value: unknown): string[] {
@@ -285,52 +329,71 @@ export async function requestOpenAiCompatibleMessage(config: AiProviderConfig, m
     throw new Error('apiKey is required when provider=openai-compatible');
   }
 
-  const controller = new AbortController();
-  let timedOut = false;
-  const timer = setTimeout(() => {
-    timedOut = true;
-    controller.abort();
-  }, AI_PROVIDER_TIMEOUT_MS);
+  const url = chatCompletionsUrl(config.baseUrl);
+  let lastError: Error | null = null;
+  for (let attempt = 1; attempt <= AI_PROVIDER_MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, AI_PROVIDER_TIMEOUT_MS);
 
-  try {
-    const response = await fetch(chatCompletionsUrl(config.baseUrl), {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${config.apiKey}`
-      },
-      body: JSON.stringify({
-        model: config.model,
-        messages,
-        temperature: 0.7
-      }),
-      signal: controller.signal
-    });
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${config.apiKey}`
+        },
+        body: JSON.stringify({
+          model: config.model,
+          messages,
+          temperature: 0.7,
+          stream: false
+        }),
+        signal: controller.signal
+      });
 
-    const responseText = await response.text();
-    if (!response.ok) {
-      const statusText = response.statusText ? ` ${response.statusText}` : '';
-      throw new Error(`AI provider failed with ${response.status}${statusText}: ${sanitizeProviderBody(responseText, config.apiKey)}`);
-    }
+      const responseText = await response.text();
+      if (!response.ok) {
+        const statusText = response.statusText ? ` ${response.statusText}` : '';
+        const sanitizedBody = sanitizeProviderBody(responseText, config.apiKey);
+        const error = new Error(`AI provider failed with ${response.status}${statusText}: ${sanitizedBody}`);
+        lastError = error;
+        if (attempt < AI_PROVIDER_MAX_ATTEMPTS && isTransientProviderError(response.status, responseText)) {
+          await delay(200 * attempt);
+          continue;
+        }
+        throw error;
+      }
 
-    const data = parseJsonWithMessage(responseText, 'AI provider returned invalid JSON response');
-    if (!isPlainObject(data)) throw new Error('AI provider returned invalid JSON response');
-    const choices = data.choices;
-    const content = Array.isArray(choices) && isPlainObject(choices[0]) && isPlainObject(choices[0].message)
-      ? choices[0].message.content
-      : undefined;
-    if (typeof content !== 'string' || content.trim() === '') {
-      throw new Error('AI provider returned no choices[0].message.content');
+      const data = parseOpenAiCompatibleResponseText(responseText);
+      if (!isPlainObject(data)) throw new Error('AI provider returned invalid JSON response');
+      const choices = data.choices;
+      const content = Array.isArray(choices) && isPlainObject(choices[0]) && isPlainObject(choices[0].message)
+        ? choices[0].message.content
+        : undefined;
+      if (typeof content !== 'string' || content.trim() === '') {
+        throw new Error('AI provider returned no choices[0].message.content');
+      }
+      return content;
+    } catch (error) {
+      if (timedOut || (error instanceof Error && error.name === 'AbortError')) {
+        throw new Error(`AI provider request timed out after ${AI_PROVIDER_TIMEOUT_MS}ms`);
+      }
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < AI_PROVIDER_MAX_ATTEMPTS && isTransientFetchError(error)) {
+        await delay(200 * attempt);
+        continue;
+      }
+      throw lastError;
+    } finally {
+      clearTimeout(timer);
     }
-    return content;
-  } catch (error) {
-    if (timedOut || (error instanceof Error && error.name === 'AbortError')) {
-      throw new Error(`AI provider request timed out after ${AI_PROVIDER_TIMEOUT_MS}ms`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timer);
   }
+
+  throw lastError ?? new Error('AI provider request failed');
 }
 
 export class OpenAiCompatibleProvider implements AiProvider {

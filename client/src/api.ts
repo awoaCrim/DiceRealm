@@ -17,6 +17,8 @@ import type {
   GlobalResourceWorldBookBinding,
   JsonObject,
   JsonValue,
+  PlayerTurnSuggestion,
+  PlayerTurnSuggestionStatus,
   PlayerVisibleState,
   PresetTemplateMeta,
   PresetType,
@@ -40,6 +42,7 @@ import type {
   RestInput,
   RestResponse,
   RollbackResponse,
+  Room,
   RoomPresetBinding,
   RoomScriptBinding,
   RoomSummary,
@@ -54,6 +57,8 @@ import type {
 
 const REQUEST_TIMEOUT_MS = 15000;
 const AI_TURN_SEND_TIMEOUT_MS = 120000;
+const CHARACTER_CONFIRM_TIMEOUT_MS = 120000;
+const ROOM_CREATE_TIMEOUT_MS = 120000;
 const DEV_BACKEND_PORT = '3000';
 
 function eventSourceUrl(path: string): string {
@@ -104,10 +109,13 @@ async function jsonRequest<T>(url: string, init?: RequestInit, options: { timeou
   }
 }
 
-export function createRoom(input: { name: string }) {
+export function createRoom(input: { name: string; expectedPlayerCount: number }) {
   return jsonRequest<{ roomId: string; adminUrl: string }>('/api/admin/rooms', {
     method: 'POST',
-    body: JSON.stringify({ name: input.name })
+    body: JSON.stringify({ name: input.name, expectedPlayerCount: input.expectedPlayerCount })
+  }, {
+    timeoutMs: ROOM_CREATE_TIMEOUT_MS,
+    timeoutLabel: 'AI 开场生成'
   });
 }
 
@@ -119,8 +127,22 @@ export function deleteRoom(roomId: string) {
   return jsonRequest<{ ok: true; roomId: string }>(`/api/admin/rooms/${roomId}`, { method: 'DELETE' });
 }
 
+export function updateRoomExpectedPlayerCount(roomId: string, expectedPlayerCount: number) {
+  return jsonRequest<{ room: Room | null }>(`/api/admin/rooms/${roomId}/expected-player-count`, {
+    method: 'PUT',
+    body: JSON.stringify({ expectedPlayerCount })
+  });
+}
+
 export function addPlayer(roomId: string, name: string) {
   return jsonRequest<{ playerId: string; token: string; playerUrl: string }>(`/api/admin/rooms/${roomId}/players`, { method: 'POST', body: JSON.stringify({ name }) });
+}
+
+export function adminSkipPlayerTurn(roomId: string, playerId: string, reason?: string) {
+  return jsonRequest<{ ok: true }>(`/api/admin/rooms/${roomId}/players/${playerId}/skip-turn`, {
+    method: 'POST',
+    body: JSON.stringify({ ...(reason ? { reason } : {}) })
+  });
 }
 
 export function getAdminState(roomId: string) {
@@ -384,6 +406,15 @@ export function getPlayerState(token: string) {
   return jsonRequest<PlayerVisibleState>(`/api/player/${token}/state`);
 }
 
+export function generatePlayerTurnSuggestions(token: string) {
+  return jsonRequest<{ suggestions: PlayerTurnSuggestion[]; status: PlayerTurnSuggestionStatus; error?: string }>(`/api/player/${token}/turn-suggestions`, {
+    method: 'POST'
+  }, {
+    timeoutMs: AI_TURN_SEND_TIMEOUT_MS,
+    timeoutLabel: '玩家回合建议生成'
+  });
+}
+
 export function submitAction(token: string, text: string, actionType?: string, isHiddenRoll?: boolean, visibility?: 'public' | 'private' | 'dm_only') {
   return jsonRequest<{ ok: true }>(`/api/player/${token}/actions`, {
     method: 'POST',
@@ -411,6 +442,9 @@ export function confirmCharacterBuilderDraft(token: string, draft?: CharacterBui
   return jsonRequest<{ character: { id: string; confirmed: boolean } }>(`/api/player/${token}/character-builder/confirm`, {
     method: 'POST',
     ...(draft ? { body: JSON.stringify({ draft }) } : {})
+  }, {
+    timeoutMs: CHARACTER_CONFIRM_TIMEOUT_MS,
+    timeoutLabel: '角色确认与个人开场生成'
   });
 }
 

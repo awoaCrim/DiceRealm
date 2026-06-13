@@ -22,6 +22,87 @@ interface BuiltinOptionDetail {
   prerequisites?: Record<string, unknown>;
 }
 
+const spellcastingAtLevel1Classes = ['吟游诗人', '牧师', '德鲁伊', '术士', '邪术师', '法师'];
+const divineSpellcastingClasses = ['牧师'];
+const arcaneSpellcastingClasses = ['吟游诗人', '术士', '邪术师', '法师'];
+
+const subSpeciesParents: Record<string, string[]> = {
+  标准人类: ['人类'],
+  变体人类: ['人类'],
+  丘陵矮人: ['矮人'],
+  山地矮人: ['矮人'],
+  高等精灵: ['精灵'],
+  木精灵: ['精灵'],
+  黑暗精灵: ['精灵'],
+  轻足半身人: ['半身人'],
+  强心半身人: ['半身人'],
+  森林侏儒: ['侏儒'],
+  岩侏儒: ['侏儒'],
+  龙裔血脉: ['龙裔'],
+  提夫林血统: ['提夫林'],
+};
+
+const spellClassRecommendations: Record<string, string[]> = {
+  光亮术: ['吟游诗人', '牧师', '法师', '术士'],
+  法师之手: ['吟游诗人', '术士', '邪术师', '法师'],
+  火焰箭: ['术士', '邪术师', '法师'],
+  冷冻射线: ['术士', '法师'],
+  魔法飞弹: ['术士', '法师'],
+  护盾术: ['术士', '法师'],
+  治疗伤口: ['吟游诗人', '牧师', '德鲁伊'],
+  祝福术: ['牧师'],
+  妖火: ['吟游诗人', '德鲁伊'],
+  猎人印记: ['游侠'],
+  魅惑人类: ['吟游诗人', '德鲁伊', '术士', '邪术师', '法师'],
+  侦测魔法: ['吟游诗人', '牧师', '德鲁伊', '术士', '邪术师', '法师'],
+  睡眠术: ['吟游诗人', '术士', '法师'],
+  雷鸣波: ['吟游诗人', '德鲁伊', '术士', '法师'],
+  治愈真言: ['吟游诗人', '牧师', '德鲁伊'],
+};
+
+const equipmentClassRecommendations: Record<string, string[]> = {
+  匕首: ['吟游诗人', '术士', '邪术师', '法师', '游荡者'],
+  长剑: ['战士', '圣武士', '游侠'],
+  巨剑: ['战士', '圣武士'],
+  短弓: ['游侠', '游荡者'],
+  长弓: ['战士', '游侠'],
+  轻弩: ['吟游诗人', '术士', '邪术师', '法师', '游荡者'],
+  法杖: ['牧师', '德鲁伊', '术士', '邪术师', '法师'],
+  盾牌: ['战士', '牧师', '圣武士', '德鲁伊', '游侠'],
+  皮甲: ['吟游诗人', '德鲁伊', '游侠', '游荡者', '邪术师'],
+  链甲: ['战士', '牧师', '圣武士'],
+  鳞甲: ['牧师', '德鲁伊', '战士', '圣武士', '游侠'],
+  冒险者套组: ['野蛮人', '战士', '圣武士', '游荡者'],
+  探索者套组: ['德鲁伊', '游侠', '武僧'],
+  学者套组: ['法师', '术士', '吟游诗人'],
+  圣徽: divineSpellcastingClasses,
+  奥术法器: arcaneSpellcastingClasses,
+  盗贼工具: ['游荡者'],
+  治疗包: ['牧师', '圣武士', '德鲁伊'],
+};
+
+const proficiencyClassRecommendations: Record<string, string[]> = {
+  军用武器熟练: ['野蛮人', '战士', '圣武士', '游侠'],
+  中甲熟练: ['野蛮人', '牧师', '德鲁伊', '战士', '圣武士', '游侠'],
+  重甲熟练: ['战士', '牧师', '圣武士'],
+  盾牌熟练: ['战士', '牧师', '德鲁伊', '圣武士', '游侠'],
+  盗贼工具熟练: ['游荡者'],
+  草药工具熟练: ['德鲁伊', '隐士'],
+  乐器熟练: ['吟游诗人', '艺人'],
+  工匠工具熟练: ['矮人', '公会工匠'],
+  游戏用具熟练: ['士兵', '贵族', '罪犯'],
+};
+
+function withPrerequisites(detail: BuiltinOptionDetail, prerequisites: Record<string, unknown>): BuiltinOptionDetail {
+  return {
+    ...detail,
+    prerequisites: {
+      ...(detail.prerequisites ?? {}),
+      ...prerequisites,
+    },
+  };
+}
+
 function builtinOption(
   optionType: CharacterBuilderOption['optionType'],
   name: string,
@@ -202,7 +283,7 @@ const builtinCharacterBuilderOptions: CharacterBuilderOption[] = [
     '岩侏儒',
     '龙裔血脉',
     '提夫林血统'
-  ].map((name) => optionFromDetail('subspecies', name, subSpeciesDetails[name])),
+  ].map((name) => optionFromDetail('subspecies', name, withPrerequisites(subSpeciesDetails[name], { species: subSpeciesParents[name] ?? [] }))),
   ...['野蛮人', '吟游诗人', '牧师', '德鲁伊', '战士', '武僧', '圣武士', '游侠', '游荡者', '术士', '邪术师', '法师']
     .map((name) => optionFromDetail('class', name, classDetails[name])),
   ...['侍僧', '罪犯', '民间英雄', '贵族', '贤者', '士兵', '水手', '隐士', '艺人', '公会工匠', '流浪儿', '化外之民']
@@ -210,13 +291,16 @@ const builtinCharacterBuilderOptions: CharacterBuilderOption[] = [
   ...['运动', '体操', '巧手', '隐匿', '奥秘', '历史', '调查', '自然', '宗教', '驯兽', '洞察', '医药', '察觉', '求生', '欺瞒', '威吓', '表演', '说服']
     .map((name) => optionFromDetail('skill', name, skillDetails[name])),
   ...['匕首', '长剑', '巨剑', '短弓', '长弓', '轻弩', '法杖', '盾牌', '皮甲', '链甲', '鳞甲', '冒险者套组', '探索者套组', '学者套组', '圣徽', '奥术法器', '盗贼工具', '治疗包']
-    .map((name) => optionFromDetail('equipment', name, equipmentDetails[name])),
+    .map((name) => optionFromDetail('equipment', name, withPrerequisites(equipmentDetails[name], { recommendedForClassNames: equipmentClassRecommendations[name] ?? [] }))),
   ...['光亮术', '法师之手', '火焰箭', '冷冻射线', '魔法飞弹', '护盾术', '治疗伤口', '祝福术', '妖火', '猎人印记', '魅惑人类', '侦测魔法', '睡眠术', '雷鸣波', '治愈真言']
-    .map((name) => optionFromDetail('spell', name, spellDetails[name])),
+    .map((name) => optionFromDetail('spell', name, withPrerequisites(spellDetails[name], {
+      requiresSpellcastingAtLevel1: true,
+      classNames: spellClassRecommendations[name] ?? spellcastingAtLevel1Classes,
+    }))),
   ...['通用语', '矮人语', '精灵语', '巨人语', '侏儒语', '地精语', '半身人语', '兽人语', '龙语', '炼狱语', '天界语', '深渊语', '地下通用语']
     .map((name) => optionFromDetail('language', name, languageDetails[name])),
   ...['简易武器熟练', '军用武器熟练', '轻甲熟练', '中甲熟练', '重甲熟练', '盾牌熟练', '盗贼工具熟练', '草药工具熟练', '乐器熟练', '工匠工具熟练', '游戏用具熟练']
-    .map((name) => optionFromDetail('proficiency', name, proficiencyDetails[name])),
+    .map((name) => optionFromDetail('proficiency', name, withPrerequisites(proficiencyDetails[name], { recommendedForClassNames: proficiencyClassRecommendations[name] ?? [] }))),
 ];
 
 function mergeOptionsWithBuiltins(importedOptions: CharacterBuilderOption[]): CharacterBuilderOption[] {
@@ -231,6 +315,24 @@ function mergeOptionsWithBuiltins(importedOptions: CharacterBuilderOption[]): Ch
     const typeCompare = a.optionType.localeCompare(b.optionType, 'zh-CN');
     return typeCompare || a.name.localeCompare(b.name, 'zh-CN');
   });
+}
+
+function groupOptions(options: CharacterBuilderOption[]): CharacterBuilderOptions {
+  return {
+    species: options.filter((o) => o.optionType === 'species'),
+    subSpecies: options.filter((o) => o.optionType === 'subspecies'),
+    classes: options.filter((o) => o.optionType === 'class'),
+    backgrounds: options.filter((o) => o.optionType === 'background'),
+    skills: options.filter((o) => o.optionType === 'skill'),
+    equipment: options.filter((o) => o.optionType === 'equipment'),
+    spells: options.filter((o) => o.optionType === 'spell'),
+    languages: options.filter((o) => o.optionType === 'language'),
+    proficiencies: options.filter((o) => o.optionType === 'proficiency'),
+  };
+}
+
+function defaultCharacterBuilderOptions(): CharacterBuilderOptions {
+  return groupOptions(mergeOptionsWithBuiltins([]));
 }
 
 export function listCharacterBuilderOptions(db: AppDatabase): CharacterBuilderOptions {
@@ -261,17 +363,87 @@ export function listCharacterBuilderOptions(db: AppDatabase): CharacterBuilderOp
   }));
   const options = mergeOptionsWithBuiltins(importedOptions);
 
-  return {
-    species: options.filter((o) => o.optionType === 'species'),
-    subSpecies: options.filter((o) => o.optionType === 'subspecies'),
-    classes: options.filter((o) => o.optionType === 'class'),
-    backgrounds: options.filter((o) => o.optionType === 'background'),
-    skills: options.filter((o) => o.optionType === 'skill'),
-    equipment: options.filter((o) => o.optionType === 'equipment'),
-    spells: options.filter((o) => o.optionType === 'spell'),
-    languages: options.filter((o) => o.optionType === 'language'),
-    proficiencies: options.filter((o) => o.optionType === 'proficiency'),
-  };
+  return groupOptions(options);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function stringList(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  return [];
+}
+
+function optionPrerequisites(option: CharacterBuilderOption): Record<string, unknown> {
+  return isRecord(option.prerequisites) ? option.prerequisites : {};
+}
+
+function hasPrerequisiteMismatch(draft: CharacterBuilderDraft, option: CharacterBuilderOption): string | null {
+  const prerequisites = optionPrerequisites(option);
+  const species = stringList(prerequisites.species);
+  if (species.length > 0 && (!draft.species || !species.includes(draft.species))) {
+    return `${option.name} 仅适用于：${species.join('、')}`;
+  }
+
+  const classNames = stringList(prerequisites.classNames);
+  if (classNames.length > 0 && (!draft.className || !classNames.includes(draft.className))) {
+    return `${option.name} 仅适用于职业：${classNames.join('、')}`;
+  }
+
+  const backgrounds = stringList(prerequisites.backgrounds);
+  if (backgrounds.length > 0 && (!draft.background || !backgrounds.includes(draft.background))) {
+    return `${option.name} 仅适用于背景：${backgrounds.join('、')}`;
+  }
+
+  if (prerequisites.requiresSpellcastingAtLevel1 === true && !spellcastingAtLevel1Classes.includes(draft.className)) {
+    return `${option.name} 需要一级即可施法的职业`;
+  }
+
+  return null;
+}
+
+function findOption(options: CharacterBuilderOption[], name: string): CharacterBuilderOption | undefined {
+  return options.find((option) => option.name === name);
+}
+
+function auditSingleChoice(
+  draft: CharacterBuilderDraft,
+  issues: CharacterBuilderAuditIssue[],
+  warnings: CharacterBuilderAuditIssue[],
+  options: CharacterBuilderOption[],
+  field: string,
+  value: string,
+): void {
+  if (!value) return;
+  const option = findOption(options, value);
+  if (!option) {
+    warnings.push({ field, message: `${value} 是自定义项，请由 DM 复核。` });
+    return;
+  }
+
+  const mismatch = hasPrerequisiteMismatch(draft, option);
+  if (mismatch) {
+    issues.push({ field, message: mismatch });
+  }
+
+  if (optionPrerequisites(option).reviewOnly === true) {
+    warnings.push({ field, message: `${value} 标记为需复核，请由 DM 确认。` });
+  }
+}
+
+function auditMultiChoice(
+  draft: CharacterBuilderDraft,
+  issues: CharacterBuilderAuditIssue[],
+  warnings: CharacterBuilderAuditIssue[],
+  options: CharacterBuilderOption[],
+  field: string,
+  values: string[],
+): void {
+  for (const value of values) {
+    auditSingleChoice(draft, issues, warnings, options, field, value);
+  }
 }
 
 function normalizeScores(input: unknown): Record<'str' | 'dex' | 'con' | 'int' | 'wis' | 'cha', number> {
@@ -352,8 +524,9 @@ export function normalizeCharacterBuilderDraft(input: unknown): CharacterBuilder
   };
 }
 
-export function auditCharacterBuilderDraft(draft: CharacterBuilderDraft): CharacterBuilderAudit {
+export function auditCharacterBuilderDraft(draft: CharacterBuilderDraft, options: CharacterBuilderOptions = defaultCharacterBuilderOptions()): CharacterBuilderAudit {
   const issues: CharacterBuilderAuditIssue[] = [];
+  const warnings: CharacterBuilderAuditIssue[] = [];
   const abilityLabels: Record<keyof CharacterBuilderDraft['abilityScores'], string> = {
     str: '力量',
     dex: '敏捷',
@@ -398,7 +571,17 @@ export function auditCharacterBuilderDraft(draft: CharacterBuilderDraft): Charac
     issues.push({ field: 'equipment', message: '请选择至少一件装备' });
   }
 
-  return { valid: issues.length === 0, issues };
+  auditSingleChoice(draft, issues, warnings, options.species, 'species', draft.species);
+  auditSingleChoice(draft, issues, warnings, options.subSpecies, 'subSpecies', draft.subSpecies);
+  auditSingleChoice(draft, issues, warnings, options.classes, 'className', draft.className);
+  auditSingleChoice(draft, issues, warnings, options.backgrounds, 'background', draft.background);
+  auditMultiChoice(draft, issues, warnings, options.skills, 'skills', draft.skills);
+  auditMultiChoice(draft, issues, warnings, options.equipment, 'equipment', draft.equipment);
+  auditMultiChoice(draft, issues, warnings, options.spells, 'spells', draft.spells);
+  auditMultiChoice(draft, issues, warnings, options.languages, 'languages', draft.languages);
+  auditMultiChoice(draft, issues, warnings, options.proficiencies, 'proficiencies', draft.proficiencies);
+
+  return { valid: issues.length === 0, issues, warnings };
 }
 
 export function abilityModifier(score: number): number {

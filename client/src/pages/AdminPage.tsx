@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { activatePreset, addPlayer, applyAiTurnPreview, applyPresetTemplate, checkDbSourceUpdates, createAiTurnPreview, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, listCharacterResourceChanges, listDbSourceSheets, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listRoomDbRows, listRoomDbSheets, listRoomDbSourceBindings, listSessionSummaries, previewAiPrompt, putRoomDbRow, putRoomDbSourceBindings, reindexRuleEmbeddings, rollbackCharacterResourceChange, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, sendAiTurnPreview, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updateQuest } from '../api';
+import { activatePreset, addPlayer, adminSkipPlayerTurn, applyAiTurnPreview, applyPresetTemplate, checkDbSourceUpdates, createAiTurnPreview, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, listCharacterResourceChanges, listDbSourceSheets, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listRoomDbRows, listRoomDbSheets, listRoomDbSourceBindings, listSessionSummaries, previewAiPrompt, putRoomDbRow, putRoomDbSourceBindings, reindexRuleEmbeddings, rollbackCharacterResourceChange, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, sendAiTurnPreview, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updateQuest, updateRoomExpectedPlayerCount } from '../api';
 import { LogList } from '../components/LogList';
 import { CharacterCard } from '../components/CharacterCard';
 import { PromptPreviewPanel } from '../components/PromptPreviewPanel';
@@ -9,24 +9,44 @@ import { actorTypeLabel, dbSourceTypeLabel, formatFileSize, formatIsoDateTime, m
 import type { AdminState, AiProviderConfig, AiTurnPromptPreviewResponse, AiTurnPromptSendResponse, CampaignLocation, CampaignNpc, CampaignQuest, CharacterResourceChange, EmbeddingProviderConfig, PresetTemplateMeta, PresetType, PromptBlock, PromptPreset, PromptPresetPackage, PromptPreviewResponse, RemoteDbRow, RemoteDbSheet, RemoteDbSource, RoomDbSourceBinding, SessionSummary, WorldBookEntry } from '../types';
 import { actionStatusLabel, actionTypeLabel, actionVisibilityLabel, aiResultHasInteractionRequests, appliedAiResultMessage, defaultNarrativeLengthLimits, eventTypeLabel, isJsonRecord, parseJsonArrayText, promptPackageBlockContent, promptPackageBlocks, readJsonArray, readNarrativeLengthLimits, renderJsonArraySection, renderJsonValue, renderTextValue, upsertNarrativeLengthBlock, visibilityScopeLabel, type NarrativeLengthLimits } from './admin/adminPageUtils';
 
-type AdminTab = 'overview' | 'aiProvider' | 'characterResources' | 'campaignMemory' | 'resources' | 'database' | 'presets' | 'worldBooks';
+type AdminTab = 'overview' | 'play' | 'campaignDatabase' | 'aiHost' | 'players' | 'settings';
 type AdminLogTab = 'objective' | 'public' | `player:${string}`;
+type CampaignDatabaseCategory = 'all' | 'world' | 'npc' | 'location' | 'quest' | 'clue' | 'item' | 'summary' | 'source';
+
+interface CampaignDatabaseRecord {
+  id: string;
+  title: string;
+  category: Exclude<CampaignDatabaseCategory, 'all'>;
+  summary: string;
+  visibility: string;
+  aiReference: string;
+  aiUpdate: string;
+  source: string;
+  editTarget: string;
+  actionHint: string;
+  updatedAt: string | null;
+  tags: string[];
+}
 
 const adminTabs: Array<{ id: AdminTab; label: string }> = [
   { id: 'overview', label: '总览' },
-  { id: 'aiProvider', label: 'AI 接口' },
-  { id: 'presets', label: 'Prompt 配置' },
-  { id: 'resources', label: '剧本/世界书' },
-  { id: 'database', label: '数据库插件' },
-  { id: 'campaignMemory', label: '战役记忆' },
-  { id: 'characterResources', label: '角色资源' }
+  { id: 'play', label: '跑团' },
+  { id: 'campaignDatabase', label: '战役数据库' },
+  { id: 'aiHost', label: 'AI 主持' },
+  { id: 'players', label: '玩家与角色' },
+  { id: 'settings', label: '设置' }
 ];
 
 export function AdminPage({ roomId }: { roomId: string }) {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [activeLogTab, setActiveLogTab] = useState<AdminLogTab>('objective');
+  const [campaignDbCategory, setCampaignDbCategory] = useState<CampaignDatabaseCategory>('all');
+  const [campaignDbSearch, setCampaignDbSearch] = useState('');
+  const [selectedCampaignDbRecordId, setSelectedCampaignDbRecordId] = useState('');
   const [state, setState] = useState<AdminState | null>(null);
   const [playerName, setPlayerName] = useState('新英雄');
+  const [expectedPlayerCountDraft, setExpectedPlayerCountDraft] = useState('4');
+  const [expectedPlayerCountSaving, setExpectedPlayerCountSaving] = useState(false);
   const [lastLink, setLastLink] = useState('');
   const [error, setError] = useState('');
   const [aiProviderConfig, setAiProviderConfig] = useState<AiProviderConfig | null>(null);
@@ -56,6 +76,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
   const [narrativeLengthSaving, setNarrativeLengthSaving] = useState(false);
   const [resourceChanges, setResourceChanges] = useState<CharacterResourceChange[]>([]);
   const [resourceChangeLoading, setResourceChangeLoading] = useState(false);
+  const [skippingPlayerId, setSkippingPlayerId] = useState('');
 
   const [worldBookName, setWorldBookName] = useState('凡戴尔补充世界书');
   const [entryDraft, setEntryDraft] = useState<Omit<WorldBookEntry, 'id' | 'worldBookId' | 'createdAt' | 'updatedAt'>>({
@@ -77,6 +98,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
   const [locations, setLocations] = useState<CampaignLocation[]>([]);
   const [memoryMessage, setMemoryMessage] = useState('');
   const [memoryLoading, setMemoryLoading] = useState(false);
+  const [campaignMaintenanceOpen, setCampaignMaintenanceOpen] = useState(false);
   const [questDraft, setQuestDraft] = useState<{ title: string; status: CampaignQuest['status']; description: string }>({ title: '', status: 'active', description: '' });
   const [npcDraft, setNpcDraft] = useState<{ name: string; role: string; attitude: CampaignNpc['attitude']; notes: string; location: string }>({ name: '', role: '', attitude: 'unknown', notes: '', location: '' });
   const [locationDraft, setLocationDraft] = useState<{ name: string; description: string }>({ name: '', description: '' });
@@ -96,9 +118,30 @@ export function AdminPage({ roomId }: { roomId: string }) {
   async function refresh() {
     const seq = ++refreshSeqRef.current;
     const startedDirty = aiProviderConfigDirtyRef.current;
-    const [nextState, nextAiProviderConfig, nextEmbeddingProviderConfig] = await Promise.all([getAdminState(roomId), getGlobalAiProviderConfig(), getGlobalEmbeddingProviderConfig()]);
+    let nextState: AdminState;
+    try {
+      nextState = await getAdminState(roomId);
+    } catch (err) {
+      if (seq !== refreshSeqRef.current) return;
+      setState(null);
+      setError(err instanceof Error ? err.message : String(err));
+      return;
+    }
+
+    let nextAiProviderConfig: AiProviderConfig;
+    let nextEmbeddingProviderConfig: EmbeddingProviderConfig;
+    try {
+      [nextAiProviderConfig, nextEmbeddingProviderConfig] = await Promise.all([getGlobalAiProviderConfig(), getGlobalEmbeddingProviderConfig()]);
+    } catch (err) {
+      if (seq !== refreshSeqRef.current) return;
+      setState(nextState);
+      setError(err instanceof Error ? err.message : String(err));
+      return;
+    }
+
     if (seq !== refreshSeqRef.current) return;
     setState(nextState);
+    setError('');
     setEmbeddingProviderConfig(nextEmbeddingProviderConfig);
     if (!startedDirty && !aiProviderConfigDirtyRef.current) {
       setAiProviderConfig(nextAiProviderConfig);
@@ -126,6 +169,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
     setNarrativeLengthDraft(defaultNarrativeLengthLimits);
     setNarrativeLengthMessage('');
     setNarrativeLengthSaving(false);
+    setCampaignMaintenanceOpen(false);
     setState(null);
     setPresetTemplates([]);
     setActivePresetType(null);
@@ -138,13 +182,13 @@ export function AdminPage({ roomId }: { roomId: string }) {
   }, [roomId]);
 
   useEffect(() => {
-    if (activeTab === 'presets') {
+    if (activeTab === 'aiHost') {
       void loadPresetTemplatesData();
     }
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab === 'database') {
+    if (activeTab === 'campaignDatabase') {
       void loadDbSources();
     }
   }, [activeTab, roomId]);
@@ -164,6 +208,37 @@ export function AdminPage({ roomId }: { roomId: string }) {
     }
   }
 
+  async function skipPlayerTurn(playerId: string, playerName: string) {
+    setError('');
+    setSkippingPlayerId(playerId);
+    try {
+      await adminSkipPlayerTurn(roomId, playerId, `${playerName} 本回合暂不主动行动。`);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSkippingPlayerId('');
+    }
+  }
+
+  async function saveExpectedPlayerCount() {
+    const count = Number(expectedPlayerCountDraft);
+    if (!Number.isInteger(count) || count < 1 || count > 12) {
+      setError('预期玩家人数需要是 1 到 12 之间的整数。');
+      return;
+    }
+    setError('');
+    setExpectedPlayerCountSaving(true);
+    try {
+      await updateRoomExpectedPlayerCount(roomId, count);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setExpectedPlayerCountSaving(false);
+    }
+  }
+
   async function advance() {
     setError('');
     setAiTurnBusy(true);
@@ -177,8 +252,10 @@ export function AdminPage({ roomId }: { roomId: string }) {
       setAiTurnPromptDraft(preview.flatPrompt);
       setAiTurnMessage('提示词已生成，可检查后发送给 AI。');
     } catch (err) {
-      setAiTurnMessage('');
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      const retryMessage = `发送 AI 请求失败：${message}。可以重新发送当前提示词，或重新生成提示词后再试。`;
+      setAiTurnMessage(retryMessage);
+      setError(retryMessage);
     } finally {
       setAiTurnBusy(false);
     }
@@ -225,7 +302,8 @@ export function AdminPage({ roomId }: { roomId: string }) {
       await refresh();
     } catch (err) {
       setAiTurnMessage('');
-      setError(err instanceof Error ? err.message : String(err));
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`应用 AI 更改失败：${message}。可以重新生成 AI 结果，或保留当前预览后重新应用。`);
     } finally {
       setAiTurnBusy(false);
     }
@@ -372,6 +450,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
       setQuests(qRes.quests);
       setNpcs(nRes.npcs);
       setLocations(lRes.locations);
+      setCampaignMaintenanceOpen(true);
       setMemoryMessage('');
     } catch (err) {
       setMemoryMessage('');
@@ -397,40 +476,46 @@ export function AdminPage({ roomId }: { roomId: string }) {
     }
   }
 
-  async function doUpdateQuest() {
+  async function doUpdateQuest(options: { resetDraft?: boolean } = {}) {
     if (!questDraft.title.trim()) return;
     setError('');
     setMemoryMessage('');
     try {
       await updateQuest(roomId, questDraft);
       await loadCampaignMemory();
-      setQuestDraft({ title: '', status: 'active', description: '' });
+      if (options.resetDraft ?? true) {
+        setQuestDraft({ title: '', status: 'active', description: '' });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
-  async function doUpdateNpc() {
+  async function doUpdateNpc(options: { resetDraft?: boolean } = {}) {
     if (!npcDraft.name.trim()) return;
     setError('');
     setMemoryMessage('');
     try {
       await updateNpc(roomId, npcDraft);
       await loadCampaignMemory();
-      setNpcDraft({ name: '', role: '', attitude: 'unknown', notes: '', location: '' });
+      if (options.resetDraft ?? true) {
+        setNpcDraft({ name: '', role: '', attitude: 'unknown', notes: '', location: '' });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
-  async function doUpdateLocation() {
+  async function doUpdateLocation(options: { resetDraft?: boolean } = {}) {
     if (!locationDraft.name.trim()) return;
     setError('');
     setMemoryMessage('');
     try {
       await updateLocation(roomId, locationDraft);
       await loadCampaignMemory();
-      setLocationDraft({ name: '', description: '' });
+      if (options.resetDraft ?? true) {
+        setLocationDraft({ name: '', description: '' });
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -722,17 +807,29 @@ export function AdminPage({ roomId }: { roomId: string }) {
   }
 
   useEffect(() => {
-    if (!state || activeTab !== 'overview') return;
+    if (!state || activeTab !== 'play') return;
     const node = adminLogScrollRef.current;
     if (node) node.scrollTop = node.scrollHeight;
   }, [activeTab, activeLogTab, state?.logs.length]);
 
   useEffect(() => {
-    if (!state || activeTab !== 'characterResources') return;
+    if (!state || activeTab !== 'players') return;
     void fetchResourceChanges();
   }, [activeTab, roomId]);
 
-  if (!state) return <main className="shell"><p>加载中...</p></main>;
+  if (!state) return (
+    <main className="shell">
+      {error ? (
+        <section className="card" role="alert">
+          <h1>房间不可用</h1>
+          <p>{error}</p>
+          <a className="button-link" href="/">返回首页</a>
+        </section>
+      ) : (
+        <p>加载中...</p>
+      )}
+    </main>
+  );
   const playerNameById = new Map(state.players.map((player) => [player.id, player.name]));
   const playerUrl = (token: string) => `${window.location.origin}/player/${token}`;
   const readiness = state.turnReadiness;
@@ -748,14 +845,23 @@ export function AdminPage({ roomId }: { roomId: string }) {
       : actorsComplete
         ? `提示：玩家行动已完成，但房间/回合状态尚未进入“等待主持人结算”（房间：${roomStatusLabel(readiness.roomStatus ?? state.room.status)}，回合：${roomStatusLabel(readiness.status)}）。请检查状态异常，不要让玩家重复提交行动。`
         : '提示：所有必需玩家提交、跳过或被管理员排除后，才能生成提示词。';
+  const overviewReadinessHint = readiness.ready
+    ? '可以处理本回合。'
+    : actorsComplete
+      ? '玩家行动已完成，但需要检查回合状态。'
+      : '仍在等待玩家行动或管理员跳过。';
+  const currentTurnId = state.turns.find((turn) => turn.number === state.room.currentTurn)?.id ?? null;
+  const currentTurnActions = currentTurnId
+    ? state.actions.filter((action) => action.turnId === currentTurnId)
+    : state.actions;
   const actionsByPlayerId = new Map<string, typeof state.actions>();
-  for (const action of state.actions) {
+  for (const action of currentTurnActions) {
     const existing = actionsByPlayerId.get(action.playerId) ?? [];
     actionsByPlayerId.set(action.playerId, [...existing, action]);
   }
   const actionPlayerIds = Array.from(new Set([
     ...state.players.map((player) => player.id),
-    ...state.actions.map((action) => action.playerId)
+    ...currentTurnActions.map((action) => action.playerId)
   ]));
   const actionGroups = actionPlayerIds.map((playerId) => ({
     playerId,
@@ -781,6 +887,169 @@ export function AdminPage({ roomId }: { roomId: string }) {
   const disabledPresetPackageBlocks = activePresetPackageBlocks.filter((block) => !block.enabled);
   const selectedDbSheet = dbRoomSheets.find((sheet) => sheet.id === dbSelectedSheetId) ?? dbRoomSheets[0];
   const selectedDbRows = selectedDbSheet ? dbRowsBySheet[selectedDbSheet.id] ?? [] : [];
+  const campaignDbCategoryLabels: Record<CampaignDatabaseCategory, string> = {
+    all: '全部',
+    world: '世界设定',
+    npc: 'NPC',
+    location: '地点',
+    quest: '任务',
+    clue: '线索',
+    item: '物品',
+    summary: '纪要',
+    source: '数据源'
+  };
+  const campaignDbRecords: CampaignDatabaseRecord[] = [
+    ...state.resourceWorldBookEntries.map((entry) => ({
+      id: `worldbook:${entry.id}`,
+      title: entry.title,
+      category: 'world' as const,
+      summary: entry.content,
+      visibility: 'DM / AI',
+      aiReference: entry.enabled
+        ? entry.constant
+          ? '总是参考'
+          : `关键词：${entry.keys.join('、') || '未设置'}`
+        : '不参考',
+      aiUpdate: '仅 DM 手动修改',
+      source: '资源世界书',
+      editTarget: '战役资料维护 / 内容来源',
+      actionHint: '这是导入资源里的世界设定条目。需要调整启用、常驻或关键词时，先在内容来源中检查绑定；旧原生条目在高级区维护。',
+      updatedAt: entry.updatedAt,
+      tags: ['世界设定', entry.position, entry.constant ? '常驻' : '关键词']
+    })),
+    ...quests.map((quest) => ({
+      id: `quest:${quest.id}`,
+      title: quest.title,
+      category: 'quest' as const,
+      summary: quest.description,
+      visibility: 'DM / 公开摘要',
+      aiReference: `关键词：${quest.title}`,
+      aiUpdate: 'AI 可建议，需 DM 审核',
+      source: '任务记忆',
+      editTarget: '战役资料维护 / 任务',
+      actionHint: '任务是长期战役资料。AI 可以提出任务进展，但 DM 应在下方任务维护区审核后保存。',
+      updatedAt: quest.updatedAt,
+      tags: ['任务', questStatusLabel(quest.status)]
+    })),
+    ...npcs.map((npc) => ({
+      id: `npc:${npc.id}`,
+      title: npc.name,
+      category: 'npc' as const,
+      summary: `${npc.role || '未记录身份'}。${npc.notes || '暂无备注。'}${npc.location ? ` 位置：${npc.location}` : ''}`,
+      visibility: 'DM / 按剧情公开',
+      aiReference: `关键词：${npc.name}`,
+      aiUpdate: 'AI 可建议，需 DM 审核',
+      source: 'NPC 档案',
+      editTarget: '战役资料维护 / NPC',
+      actionHint: 'NPC 资料会在剧情提到姓名时进入 AI 参考。身份、态度、位置和备注应在 NPC 维护区更新。',
+      updatedAt: npc.updatedAt,
+      tags: ['NPC', npcAttitudeLabel(npc.attitude)]
+    })),
+    ...locations.map((location) => ({
+      id: `location:${location.id}`,
+      title: location.name,
+      category: 'location' as const,
+      summary: location.description || location.notes || '暂无地点描述。',
+      visibility: 'DM / 按剧情公开',
+      aiReference: `关键词：${location.name}`,
+      aiUpdate: 'AI 可建议，需 DM 审核',
+      source: '地点档案',
+      editTarget: '战役资料维护 / 地点',
+      actionHint: '地点资料适合保存场景事实、已发现信息和隐藏备注。AI 建议后由 DM 在地点维护区确认。',
+      updatedAt: location.updatedAt,
+      tags: ['地点']
+    })),
+    ...summaries.map((summary) => ({
+      id: `summary:${summary.id}`,
+      title: `回合 ${summary.turnStart}-${summary.turnEnd} 纪要`,
+      category: 'summary' as const,
+      summary: summary.summary,
+      visibility: 'DM / 冒险日志摘要',
+      aiReference: '最近进展摘要',
+      aiUpdate: '由摘要流程生成',
+      source: '回合纪要',
+      editTarget: '战役资料维护 / 纪要与档案',
+      actionHint: '纪要用于压缩过去剧情，帮助 AI 记住长期进展。需要更新时重新生成摘要或把关键信息沉淀到任务、NPC、地点。',
+      updatedAt: summary.createdAt,
+      tags: ['纪要']
+    })),
+    ...dbRoomSheets.map((sheet) => ({
+      id: `sheet:${sheet.id}`,
+      title: sheet.name,
+      category: 'source' as const,
+      summary: sheet.note || sheet.tableName || sheet.uid,
+      visibility: 'DM / AI',
+      aiReference: sheet.exportEnabled ? '表导出规则启用' : '不默认参考',
+      aiUpdate: sheet.updateNode || sheet.insertNode ? '按表规则更新' : '仅 DM 手动修改',
+      source: '外部数据源',
+      editTarget: '数据源 / 表绑定',
+      actionHint: '数据源提供结构化表。是否进入 AI 上下文取决于表导出规则；表更新仍应按数据源配置执行。',
+      updatedAt: sheet.updatedAt,
+      tags: ['数据源', sheet.tableName || sheet.uid]
+    }))
+  ];
+  const filteredCampaignDbRecords = campaignDbRecords.filter((record) => {
+    const matchesCategory = campaignDbCategory === 'all' || record.category === campaignDbCategory;
+    const search = campaignDbSearch.trim().toLowerCase();
+    const matchesSearch = !search || [record.title, record.summary, record.aiReference, record.tags.join(' ')].some((value) => value.toLowerCase().includes(search));
+    return matchesCategory && matchesSearch;
+  });
+  const campaignDbCategoryCounts = campaignDbRecords.reduce<Record<CampaignDatabaseCategory, number>>((counts, record) => {
+    counts.all += 1;
+    counts[record.category] += 1;
+    return counts;
+  }, { all: 0, world: 0, npc: 0, location: 0, quest: 0, clue: 0, item: 0, summary: 0, source: 0 });
+  const selectedCampaignDbRecord = filteredCampaignDbRecords.find((record) => record.id === selectedCampaignDbRecordId)
+    ?? filteredCampaignDbRecords[0]
+    ?? null;
+  const selectedCampaignDbSheet = selectedCampaignDbRecord?.category === 'source'
+    ? dbRoomSheets.find((sheet) => `sheet:${sheet.id}` === selectedCampaignDbRecord.id) ?? null
+    : null;
+  const selectedCampaignDbRows = selectedCampaignDbSheet ? dbRowsBySheet[selectedCampaignDbSheet.id] ?? [] : [];
+  const selectCampaignDbRecord = (record: CampaignDatabaseRecord) => {
+    setSelectedCampaignDbRecordId(record.id);
+    if (record.category === 'quest') {
+      const quest = quests.find((item) => `quest:${item.id}` === record.id);
+      if (quest) {
+        setQuestDraft({ title: quest.title, status: quest.status, description: quest.description });
+      }
+    }
+    if (record.category === 'npc') {
+      const npc = npcs.find((item) => `npc:${item.id}` === record.id);
+      if (npc) {
+        setNpcDraft({
+          name: npc.name,
+          role: npc.role,
+          attitude: npc.attitude,
+          notes: npc.notes,
+          location: npc.location
+        });
+      }
+    }
+    if (record.category === 'location') {
+      const location = locations.find((item) => `location:${item.id}` === record.id);
+      if (location) {
+        setLocationDraft({ name: location.name, description: location.description || location.notes || '' });
+      }
+    }
+    if (record.category === 'source') {
+      const sheet = dbRoomSheets.find((item) => `sheet:${item.id}` === record.id);
+      if (sheet) {
+        setDbSelectedSheetId(sheet.id);
+      }
+    }
+  };
+  const confirmedCharacterCount = characters.filter((character) => character.confirmed).length;
+  const latestPublicLog = publicLogs[publicLogs.length - 1];
+  const latestObjectiveLog = objectiveLogs[objectiveLogs.length - 1];
+  const providerStatus = aiProviderConfig?.provider === 'mock' ? '本地模拟' : aiProviderConfig?.model || '未加载';
+  const characterStatusText = (playerId: string): string => {
+    const character = characterByPlayerId.get(playerId);
+    if (!character) return '未创建角色';
+    return character.confirmed ? '角色已确认' : '角色未确认';
+  };
+  const skippableMissingActorIds = readiness.missingActorIds.filter((playerId) => characterByPlayerId.get(playerId)?.confirmed);
+  const erroredAiGenerations = state.aiGenerations.filter((gen) => gen.error && !/长度\s*\d+\/\d+，超过上限/.test(gen.error));
   const actionSummary = (actions: typeof state.actions): string => {
     if (actions.length === 0) return '未提交';
     const latestAction = actions[actions.length - 1];
@@ -788,6 +1057,15 @@ export function AdminPage({ roomId }: { roomId: string }) {
     const clipped = text.length > 42 ? `${text.slice(0, 42)}...` : text;
     return `${actions.length} 条行动 · 最新：${clipped || '已提交'}`;
   };
+  const expectedPlayerCount = state.room.expectedPlayerCount;
+  const openingReady = expectedPlayerCount !== null && state.players.length >= expectedPlayerCount && confirmedCharacterCount >= expectedPlayerCount;
+  const playerLimitReached = expectedPlayerCount !== null && state.players.length >= expectedPlayerCount;
+  const playerCreationDisabled = expectedPlayerCount === null || playerLimitReached;
+  const playerCreationLabel = expectedPlayerCount === null
+    ? '需先设置预期人数'
+    : playerLimitReached
+      ? '人数已满'
+      : '创建玩家链接';
   const interactionStatusText = (status: string): string => {
     switch (status) {
       case 'pending_target': return '等待目标玩家回应';
@@ -807,36 +1085,124 @@ export function AdminPage({ roomId }: { roomId: string }) {
         <h1>{state.room.name}</h1>
         <p className="muted">主持人控制台 · 第 {state.room.currentTurn} 回合 · {roomStatusLabel(state.room.status)}</p>
       </div>
-      <nav className="tabs" aria-label="管理页功能区">
-        {adminTabs.map((tab) => (
-          <button
-            className={`tab-button${activeTab === tab.id ? ' active' : ''}`}
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            type="button"
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
-      {error ? <p role="alert">{error}</p> : null}
+      <div className="admin-workbench-shell">
+        <nav className="tabs" aria-label="管理页功能区">
+          {adminTabs.map((tab) => (
+            <button
+              aria-current={activeTab === tab.id ? 'page' : undefined}
+              className={`tab-button${activeTab === tab.id ? ' active' : ''}`}
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              type="button"
+            >
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+        <div className="admin-workbench-main">
+          {error ? <p role="alert">{error}</p> : null}
 
       <section role="tabpanel" hidden={activeTab !== 'overview'}>
+        <div className="admin-overview-grid">
+          <section className="card">
+            <h2>开场准备</h2>
+            <p className="muted">总览只显示当前房间是否可以开团，以及下一步该去哪里处理。</p>
+            <div className="status-chip-grid">
+              <span className={`status-chip${expectedPlayerCount === null ? ' warning' : ' ok'}`}>
+                预期人数：{expectedPlayerCount ?? '未设置'}
+              </span>
+              <span className={`status-chip${expectedPlayerCount !== null && state.players.length >= expectedPlayerCount ? ' ok' : ' warning'}`}>
+                玩家：{state.players.length}/{expectedPlayerCount ?? '未设置'}
+              </span>
+              <span className={`status-chip${expectedPlayerCount !== null && confirmedCharacterCount >= expectedPlayerCount ? ' ok' : ' warning'}`}>
+                角色：{confirmedCharacterCount}/{expectedPlayerCount ?? state.players.length}
+              </span>
+              <span className={`status-chip${openingReady ? ' ok' : ' warning'}`}>
+                {openingReady ? '可以生成开场' : '开场未就绪'}
+              </span>
+            </div>
+            <div className="button-row">
+              <button type="button" onClick={() => setActiveTab('play')}>进入跑团</button>
+              <button type="button" onClick={() => setActiveTab('players')}>管理玩家与角色</button>
+            </div>
+          </section>
+          <section className="card">
+            <h2>本轮状态</h2>
+            <p>第 {state.room.currentTurn} 回合 · {roomStatusLabel(state.room.status)}</p>
+            <p className="muted">行动进度：{readinessLabel}</p>
+            {missingActorNames.length > 0 ? <p className="muted">等待：{missingActorNames.join(', ')}</p> : null}
+            <p className="muted">总览提示：{overviewReadinessHint}</p>
+            <div className="button-row">
+              <button type="button" onClick={() => setActiveTab('play')}>处理本回合</button>
+              <button type="button" onClick={() => setActiveTab('campaignDatabase')}>查看 AI 参考资料</button>
+            </div>
+          </section>
+          <section className="card">
+            <h2>AI 与资料</h2>
+            <p>AI 接口：{providerStatus}</p>
+            <p>主持预设：{activePresetPackage?.name ?? activePreset()?.name ?? '默认预设'}</p>
+            <p>资源世界书：{state.globalWorldBookBindings.filter((binding) => binding.enabled).length} 个启用绑定</p>
+            <p>数据库表：{dbRoomSheets.length} 张已加载</p>
+            <div className="button-row">
+              <button type="button" onClick={() => setActiveTab('aiHost')}>调整 AI 主持</button>
+              <button type="button" onClick={() => setActiveTab('settings')}>接口设置</button>
+            </div>
+          </section>
+          <section className="card">
+            <h2>最近剧情</h2>
+            {latestPublicLog ? (
+              <div className="subcard">
+                <strong>公开剧情</strong>
+                <p>{latestPublicLog.content}</p>
+              </div>
+            ) : <p className="muted">暂无公开剧情。</p>}
+            {latestObjectiveLog ? (
+              <div className="subcard">
+                <strong>客观剧情</strong>
+                <p>{latestObjectiveLog.content}</p>
+              </div>
+            ) : null}
+          </section>
+        </div>
+      </section>
+
+      <section role="tabpanel" hidden={activeTab !== 'play'}>
         <div className="grid">
           <aside className="card">
             <h2>玩家</h2>
+            <p className="muted">当前玩家 {state.players.length}/{expectedPlayerCount ?? '未设置'}</p>
+            {expectedPlayerCount === null ? (
+              <div className="subcard">
+                <h3>补填预期玩家人数</h3>
+                <p className="muted">旧房间需要先设置一次预期人数，之后不可修改。</p>
+                <label>预期玩家人数
+                  <input
+                    min={1}
+                    max={12}
+                    type="number"
+                    value={expectedPlayerCountDraft}
+                    onChange={(event) => setExpectedPlayerCountDraft(event.target.value)}
+                  />
+                </label>
+                <div className="button-row">
+                  <button onClick={saveExpectedPlayerCount} disabled={expectedPlayerCountSaving}>
+                    {expectedPlayerCountSaving ? '保存中...' : '保存预期人数'}
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {state.players.map((player) => (
               <details className="subcard player-link-row" key={player.id}>
                 <summary>
                   <strong>{player.name}</strong>
-                  <span className="muted">玩家链接</span>
+                  <span className="muted">{characterStatusText(player.id)} · 玩家链接</span>
                 </summary>
                 <a href={playerUrl(player.token)} target="_blank" rel="noreferrer">{playerUrl(player.token)}</a>
               </details>
             ))}
             <input value={playerName} onChange={(event) => setPlayerName(event.target.value)} />
             <div className="button-row">
-              <button onClick={createPlayer}>创建玩家链接</button>
+              <button onClick={createPlayer} disabled={playerCreationDisabled}>{playerCreationLabel}</button>
             </div>
             {lastLink ? <p className="muted">最近创建：<a href={lastLink}>{lastLink}</a></p> : null}
             <h2>行动</h2>
@@ -883,13 +1249,34 @@ export function AdminPage({ roomId }: { roomId: string }) {
             ) : null}
             <p className="muted">等待玩家行动：{readinessLabel}</p>
             {missingActorNames.length > 0 ? <p className="muted">未提交：{missingActorNames.join(', ')}</p> : null}
+            {skippableMissingActorIds.length > 0 && state.room.status === 'waiting_for_actions' ? (
+              <div className="button-row">
+                {skippableMissingActorIds.map((playerId) => {
+                  const playerName = playerNameById.get(playerId) ?? playerId;
+                  return (
+                    <button
+                      key={playerId}
+                      type="button"
+                      onClick={() => void skipPlayerTurn(playerId, playerName)}
+                      disabled={aiTurnBusy || skippingPlayerId === playerId}
+                    >
+                      {skippingPlayerId === playerId ? '标记中...' : `标记 ${playerName} 跳过`}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
             <div className="button-row">
               <button onClick={advance} disabled={aiTurnBusy || !readiness.ready}>{aiTurnBusy ? '处理中...' : '生成 AI 回合提示词'}</button>
             </div>
             <p className="muted">{readinessHint}</p>
-            {aiTurnMessage ? <p>{aiTurnMessage}</p> : null}
-            <h2>AI 错误</h2>
-            {state.aiGenerations.filter((gen) => gen.error).map((gen) => <p key={gen.id}>{gen.error}</p>)}
+            {aiTurnMessage && !aiTurnPreview ? <p>{aiTurnMessage}</p> : null}
+            {erroredAiGenerations.length > 0 ? (
+              <>
+                <h2>AI 错误</h2>
+                {erroredAiGenerations.map((gen) => <p key={gen.id}>{gen.error}</p>)}
+              </>
+            ) : null}
           </aside>
           <section className="card admin-log-panel">
             <div className="inline-tab-row" role="tablist" aria-label="DM 日志类型">
@@ -921,6 +1308,8 @@ export function AdminPage({ roomId }: { roomId: string }) {
           <div className="card ai-turn-debug-panel">
             <h2>AI-DM 回合调试</h2>
             <p className="muted">先检查上下文和提示词，再发送给模型；模型返回后只生成待确认内容，最终确认后才会写入系统并推进回合。</p>
+            {aiTurnMessage ? <p className="form-success">{aiTurnMessage}</p> : null}
+            {error && error !== aiTurnMessage ? <p className="form-error">{error}</p> : null}
             <div className="context-section-list">
               {aiTurnPreview.contextSections.map((section) => (
                 <details key={section.title}>
@@ -1011,7 +1400,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                           <div className="context-section-list">
                             {privateEntries.map(([playerId, content]) => (
                               <details key={playerId} open>
-                                <summary>{playerNameById.get(playerId) ? `${playerNameById.get(playerId)} (${playerId})` : playerId}</summary>
+                                <summary>{playerNameById.get(playerId) ?? '未知玩家'}</summary>
                                 {renderTextValue(content, '本玩家没有私人剧情。')}
                               </details>
                             ))}
@@ -1105,11 +1494,13 @@ export function AdminPage({ roomId }: { roomId: string }) {
         ) : null}
       </section>
 
-      <section className="card" role="tabpanel" hidden={activeTab !== 'aiProvider'}>
+      <section className="card" role="tabpanel" hidden={activeTab !== 'settings'}>
         {aiProviderConfig ? (
           <>
-            <h2>AI 接口</h2>
-            <p className="muted">只配置模型服务连接，不包含 prompt、规则或约束内容。</p>
+            <h2>设置</h2>
+            <p className="muted">低频系统配置放在这里。跑团页只显示接口状态和修复入口。</p>
+            <h3>AI 接口</h3>
+            <p className="muted">只配置模型服务连接，不包含 prompt、规则或战役资料。</p>
             <div className="form-grid">
               <label>服务类型
                 <select value={aiProviderConfig.provider} onChange={(event) => updateAiProviderConfig('provider', event.target.value)}>
@@ -1154,11 +1545,11 @@ export function AdminPage({ roomId }: { roomId: string }) {
         ) : null}
       </section>
 
-      <section role="tabpanel" hidden={activeTab !== 'characterResources'}>
+      <section role="tabpanel" hidden={activeTab !== 'players'}>
         <div className="admin-character-resource-layout">
           <section className="card">
-            <h2>玩家角色与当前状态</h2>
-            <p className="muted">展示所有玩家的角色卡、HP、法术位、货币和状态。</p>
+            <h2>玩家与角色</h2>
+            <p className="muted">展示玩家链接、角色卡、HP、法术位、货币、状态和待审核资源变动。</p>
             <div className="admin-character-list">
               {state.players.map((player) => {
                 const character = characterByPlayerId.get(player.id) ?? null;
@@ -1219,16 +1610,252 @@ export function AdminPage({ roomId }: { roomId: string }) {
         </div>
       </section>
 
-      <section className="card" role="tabpanel" hidden={activeTab !== 'campaignMemory'}>
-        <h2>战役记忆</h2>
-        <p className="muted">管理摘要、任务、NPC 与探索地点的战局记忆。</p>
-            <div className="subcard">
-              <h3>摘要与档案</h3>
-              <div className="button-row">
-                <button onClick={loadCampaignMemory} disabled={memoryLoading}>{memoryLoading ? '加载中...' : '加载记忆'}</button>
-                <button onClick={doTriggerSummary} disabled={memoryLoading}>生成摘要</button>
+      <section className="card" role="tabpanel" hidden={activeTab !== 'campaignDatabase'}>
+        <h2>战役数据库</h2>
+        <p className="muted">统一管理结构化资料、剧本来源、战役记忆和 AI 参考规则。世界书能力会作为资料的命中/常驻规则逐步合并进这里。</p>
+        <div className="campaign-db-workbench">
+          <aside className="campaign-db-sidebar" aria-label="战役数据库分类">
+            {Object.entries(campaignDbCategoryLabels).map(([category, label]) => (
+              <button
+                className={campaignDbCategory === category ? 'active' : ''}
+                key={category}
+                onClick={() => setCampaignDbCategory(category as CampaignDatabaseCategory)}
+                type="button"
+              >
+                <span>{label}</span>
+                <span className="muted">{campaignDbCategoryCounts[category as CampaignDatabaseCategory]}</span>
+              </button>
+            ))}
+          </aside>
+          <section className="campaign-db-records" aria-label="战役数据库记录">
+            <div className="section-header">
+              <div>
+                <h3>资料记录</h3>
+                <p className="muted">数据库保存资料；AI 参考规则决定资料何时进入本轮请求。</p>
               </div>
-              {memoryMessage ? <p>{memoryMessage}</p> : null}
+              <label className="compact-search">搜索资料
+                <input
+                  value={campaignDbSearch}
+                  onChange={(event) => setCampaignDbSearch(event.target.value)}
+                  placeholder="搜索 NPC、地点、任务、关键词"
+                />
+              </label>
+            </div>
+            {filteredCampaignDbRecords.length > 0 ? (
+              <div className="campaign-db-record-list">
+                {filteredCampaignDbRecords.map((record) => (
+                  <article
+                    className={`campaign-db-record${selectedCampaignDbRecord?.id === record.id ? ' active' : ''}`}
+                    key={record.id}
+                  >
+                    <div className="record-title-row">
+                      <strong>{record.title}</strong>
+                      <span className="status-chip">{campaignDbCategoryLabels[record.category]}</span>
+                    </div>
+                    <p>{record.summary}</p>
+                    <div className="button-row">
+                      <button
+                        className="secondary"
+                        onClick={() => selectCampaignDbRecord(record)}
+                        type="button"
+                      >
+                        查看资料
+                      </button>
+                    </div>
+                    <dl className="record-meta-grid">
+                      <div>
+                        <dt>可见性</dt>
+                        <dd>{record.visibility}</dd>
+                      </div>
+                      <div>
+                        <dt>AI 参考</dt>
+                        <dd>{record.aiReference}</dd>
+                      </div>
+                      <div>
+                        <dt>AI 更新</dt>
+                        <dd>{record.aiUpdate}</dd>
+                      </div>
+                      <div>
+                        <dt>更新时间</dt>
+                        <dd>{record.updatedAt ? formatIsoDateTime(record.updatedAt) : '未记录'}</dd>
+                      </div>
+                    </dl>
+                    <p className="muted">标签：{record.tags.join('、') || '无'}</p>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="subcard">
+                <strong>还没有匹配的战役资料。</strong>
+                <p className="muted">可以先加载记忆、导入剧本/数据库，或在下方手动维护任务、NPC 和地点。</p>
+              </div>
+            )}
+          </section>
+          <aside className="campaign-db-rules">
+            {selectedCampaignDbRecord ? (
+              <>
+                <p className="eyebrow">当前选中</p>
+                <h3>{selectedCampaignDbRecord.title}</h3>
+                <p>{selectedCampaignDbRecord.summary}</p>
+                <dl className="record-meta-grid">
+                  <div>
+                    <dt>资料来源</dt>
+                    <dd>{selectedCampaignDbRecord.source}</dd>
+                  </div>
+                  <div>
+                    <dt>编辑位置</dt>
+                    <dd>{selectedCampaignDbRecord.editTarget}</dd>
+                  </div>
+                  <div>
+                    <dt>AI 参考</dt>
+                    <dd>{selectedCampaignDbRecord.aiReference}</dd>
+                  </div>
+                  <div>
+                    <dt>AI 更新</dt>
+                    <dd>{selectedCampaignDbRecord.aiUpdate}</dd>
+                  </div>
+                </dl>
+                <div className="subcard">
+                  <strong>下一步</strong>
+                  <p className="muted">{selectedCampaignDbRecord.actionHint}</p>
+                </div>
+                {selectedCampaignDbRecord.category === 'quest' ? (
+                  <div className="campaign-db-inline-editor" aria-label="编辑任务资料">
+                    <h3>编辑任务</h3>
+                    <label>资料标题
+                      <input value={questDraft.title} onChange={(event) => setQuestDraft({ ...questDraft, title: event.target.value })} />
+                    </label>
+                    <label>任务状态
+                      <select value={questDraft.status} onChange={(event) => setQuestDraft({ ...questDraft, status: event.target.value as CampaignQuest['status'] })}>
+                        <option value="active">待推进</option>
+                        <option value="in_progress">进行中</option>
+                        <option value="completed">已完成</option>
+                        <option value="failed">失败</option>
+                      </select>
+                    </label>
+                    <label>资料描述
+                      <textarea value={questDraft.description} onChange={(event) => setQuestDraft({ ...questDraft, description: event.target.value })} rows={3} />
+                    </label>
+                    <button onClick={() => void doUpdateQuest({ resetDraft: false })} type="button">保存当前任务</button>
+                  </div>
+                ) : null}
+                {selectedCampaignDbRecord.category === 'npc' ? (
+                  <div className="campaign-db-inline-editor" aria-label="编辑 NPC 资料">
+                    <h3>编辑 NPC</h3>
+                    <label>NPC 名称
+                      <input value={npcDraft.name} onChange={(event) => setNpcDraft({ ...npcDraft, name: event.target.value })} />
+                    </label>
+                    <label>NPC 身份
+                      <input value={npcDraft.role} onChange={(event) => setNpcDraft({ ...npcDraft, role: event.target.value })} />
+                    </label>
+                    <label>NPC 态度
+                      <select value={npcDraft.attitude} onChange={(event) => setNpcDraft({ ...npcDraft, attitude: event.target.value as CampaignNpc['attitude'] })}>
+                        <option value="friendly">友好</option>
+                        <option value="neutral">中立</option>
+                        <option value="hostile">敌对</option>
+                        <option value="unknown">未知</option>
+                      </select>
+                    </label>
+                    <label>NPC 备注
+                      <textarea value={npcDraft.notes} onChange={(event) => setNpcDraft({ ...npcDraft, notes: event.target.value })} rows={3} />
+                    </label>
+                    <label>NPC 位置
+                      <input value={npcDraft.location} onChange={(event) => setNpcDraft({ ...npcDraft, location: event.target.value })} />
+                    </label>
+                    <button onClick={() => void doUpdateNpc({ resetDraft: false })} type="button">保存当前 NPC</button>
+                  </div>
+                ) : null}
+                {selectedCampaignDbRecord.category === 'location' ? (
+                  <div className="campaign-db-inline-editor" aria-label="编辑地点资料">
+                    <h3>编辑地点</h3>
+                    <label>地点名称
+                      <input value={locationDraft.name} onChange={(event) => setLocationDraft({ ...locationDraft, name: event.target.value })} />
+                    </label>
+                    <label>地点描述
+                      <textarea value={locationDraft.description} onChange={(event) => setLocationDraft({ ...locationDraft, description: event.target.value })} rows={3} />
+                    </label>
+                    <button onClick={() => void doUpdateLocation({ resetDraft: false })} type="button">保存当前地点</button>
+                  </div>
+                ) : null}
+                {selectedCampaignDbRecord.category === 'world' ? (
+                  <div className="campaign-db-inline-editor" aria-label="查看世界设定资料">
+                    <h3>世界设定</h3>
+                    <p className="muted">这条资料来自导入的资源世界书。当前没有直接改写导入条目的 API；要调整 AI 参考方式，请在内容来源里调整绑定，或在下方高级旧世界书中新建一条覆盖设定。</p>
+                    <label>设定正文
+                      <textarea value={selectedCampaignDbRecord.summary} readOnly rows={5} />
+                    </label>
+                  </div>
+                ) : null}
+                {selectedCampaignDbRecord.category === 'source' && selectedCampaignDbSheet ? (
+                  <div className="campaign-db-inline-editor" aria-label="编辑数据源资料">
+                    <h3>编辑数据源行</h3>
+                    <p className="muted">{selectedCampaignDbSheet.tableName || selectedCampaignDbSheet.uid} · {selectedCampaignDbRows.length} 行</p>
+                    {selectedCampaignDbSheet.note ? <p>{selectedCampaignDbSheet.note}</p> : null}
+                    <dl className="record-meta-grid">
+                      <div>
+                        <dt>导出</dt>
+                        <dd>{selectedCampaignDbSheet.exportEnabled ? '会进入 AI 上下文' : '不默认导出'}</dd>
+                      </div>
+                      <div>
+                        <dt>更新规则</dt>
+                        <dd>{selectedCampaignDbSheet.updateNode || selectedCampaignDbSheet.insertNode ? '有表规则' : '仅手动'}</dd>
+                      </div>
+                    </dl>
+                    <label>行 Key
+                      <input value={dbRowKey} onChange={(event) => setDbRowKey(event.target.value)} placeholder="row_id 或唯一键" />
+                    </label>
+                    <label>行数据 JSON
+                      <textarea value={dbRowJson} onChange={(event) => setDbRowJson(event.target.value)} rows={5} />
+                    </label>
+                    <button onClick={() => void saveRoomDbRow()} type="button">保存当前数据行</button>
+                    {selectedCampaignDbRows.length > 0 ? (
+                      <div className="campaign-db-row-picker">
+                        <strong>现有行</strong>
+                        {selectedCampaignDbRows.slice(0, 4).map((row) => (
+                          <button
+                            key={row.id}
+                            onClick={() => {
+                              setDbRowKey(row.rowKey);
+                              setDbRowJson(JSON.stringify(row.data, null, 2));
+                            }}
+                            type="button"
+                          >
+                            {row.rowKey}
+                          </button>
+                        ))}
+                      </div>
+                    ) : <p className="muted">此表暂无数据行。输入行 Key 和 JSON 后可以创建第一条。</p>}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <h3>未选中资料</h3>
+                <p className="muted">从左侧资料记录中选择一项，可以查看它的来源、编辑位置和 AI 参考方式。</p>
+              </>
+            )}
+            <div className="subtle-rule-list">
+              <h3>AI 参考规则</h3>
+              <p className="muted">世界书不再是独立入口，而是资料记录的参考方式。</p>
+              <ul>
+                <li><strong>总是参考：</strong>开场地区、核心世界规则等常驻资料。</li>
+                <li><strong>关键词参考：</strong>剧情提到 NPC、地点、任务或线索时进入上下文。</li>
+                <li><strong>不参考：</strong>仅作为 DM 档案保存。</li>
+              </ul>
+              <h3>AI 更新规则</h3>
+              <p className="muted">AI 可以提出资料变更，但关键状态应先进入 DM 审核。</p>
+            </div>
+          </aside>
+        </div>
+        <div className="button-row campaign-db-memory-actions">
+          <button onClick={loadCampaignMemory} disabled={memoryLoading}>{memoryLoading ? '加载中...' : '加载记忆'}</button>
+          <button onClick={doTriggerSummary} disabled={memoryLoading}>生成摘要</button>
+        </div>
+        {memoryMessage ? <p>{memoryMessage}</p> : null}
+        <details className="subcard campaign-db-maintenance" open={campaignMaintenanceOpen} onToggle={(event) => setCampaignMaintenanceOpen(event.currentTarget.open)}>
+          <summary>战役资料维护</summary>
+            <div className="subcard">
+              <h3>纪要与档案</h3>
 
               {summaries.length > 0 ? (
                 <div style={{ marginTop: '12px' }}>
@@ -1296,7 +1923,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                   </select>
                 </label>
                 <label>描述<input value={questDraft.description} onChange={(e) => setQuestDraft({ ...questDraft, description: e.target.value })} /></label>
-                <button onClick={doUpdateQuest}>保存任务</button>
+                <button onClick={() => void doUpdateQuest()}>保存任务</button>
               </div>
 
               <div style={{ marginTop: '12px' }}>
@@ -1319,7 +1946,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
                 </label>
                 <label>备注<input value={npcDraft.notes} onChange={(e) => setNpcDraft({ ...npcDraft, notes: e.target.value })} /></label>
                 <label>位置<input value={npcDraft.location} onChange={(e) => setNpcDraft({ ...npcDraft, location: e.target.value })} /></label>
-                <button onClick={doUpdateNpc}>保存 NPC</button>
+                <button onClick={() => void doUpdateNpc()}>保存 NPC</button>
               </div>
 
               <div style={{ marginTop: '12px' }}>
@@ -1332,15 +1959,16 @@ export function AdminPage({ roomId }: { roomId: string }) {
                 ))}
                 <label>名称<input value={locationDraft.name} onChange={(e) => setLocationDraft({ ...locationDraft, name: e.target.value })} placeholder="地点名称" /></label>
                 <label>描述<input value={locationDraft.description} onChange={(e) => setLocationDraft({ ...locationDraft, description: e.target.value })} /></label>
-                <button onClick={doUpdateLocation}>保存地点</button>
+                <button onClick={() => void doUpdateLocation()}>保存地点</button>
               </div>
             </div>
+        </details>
       </section>
 
-      <section role="tabpanel" hidden={activeTab !== 'resources'}>
+      <section role="tabpanel" hidden={activeTab !== 'campaignDatabase'}>
         <div className="card">
-          <h2>剧本 / 世界书</h2>
-          <p className="muted">这里管理实际进入 AI 上下文的剧本卡和资源世界书。旧“世界书”页已隐藏，避免和当前生效链路混用。</p>
+          <h2>内容来源</h2>
+          <p className="muted">导入剧本卡、资源世界书和预设包。导入后的资料会逐步整理进战役数据库，世界书不再作为独立顶级入口。</p>
         </div>
         <ResourceImportPanel
           scriptCards={state.scriptCards}
@@ -1361,9 +1989,9 @@ export function AdminPage({ roomId }: { roomId: string }) {
         />
       </section>
 
-      <section className="card" role="tabpanel" hidden={activeTab !== 'database'}>
-          <h2>数据库插件</h2>
-          <p className="muted">数据库插件只提供结构化表数据，不会作为世界书或 prompt 预设导入。停用只影响当前房间；永久删除会移除整个数据源。</p>
+      <section className="card" role="tabpanel" hidden={activeTab !== 'campaignDatabase'}>
+          <h2>数据源</h2>
+          <p className="muted">数据库插件是战役数据库的外部资料来源。它提供结构化表数据；是否进入 AI 上下文由资料的 AI 参考规则决定。</p>
 
           <div className="subcard">
             <h4>已接入数据源</h4>
@@ -1457,9 +2085,9 @@ export function AdminPage({ roomId }: { roomId: string }) {
           </div>
       </section>
 
-      <section className="card" role="tabpanel" hidden={activeTab !== 'presets'}>
-        <h2>Prompt 配置</h2>
-        <p className="muted">最终请求优先使用“资源配置”中绑定的预设包。下面先展示当前真正生效的预设包；旧原生预设仅作为高级配置保留。</p>
+      <section className="card" role="tabpanel" hidden={activeTab !== 'aiHost'}>
+        <h2>AI 主持</h2>
+        <p className="muted">这里控制 AI 怎么主持：剧情长度、人称、输出边界和当前启用的主持预设。世界资料请放到战役数据库。</p>
         <div className="button-row">
           <button onClick={loadPromptPreview}>预览 AI 请求</button>
         </div>
@@ -1488,7 +2116,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
         </div>
 
         <div className="subcard" style={{ marginTop: '16px' }}>
-          <h3>当前生效预设包</h3>
+          <h3>当前生效主持预设</h3>
           {activePresetPackage ? (
             <>
               <p><strong>{activePresetPackage.name}</strong></p>
@@ -1520,8 +2148,8 @@ export function AdminPage({ roomId }: { roomId: string }) {
         </div>
 
         <div className="subcard" style={{ marginTop: '16px' }}>
-          <h3>高级：旧原生预设模板</h3>
-          <p className="muted">这部分是旧 prompt 系统。存在资源预设包时，它不是最终 prompt 的主要来源。</p>
+          <h3>高级：旧原生 Prompt 模板</h3>
+          <p className="muted">这部分是旧 prompt 系统。存在资源预设包时，它不是最终 AI 请求的主要来源。</p>
           {activePresetType ? (
             <p>当前激活模板类型：<strong>{presetTypeLabel(activePresetType)}</strong></p>
           ) : (
@@ -1621,31 +2249,40 @@ export function AdminPage({ roomId }: { roomId: string }) {
         ) : null}
       </section>
 
-      <section className="card" role="tabpanel" hidden={activeTab !== 'worldBooks'}>
-        <h2>世界书</h2>
-        <p className="muted">全局原生世界书会实时参与所有房间的 AI 上下文构建。</p>
-        <label>世界书名称<input value={worldBookName} onChange={(event) => setWorldBookName(event.target.value)} /></label>
-        <div className="button-row">
-          <button onClick={addWorldBook}>创建世界书</button>
-        </div>
-        {state.worldBooks.map((book) => <p key={book.id}>{book.name} · {book.enabled ? '启用' : '停用'}</p>)}
-        <h3>世界书条目</h3>
-        <label>条目标题<input value={entryDraft.title} onChange={(event) => setEntryDraft({ ...entryDraft, title: event.target.value })} /></label>
-        <label>关键词（用逗号分隔）<input value={entryDraft.keys.join(', ')} onChange={(event) => setEntryDraft({ ...entryDraft, keys: event.target.value.split(',').map((key) => key.trim()).filter(Boolean) })} /></label>
-        <label>优先级<input type="number" value={entryDraft.priority} onChange={(event) => setEntryDraft({ ...entryDraft, priority: Number(event.target.value) })} /></label>
-        <label className="check-row"><input type="checkbox" checked={entryDraft.constant} onChange={(event) => setEntryDraft({ ...entryDraft, constant: event.target.checked })} /> 常驻条目</label>
-        <label>条目内容<textarea value={entryDraft.content} onChange={(event) => setEntryDraft({ ...entryDraft, content: event.target.value })} /></label>
-        <div className="button-row">
-          <button onClick={addWorldEntry}>添加世界书条目</button>
-        </div>
-        {state.worldBookEntries.map((entry) => (
-          <div className="log-entry" key={entry.id}>
-            <strong>{entry.title}</strong>
-            <p className="muted">关键词：{entry.keys.join(', ') || '常驻'} · 优先级：{entry.priority}</p>
-            <p>{entry.content}</p>
+      <section role="tabpanel" hidden={activeTab !== 'campaignDatabase'}>
+        <details className="card campaign-db-legacy-worldbook">
+          <summary>
+            <span>
+              <strong>高级：旧原生世界书</strong>
+              <span className="muted">兼容旧数据；新资料优先放入战役数据库。</span>
+            </span>
+          </summary>
+          <p className="muted">兼容旧数据。新的资料请优先放入战役数据库，并用“AI 参考规则”控制常驻或关键词命中。</p>
+          <label>世界书名称<input value={worldBookName} onChange={(event) => setWorldBookName(event.target.value)} /></label>
+          <div className="button-row">
+            <button onClick={addWorldBook}>创建世界书</button>
           </div>
-        ))}
+          {state.worldBooks.map((book) => <p key={book.id}>{book.name} · {book.enabled ? '启用' : '停用'}</p>)}
+          <h3>世界书条目</h3>
+          <label>条目标题<input value={entryDraft.title} onChange={(event) => setEntryDraft({ ...entryDraft, title: event.target.value })} /></label>
+          <label>关键词（用逗号分隔）<input value={entryDraft.keys.join(', ')} onChange={(event) => setEntryDraft({ ...entryDraft, keys: event.target.value.split(',').map((key) => key.trim()).filter(Boolean) })} /></label>
+          <label>优先级<input type="number" value={entryDraft.priority} onChange={(event) => setEntryDraft({ ...entryDraft, priority: Number(event.target.value) })} /></label>
+          <label className="check-row"><input type="checkbox" checked={entryDraft.constant} onChange={(event) => setEntryDraft({ ...entryDraft, constant: event.target.checked })} /> 常驻条目</label>
+          <label>条目内容<textarea value={entryDraft.content} onChange={(event) => setEntryDraft({ ...entryDraft, content: event.target.value })} /></label>
+          <div className="button-row">
+            <button onClick={addWorldEntry}>添加世界书条目</button>
+          </div>
+          {state.worldBookEntries.map((entry) => (
+            <div className="log-entry" key={entry.id}>
+              <strong>{entry.title}</strong>
+              <p className="muted">关键词：{entry.keys.join(', ') || '常驻'} · 优先级：{entry.priority}</p>
+              <p>{entry.content}</p>
+            </div>
+          ))}
+        </details>
       </section>
+        </div>
+      </div>
     </main>
   );
 }

@@ -92,7 +92,7 @@ export function promptBlockPositionLabel(position: string | undefined): string {
 export function presetTypeLabel(type: string | null | undefined): string {
   switch (type) {
     case 'tutorial': return '新手教程';
-    case 'rules_strict': return '规则严格';
+    case 'rules_strict': return '规则参考';
     case 'story_first': return '剧情优先';
     case 'combat_first': return '战斗优先';
     case 'casual': return '轻松跑团';

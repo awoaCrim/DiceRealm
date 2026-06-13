@@ -10,6 +10,7 @@ const room: Room = {
   worldInfo: 'DM-only truth: the locked library hides a lich phylactery.',
   currentTurn: 1,
   status: 'waiting_for_actions',
+  expectedPlayerCount: null,
   aiConfig: defaultAiConfig,
   createdAt: '2026-05-27T00:00:00.000Z'
 };

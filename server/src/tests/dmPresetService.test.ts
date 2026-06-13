@@ -36,11 +36,121 @@ describe('DM Preset Service', () => {
     for (const template of PRESET_TEMPLATES) {
       expect(template.type).toBeTruthy();
       expect(template.blocks.length).toBeGreaterThan(0);
-      expect(template.blocks.some((block) => block.name === '剧情字数限制' && block.content.includes('objectiveLog：最多 300'))).toBe(true);
+      expect(template.blocks.some((block) => (
+        block.name === '剧情字数限制'
+        && block.content.includes('objectiveLog：最多 300')
+        && block.content.includes('publicLog：最多 1500')
+        && block.content.includes('常规多人行动回合写 500-900')
+        && block.content.includes('privateUpdatesByPlayer：每名玩家最多 300')
+      ))).toBe(true);
       for (const block of template.blocks) {
         expect(block.category).toBeTruthy();
         expect(block.content).toBeTruthy();
       }
+    }
+  });
+
+  it('combat-oriented templates describe combat as lightweight situational context', () => {
+    const combatText = PRESET_TEMPLATES
+      .filter((template) => template.type === 'rules_strict' || template.type === 'combat_first')
+      .flatMap((template) => [template.name, template.description, ...template.blocks.map((block) => block.content)])
+      .join('\n');
+
+    expect(combatText).toContain('轻量临场态势');
+    expect(combatText).toContain('combat_state 只作为辅助');
+    expect(combatText).not.toContain('战斗中严格遵循先攻顺序');
+    expect(combatText).not.toContain('精确追踪每个战斗细节');
+    expect(combatText).not.toContain('严格遵守 5e 战斗规则');
+  });
+
+  it('upgrades legacy default narrative limits without overwriting custom limits', () => {
+    const db = createMemoryDb();
+    migrate(db);
+    try {
+      createDefaultGlobalPreset(db);
+      const legacyRules = [
+        '剧情字数硬上限：控制 AI 本回合输出的三层剧情长度。超过上限属于格式错误。',
+        '- objectiveLog：最多 300 个中文字符，写 DM 需要追踪的客观事实、隐藏细节和裁定依据。',
+        '- publicLog：最多 300 个中文字符，只写所有玩家共同可见或共同已知的公开剧情。',
+        '- privateUpdatesByPlayer：每名玩家最多 150 个中文字符，只写该玩家本人可见的私人信息。'
+      ].join('\n');
+      db.prepare('UPDATE global_prompt_blocks SET content = ? WHERE name = ?').run(legacyRules, '剧情字数限制');
+
+      createDefaultGlobalPreset(db);
+      let block = getActiveGlobalPromptBlocks(db).find((item) => item.name === '剧情字数限制');
+      expect(block?.content).toContain('publicLog：最多 1500');
+      expect(block?.content).toContain('privateUpdatesByPlayer：每名玩家最多 300');
+
+      const previousRules = [
+        '剧情字数硬上限：控制 AI 本回合输出的三层剧情长度。超过上限属于格式错误。',
+        '- objectiveLog：最多 300 个中文字符，写 DM 需要追踪的客观事实、隐藏细节和裁定依据。',
+        '- publicLog：最多 600 个中文字符，只写所有玩家共同可见或共同已知的公开剧情。',
+        '- privateUpdatesByPlayer：每名玩家最多 300 个中文字符，只写该玩家本人可见的私人信息。'
+      ].join('\n');
+      db.prepare('UPDATE global_prompt_blocks SET content = ? WHERE name = ?').run(previousRules, '剧情字数限制');
+
+      createDefaultGlobalPreset(db);
+      block = getActiveGlobalPromptBlocks(db).find((item) => item.name === '剧情字数限制');
+      expect(block?.content).toContain('publicLog：最多 1500');
+      expect(block?.content).toContain('privateUpdatesByPlayer：每名玩家最多 300');
+
+      const currentBeforeExpansionRules = [
+        '剧情字数硬上限：控制 AI 本回合输出的三层剧情长度。超过上限属于格式错误。',
+        '- objectiveLog：最多 300 个中文字符，写 DM 需要追踪的客观事实、隐藏细节和裁定依据。',
+        '- publicLog：最多 1000 个中文字符，只写所有玩家共同可见或共同已知的公开剧情。',
+        '- privateUpdatesByPlayer：每名玩家最多 300 个中文字符，只写该玩家本人可见的私人信息。'
+      ].join('\n');
+      db.prepare('UPDATE global_prompt_blocks SET content = ? WHERE name = ?').run(currentBeforeExpansionRules, '剧情字数限制');
+
+      createDefaultGlobalPreset(db);
+      block = getActiveGlobalPromptBlocks(db).find((item) => item.name === '剧情字数限制');
+      expect(block?.content).toContain('publicLog：最多 1500');
+      expect(block?.content).toContain('常规多人行动回合写 500-900');
+      expect(block?.content).toContain('privateUpdatesByPlayer：每名玩家最多 300');
+
+      const currentBeforeMinimumGuidanceRules = [
+        '剧情字数硬上限：控制 AI 本回合输出的三层剧情长度。超过上限属于格式错误。',
+        '- objectiveLog：最多 300 个中文字符，写 DM 需要追踪的客观事实、隐藏细节和裁定依据。',
+        '- publicLog：最多 1500 个中文字符，只写所有玩家共同可见或共同已知的公开剧情。通常写 500-900 个中文字符，写成可读场景段落，不要压缩成一句摘要；即使检定失败，也要交代玩家动作过程、现场反馈、NPC/环境反应和下一步可行动信息。',
+        '- privateUpdatesByPlayer：每名玩家最多 300 个中文字符，只写该玩家本人可见的私人信息。'
+      ].join('\n');
+      db.prepare('UPDATE global_prompt_blocks SET content = ? WHERE name = ?').run(currentBeforeMinimumGuidanceRules, '剧情字数限制');
+
+      createDefaultGlobalPreset(db);
+      block = getActiveGlobalPromptBlocks(db).find((item) => item.name === '剧情字数限制');
+      expect(block?.content).toContain('publicLog：最多 1500');
+      expect(block?.content).toContain('常规多人行动回合写 500-900');
+      expect(block?.content).toContain('privateUpdatesByPlayer：每名玩家最多 300');
+
+      const suggestedTemplateRules = [
+        '剧情字数限制：控制 AI 本回合输出的三层剧情长度。',
+        '- objectiveLog：建议 500-1000 个中文字符，写 DM 需要追踪的客观事实、隐藏细节和裁定依据。',
+        '- publicLog：建议 500-1500 个中文字符，只写所有玩家共同可见或共同已知的公开剧情。',
+        '- privateUpdatesByPlayer：每名玩家建议 300-800 个中文字符，只写该玩家本人可见的私人信息。',
+        '如本回合信息量较少，可以低于建议下限；如信息量较大，优先保留可行动信息、规则结果和状态变化，不要用冗长文学描写填满上限。'
+      ].join('\n');
+      db.prepare('UPDATE global_prompt_blocks SET content = ? WHERE name = ?').run(suggestedTemplateRules, '剧情字数限制');
+
+      createDefaultGlobalPreset(db);
+      block = getActiveGlobalPromptBlocks(db).find((item) => item.name === '剧情字数限制');
+      expect(block?.content).toContain('publicLog：最多 1500');
+      expect(block?.content).toContain('常规多人行动回合写 500-900');
+      expect(block?.content).toContain('privateUpdatesByPlayer：每名玩家最多 300');
+
+      const customRules = [
+        '剧情字数硬上限：控制 AI 本回合输出的三层剧情长度。超过上限属于格式错误。',
+        '- objectiveLog：最多 1000 个中文字符。',
+        '- publicLog：最多 900 个中文字符。',
+        '- privateUpdatesByPlayer：每名玩家最多 500 个中文字符。'
+      ].join('\n');
+      db.prepare('UPDATE global_prompt_blocks SET content = ? WHERE name = ?').run(customRules, '剧情字数限制');
+
+      createDefaultGlobalPreset(db);
+      block = getActiveGlobalPromptBlocks(db).find((item) => item.name === '剧情字数限制');
+      expect(block?.content).toContain('publicLog：最多 900');
+      expect(block?.content).toContain('privateUpdatesByPlayer：每名玩家最多 500');
+    } finally {
+      db.close();
     }
   });
 

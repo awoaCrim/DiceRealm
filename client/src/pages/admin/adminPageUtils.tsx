@@ -61,7 +61,7 @@ export function eventTypeLabel(type: string): string {
     case 'PLUGIN_DB_CHANGE_APPLIED': return '插件数据库变更';
     case 'INTERACTION_CREATED': return '互动请求';
     case 'TURN_LOG_MATERIALIZED': return '回合日志';
-    case 'COMBAT_STATE_UPDATED': return '战斗状态更新';
+    case 'COMBAT_STATE_UPDATED': return '临场态势更新';
     default: return type;
   }
 }
@@ -97,7 +97,7 @@ export function actionTypeLabel(type: string | undefined): string {
     case 'ready': return '准备';
     case 'follow': return '跟随';
     case 'combat_action':
-    case 'combat': return '战斗行动';
+    case 'combat': return '临场行动';
     case 'exploration': return '探索行动';
     case 'social': return '社交行动';
     case 'ooc': return '场外说明';

@@ -381,10 +381,8 @@ export function applyResolutionRunToAiTurnResult(db: AppDatabase, result: AiTurn
   }
 
   const {
-    publicSummaries,
     objectivePublicSummaries,
     hiddenObjectiveSummaries,
-    publicDiceBlock,
     objectivePublicDiceBlock,
     hiddenObjectiveDiceBlock
   } = buildResolutionNarrationSections(run);
@@ -402,9 +400,6 @@ export function applyResolutionRunToAiTurnResult(db: AppDatabase, result: AiTurn
       : `（${summary}）`;
   }
 
-  if (publicSummaries.length > 0 && !result.publicLog.includes(publicDiceBlock)) {
-    result.publicLog += `\n\n${publicDiceBlock}`;
-  }
   if (objectivePublicSummaries.length > 0 && !result.objectiveLog.includes(objectivePublicDiceBlock)) {
     result.objectiveLog = `${result.objectiveLog}\n\n${objectivePublicDiceBlock}`;
   }

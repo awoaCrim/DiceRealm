@@ -141,10 +141,6 @@ function randomFrom<T>(items: T[]): T | undefined {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-function randomOptionName(options: CharacterBuilderOption[], fallback: string[]): string {
-  return randomFrom(options)?.name ?? randomFrom(fallback) ?? '';
-}
-
 function randomMany(options: CharacterBuilderOption[], fallback: string[], count: number): string[] {
   const source = options.length > 0 ? options.map(option => option.name) : fallback;
   const selected: string[] = [];
@@ -157,9 +153,21 @@ function randomMany(options: CharacterBuilderOption[], fallback: string[], count
   return selected;
 }
 
+function randomCompatibleOptionName(allOptions: CharacterBuilderOption[], compatible: CharacterBuilderOption[], fallback: string[]): string {
+  if (allOptions.length > 0) return randomFrom(compatible)?.name ?? '';
+  return randomFrom(fallback) ?? '';
+}
+
+function randomManyCompatible(allOptions: CharacterBuilderOption[], compatible: CharacterBuilderOption[], fallback: string[], count: number): string[] {
+  if (allOptions.length > 0) return randomMany(compatible, [], count);
+  return randomMany([], fallback, count);
+}
+
 function approvedValue(options: CharacterBuilderOption[], value: string): string {
   return options.some(option => option.name === value) ? value : '';
 }
+
+const spellcastingAtLevel1Classes = ['吟游诗人', '牧师', '德鲁伊', '术士', '邪术师', '法师'];
 
 const ruleLabels: Record<string, string> = {
   ability: '关联属性',
@@ -222,6 +230,104 @@ function isRuleRecord(value: JsonValue): value is { [key: string]: JsonValue } {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
+function stringList(value: JsonValue | undefined): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  return [];
+}
+
+function optionPrerequisites(option: CharacterBuilderOption): { [key: string]: JsonValue } {
+  return isRuleRecord(option.prerequisites) ? option.prerequisites : {};
+}
+
+function prerequisiteMismatch(draft: CharacterBuilderDraft, option: CharacterBuilderOption): string {
+  const prerequisites = optionPrerequisites(option);
+  const species = stringList(prerequisites.species);
+  if (species.length > 0 && (!draft.species || !species.includes(draft.species))) {
+    return `仅适用于：${species.join('、')}`;
+  }
+
+  const classNames = stringList(prerequisites.classNames);
+  if (classNames.length > 0 && (!draft.className || !classNames.includes(draft.className))) {
+    return `仅适用于职业：${classNames.join('、')}`;
+  }
+
+  const backgrounds = stringList(prerequisites.backgrounds);
+  if (backgrounds.length > 0 && (!draft.background || !backgrounds.includes(draft.background))) {
+    return `仅适用于背景：${backgrounds.join('、')}`;
+  }
+
+  if (prerequisites.requiresSpellcastingAtLevel1 === true && !spellcastingAtLevel1Classes.includes(draft.className)) {
+    return '需要一级即可施法的职业';
+  }
+
+  return '';
+}
+
+function optionMatchesDraft(draft: CharacterBuilderDraft, option: CharacterBuilderOption): boolean {
+  return prerequisiteMismatch(draft, option) === '';
+}
+
+function isRecommendedForDraft(draft: CharacterBuilderDraft, option: CharacterBuilderOption, extraRecommendedNames: string[] = []): boolean {
+  if (extraRecommendedNames.includes(option.name)) {
+    return true;
+  }
+  const prerequisites = optionPrerequisites(option);
+  const recommendedClasses = stringList(prerequisites.recommendedForClassNames);
+  if (recommendedClasses.length > 0 && draft.className && recommendedClasses.includes(draft.className)) {
+    return true;
+  }
+
+  return false;
+}
+
+function compatibleOptions(options: CharacterBuilderOption[], draft: CharacterBuilderDraft): CharacterBuilderOption[] {
+  return options.filter(option => optionMatchesDraft(draft, option));
+}
+
+function sanitizeSingleChoice(value: string, allOptions: CharacterBuilderOption[], draft: CharacterBuilderDraft): string {
+  if (!value) return value;
+  const option = allOptions.find(item => item.name === value);
+  if (!option) return value;
+  return optionMatchesDraft(draft, option) ? value : '';
+}
+
+function sanitizeMultiChoice(values: string[], allOptions: CharacterBuilderOption[], draft: CharacterBuilderDraft): string[] {
+  return values.filter(value => {
+    const option = allOptions.find(item => item.name === value);
+    return !option || optionMatchesDraft(draft, option);
+  });
+}
+
+function sameStringArray(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((item, index) => item === right[index]);
+}
+
+function sanitizeDraftForOptions(draft: CharacterBuilderDraft, options: CharacterBuilderOptions): CharacterBuilderDraft {
+  const next = {
+    ...draft,
+    subSpecies: sanitizeSingleChoice(draft.subSpecies, options.subSpecies, draft),
+    skills: sanitizeMultiChoice(draft.skills, options.skills, draft),
+    equipment: sanitizeMultiChoice(draft.equipment, options.equipment, draft),
+    spells: sanitizeMultiChoice(draft.spells, options.spells, draft),
+    languages: sanitizeMultiChoice(draft.languages, options.languages, draft),
+    proficiencies: sanitizeMultiChoice(draft.proficiencies, options.proficiencies, draft)
+  };
+
+  if (
+    next.subSpecies === draft.subSpecies &&
+    sameStringArray(next.skills, draft.skills) &&
+    sameStringArray(next.equipment, draft.equipment) &&
+    sameStringArray(next.spells, draft.spells) &&
+    sameStringArray(next.languages, draft.languages) &&
+    sameStringArray(next.proficiencies, draft.proficiencies)
+  ) {
+    return draft;
+  }
+
+  return next;
+}
+
 function formatRuleValue(value: JsonValue): string {
   if (Array.isArray(value)) return value.map(formatRuleValue).join('、');
   if (isRuleRecord(value)) {
@@ -271,23 +377,26 @@ function SingleOptionField({
   label,
   value,
   options,
+  allOptions = options,
   customPlaceholder,
   onChange
 }: {
   label: string;
   value: string;
   options: CharacterBuilderOption[];
+  allOptions?: CharacterBuilderOption[];
   customPlaceholder: string;
   onChange: (value: string) => void;
 }) {
-  const selectedOption = options.find(option => option.name === value);
+  const selectedOption = allOptions.find(option => option.name === value);
+  const selectedApprovedValue = approvedValue(options, value);
   const customValue = selectedOption ? '' : value;
 
   return (
     <div className="builder-field">
       <label>
         {label}
-        <select value={approvedValue(options, value)} onChange={e => onChange(e.target.value)}>
+        <select value={selectedApprovedValue} onChange={e => onChange(e.target.value)}>
           <option value="">{options.length > 0 ? '从内置 / 已批准选项选择' : '暂无已批准选项，可在下方自定义填写'}</option>
           {options.map(o => (
             <option key={o.id} value={o.name}>{o.name}</option>
@@ -300,6 +409,7 @@ function SingleOptionField({
         placeholder={customPlaceholder}
         onChange={e => onChange(e.target.value)}
       />
+      {customValue ? <p className="muted option-help">自定义项会保存，但确认时会提示 DM 复核。</p> : null}
       <OptionDetail option={selectedOption} />
     </div>
   );
@@ -311,6 +421,8 @@ function MultiOptionSection({
   customLabel,
   options,
   selected,
+  draft,
+  extraRecommendedNames = [],
   onChange
 }: {
   title: string;
@@ -318,11 +430,18 @@ function MultiOptionSection({
   customLabel: string;
   options: CharacterBuilderOption[];
   selected: string[];
+  draft: CharacterBuilderDraft;
+  extraRecommendedNames?: string[];
   onChange: (items: string[]) => void;
 }) {
   const [customValue, setCustomValue] = useState('');
   const [focusedOptionName, setFocusedOptionName] = useState('');
   const detailOption = options.find(o => o.name === focusedOptionName) ?? options.find(o => selected.includes(o.name));
+  const compatible = compatibleOptions(options, draft);
+  const recommended = compatible.filter(o => isRecommendedForDraft(draft, o, extraRecommendedNames));
+  const reviewOnly = compatible.filter(o => optionPrerequisites(o).reviewOnly === true && !recommended.some(item => item.id === o.id));
+  const available = compatible.filter(o => !recommended.some(item => item.id === o.id) && !reviewOnly.some(item => item.id === o.id));
+  const selectedCustom = selected.filter(item => !options.some(option => option.name === item));
 
   const addCustom = () => {
     const next = addItem(selected, customValue);
@@ -330,15 +449,13 @@ function MultiOptionSection({
     if (next !== selected) setCustomValue('');
   };
 
-  return (
-    <div className="subcard builder-option-block">
-      <div className="section-heading-row">
-        <h3>{title}</h3>
-        <span className="muted">{selected.length} 已选</span>
-      </div>
-      {options.length > 0 ? (
+  const renderChoiceGroup = (heading: string, groupOptions: CharacterBuilderOption[]) => {
+    if (groupOptions.length === 0) return null;
+    return (
+      <div className="choice-group">
+        <div className="choice-group-title">{heading}</div>
         <div className="choice-grid">
-          {options.map(o => (
+          {groupOptions.map(o => (
             <label key={o.id} title={o.summary || o.sourceRef || o.name} onMouseEnter={() => setFocusedOptionName(o.name)}>
               <input
                 type="checkbox"
@@ -352,6 +469,22 @@ function MultiOptionSection({
             </label>
           ))}
         </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="subcard builder-option-block">
+      <div className="section-heading-row">
+        <h3>{title}</h3>
+        <span className="muted">{selected.length} 已选</span>
+      </div>
+      {compatible.length > 0 ? (
+        <>
+          {renderChoiceGroup('推荐', recommended)}
+          {renderChoiceGroup('可选', available)}
+          {renderChoiceGroup('需复核', reviewOnly)}
+        </>
       ) : (
         <p className="muted">{emptyText}</p>
       )}
@@ -382,11 +515,12 @@ function MultiOptionSection({
               onClick={() => onChange(selected.filter(existing => existing !== item))}
               title={`移除 ${item}`}
             >
-              {item} x
+              {item}{selectedCustom.includes(item) ? ' · 需复核' : ''} x
             </button>
           ))}
         </div>
       ) : null}
+      {selectedCustom.length > 0 ? <p className="muted option-help">自定义项会保存，但确认时会提示 DM 复核。</p> : null}
       <OptionDetail option={detailOption} />
     </div>
   );
@@ -481,6 +615,18 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [dirty, isOpen]);
 
+  useEffect(() => {
+    if (!options) return;
+    setDraft(prev => {
+      const next = sanitizeDraftForOptions(prev, options);
+      if (next === prev) return prev;
+      setDirty(true);
+      setAudit(null);
+      setMessage('已移除与当前种族、职业或背景不兼容的目录选项。');
+      return next;
+    });
+  }, [options, draft.species, draft.className, draft.background]);
+
   const update = (patch: Partial<CharacterBuilderDraft>) => {
     setDraft(prev => ({ ...prev, ...patch }));
     setDirty(true);
@@ -571,15 +717,29 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
       ? `已批准选项 ${totalApprovedOptions}`
       : '已批准选项 0 · 可自定义填写'
     : '选项加载中';
+  const selectedBackground = options?.backgrounds.find(option => option.name === draft.background);
+  const selectedBackgroundRules = selectedBackground && isRuleRecord(selectedBackground.ruleData) ? selectedBackground.ruleData : {};
+  const backgroundRecommendedSkills = stringList(selectedBackgroundRules.skillProficiencies);
+  const backgroundRecommendedProficiencies = stringList(selectedBackgroundRules.toolProficiencies);
+  const speciesOptions = options ? compatibleOptions(options.species, draft) : [];
+  const subSpeciesOptions = options ? compatibleOptions(options.subSpecies, draft) : [];
+  const classOptions = options ? compatibleOptions(options.classes, draft) : [];
+  const backgroundOptions = options ? compatibleOptions(options.backgrounds, draft) : [];
+  const skillOptions = options ? compatibleOptions(options.skills, draft) : [];
+  const equipmentOptions = options ? compatibleOptions(options.equipment, draft) : [];
+  const spellOptions = options ? compatibleOptions(options.spells, draft) : [];
+  const languageOptions = options ? compatibleOptions(options.languages, draft) : [];
+  const proficiencyOptions = options ? compatibleOptions(options.proficiencies, draft) : [];
 
   const randomizeCharacter = () => {
     if (!options) return;
-    const className = randomOptionName(options.classes, fallbackRandomOptions.classes);
-    const background = randomOptionName(options.backgrounds, fallbackRandomOptions.backgrounds);
+    const species = randomCompatibleOptionName(options.species, compatibleOptions(options.species, defaultDraft), fallbackRandomOptions.species);
+    const className = randomCompatibleOptionName(options.classes, compatibleOptions(options.classes, { ...defaultDraft, species }), fallbackRandomOptions.classes);
+    const background = randomCompatibleOptionName(options.backgrounds, compatibleOptions(options.backgrounds, { ...defaultDraft, species, className }), fallbackRandomOptions.backgrounds);
+    const randomDraftBase = { ...defaultDraft, species, className, background };
     const abilityPreset = randomFrom(abilityPresets) ?? abilityPresets[0];
     const classDetail = randomFrom(classDetailsByClass[className] ?? []) ?? '';
-    const species = randomOptionName(options.species, fallbackRandomOptions.species);
-    const subSpecies = randomOptionName(options.subSpecies, fallbackRandomOptions.subSpecies);
+    const subSpecies = randomCompatibleOptionName(options.subSpecies, compatibleOptions(options.subSpecies, randomDraftBase), fallbackRandomOptions.subSpecies);
     const concept = `${background || '冒险者'}出身的${className || '冒险者'}，正在寻找下一次证明自己的机会。`;
     setDraft({
       name: randomFrom(fallbackRandomOptions.names) ?? '新英雄',
@@ -590,13 +750,13 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
       classDetail,
       background,
       abilityScores: abilityPreset.scores,
-      skills: randomMany(options.skills, fallbackRandomOptions.skills, 2),
-      equipment: randomMany(options.equipment, fallbackRandomOptions.equipment, 3),
-      spells: ['法师', '牧师', '德鲁伊', '术士', '邪术师'].includes(className)
-        ? randomMany(options.spells, fallbackRandomOptions.spells, 2)
+      skills: randomManyCompatible(options.skills, compatibleOptions(options.skills, randomDraftBase), fallbackRandomOptions.skills, 2),
+      equipment: randomManyCompatible(options.equipment, compatibleOptions(options.equipment, randomDraftBase), fallbackRandomOptions.equipment, 3),
+      spells: spellcastingAtLevel1Classes.includes(className)
+        ? randomManyCompatible(options.spells, compatibleOptions(options.spells, randomDraftBase), fallbackRandomOptions.spells, 2)
         : [],
-      languages: randomMany(options.languages, fallbackRandomOptions.languages, 1),
-      proficiencies: randomMany(options.proficiencies, fallbackRandomOptions.proficiencies, 1),
+      languages: randomManyCompatible(options.languages, compatibleOptions(options.languages, randomDraftBase), fallbackRandomOptions.languages, 1),
+      proficiencies: randomManyCompatible(options.proficiencies, compatibleOptions(options.proficiencies, randomDraftBase), fallbackRandomOptions.proficiencies, 1),
       personality: '谨慎但愿意在关键时刻冒险。',
       ideal: '用自己的选择证明命运可以被改变。',
       bond: '仍牵挂着故乡或旧日同伴。',
@@ -639,15 +799,15 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
         return (
           <div className="builder-step-form">
             <h2>种族</h2>
-            <SingleOptionField label="种族" value={draft.species} options={options.species} customPlaceholder="例如：人类、精灵、矮人、自定义族群" onChange={species => update({ species })} />
-            <SingleOptionField label="子种族 / 血统" value={draft.subSpecies} options={options.subSpecies} customPlaceholder="例如：变体人类、丘陵矮人、高等精灵、龙裔血脉" onChange={subSpecies => update({ subSpecies })} />
+            <SingleOptionField label="种族" value={draft.species} options={speciesOptions} allOptions={options.species} customPlaceholder="例如：人类、精灵、矮人、自定义族群" onChange={species => update({ species })} />
+            <SingleOptionField label="子种族 / 血统" value={draft.subSpecies} options={subSpeciesOptions} allOptions={options.subSpecies} customPlaceholder="例如：变体人类、丘陵矮人、高等精灵、龙裔血脉" onChange={subSpecies => update({ subSpecies })} />
           </div>
         );
       case 'class':
         return (
           <div className="builder-step-form">
             <h2>职业</h2>
-            <SingleOptionField label="职业" value={draft.className} options={options.classes} customPlaceholder="例如：战士、法师、游侠、自定义职业" onChange={className => update({ className })} />
+            <SingleOptionField label="职业" value={draft.className} options={classOptions} allOptions={options.classes} customPlaceholder="例如：战士、法师、游侠、自定义职业" onChange={className => update({ className })} />
             <div className="builder-field">
               <label>
                 职业细节
@@ -659,7 +819,7 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
               </label>
               <p className="muted option-help">填写一级就需要确定的战斗风格、领域、血脉、庇护者或法术传统等。</p>
             </div>
-            <SingleOptionField label="背景" value={draft.background} options={options.backgrounds} customPlaceholder="例如：士兵、学者、罪犯、自定义背景" onChange={background => update({ background })} />
+            <SingleOptionField label="背景" value={draft.background} options={backgroundOptions} allOptions={options.backgrounds} customPlaceholder="例如：士兵、学者、罪犯、自定义背景" onChange={background => update({ background })} />
           </div>
         );
       case 'abilities':
@@ -682,17 +842,17 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
         return (
           <div className="builder-step-form">
             <h2>技能 / 熟练</h2>
-            <MultiOptionSection title="技能" emptyText="暂无已批准技能选项，可在下方自定义添加。" customLabel="自定义技能" options={options.skills} selected={draft.skills} onChange={skills => update({ skills })} />
-            <MultiOptionSection title="语言" emptyText="暂无已批准语言选项，可按战役设定自定义添加。" customLabel="自定义语言" options={options.languages} selected={draft.languages} onChange={languages => update({ languages })} />
-            <MultiOptionSection title="工具 / 武器 / 护甲熟练" emptyText="暂无已批准熟练项，可按职业、背景或 DM 许可自定义添加。" customLabel="自定义熟练项" options={options.proficiencies} selected={draft.proficiencies} onChange={proficiencies => update({ proficiencies })} />
+            <MultiOptionSection title="技能" emptyText="暂无已批准技能选项，可在下方自定义添加。" customLabel="自定义技能" options={skillOptions} selected={draft.skills} draft={draft} extraRecommendedNames={backgroundRecommendedSkills} onChange={skills => update({ skills })} />
+            <MultiOptionSection title="语言" emptyText="暂无已批准语言选项，可按战役设定自定义添加。" customLabel="自定义语言" options={languageOptions} selected={draft.languages} draft={draft} onChange={languages => update({ languages })} />
+            <MultiOptionSection title="工具 / 武器 / 护甲熟练" emptyText="暂无已批准熟练项，可按职业、背景或 DM 许可自定义添加。" customLabel="自定义熟练项" options={proficiencyOptions} selected={draft.proficiencies} draft={draft} extraRecommendedNames={backgroundRecommendedProficiencies} onChange={proficiencies => update({ proficiencies })} />
           </div>
         );
       case 'equipment':
         return (
           <div className="builder-step-form">
             <h2>装备</h2>
-            <MultiOptionSection title="装备" emptyText="暂无已批准装备选项，可在下方自定义添加。" customLabel="自定义装备" options={options.equipment} selected={draft.equipment} onChange={equipment => update({ equipment })} />
-            <MultiOptionSection title="法术 / 能力" emptyText="暂无已批准法术选项；非法术职业可以留空，或添加职业能力/戏法备注。" customLabel="自定义法术或能力" options={options.spells} selected={draft.spells} onChange={spells => update({ spells })} />
+            <MultiOptionSection title="装备" emptyText="暂无与当前选择兼容的已批准装备；可在下方自定义添加并交由 DM 复核。" customLabel="自定义装备" options={equipmentOptions} selected={draft.equipment} draft={draft} onChange={equipment => update({ equipment })} />
+            <MultiOptionSection title="法术 / 能力" emptyText="当前职业没有一级可用的已批准法术；可添加职业能力/戏法备注并交由 DM 复核。" customLabel="自定义法术或能力" options={spellOptions} selected={draft.spells} draft={draft} onChange={spells => update({ spells })} />
           </div>
         );
       case 'story':
@@ -715,7 +875,7 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
           <div className="builder-step-form">
             <h2>复核确认</h2>
             <p className="muted">确认后会生成正式角色构建表，并启用运行时状态卡。角色状态来自角色卡和资源状态，不来自世界书文本。</p>
-            <CharacterSummary draft={draft} />
+            <p className="muted">请在右侧角色预览中核对姓名、种族、职业、属性、技能、装备和扮演线索。移动端可切换到“预览”查看完整摘要。</p>
             <div className="subcard review-action-card">
               <h3>确认前操作</h3>
               <p className="muted">可以先保存草稿，或审核通过后直接确认角色。</p>
@@ -735,6 +895,14 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
                     {audit.issues.map((issue, idx) => <li key={idx}>{auditFieldLabel(issue.field)}：{issue.message}</li>)}
                   </ul>
                 ) : null}
+                {(audit.warnings ?? []).length > 0 ? (
+                  <>
+                    <h4>DM 复核提示</h4>
+                    <ul>
+                      {(audit.warnings ?? []).map((warning, idx) => <li key={idx}>{auditFieldLabel(warning.field)}：{warning.message}</li>)}
+                    </ul>
+                  </>
+                ) : null}
               </div>
             ) : null}
           </div>
@@ -744,20 +912,22 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
 
   return (
     <section className="card character-builder-entry">
-      <h2>角色卡</h2>
-      <p className="muted">尚未确认角色。使用分步向导创建角色，草稿可随时保存。</p>
-      <div className="builder-summary">
-        <span>{approvedOptionsText}</span>
-        <span>技能 {draft.skills.length}</span>
-        <span>装备 {draft.equipment.length}</span>
-        <span>法术 {draft.spells.length}</span>
-      </div>
-      {options && totalApprovedOptions === 0 ? (
-        <p className="muted">当前没有已批准目录，不影响创建角色；每一步都可以手动输入自定义内容。</p>
-      ) : null}
-      <div className="button-row">
-        <button type="button" onClick={() => setIsOpen(true)}>创建角色</button>
-        <button type="button" onClick={() => { setIsOpen(true); randomizeCharacter(); }} disabled={!options}>随机角色</button>
+      <div>
+        <h2>角色卡</h2>
+        <p className="muted">尚未确认角色。使用分步向导创建角色，草稿可随时保存。</p>
+        <div className="builder-summary">
+          <span>{approvedOptionsText}</span>
+          <span>技能 {draft.skills.length}</span>
+          <span>装备 {draft.equipment.length}</span>
+          <span>法术 {draft.spells.length}</span>
+        </div>
+        {options && totalApprovedOptions === 0 ? (
+          <p className="muted">当前没有已批准目录，不影响创建角色；每一步都可以手动输入自定义内容。</p>
+        ) : null}
+        <div className="button-row">
+          <button type="button" onClick={() => setIsOpen(true)}>创建角色</button>
+          <button type="button" onClick={() => { setIsOpen(true); randomizeCharacter(); }} disabled={!options}>随机角色</button>
+        </div>
       </div>
 
       {isOpen ? (
@@ -769,7 +939,7 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
                 <p className="muted">优先读取内置和已批准角色选项；没有目录时也可以自定义填写。保存草稿不会确认角色。</p>
               </div>
               <div className="button-row">
-                <button type="button" onClick={randomizeCharacter} disabled={!options}>随机角色</button>
+                <button type="button" onClick={randomizeCharacter} disabled={!options}>随机生成</button>
                 <button type="button" onClick={closeModal}>关闭</button>
               </div>
             </header>
@@ -800,7 +970,7 @@ export function CharacterBuilder({ token, initialDraft, onChanged, setError }: C
             <footer className="builder-modal-footer">
               <span className={localError ? 'form-error' : 'muted'}>{footerStatus}</span>
               <div className="button-row">
-                <button type="button" onClick={randomizeCharacter} disabled={!options}>随机角色</button>
+                <button type="button" onClick={randomizeCharacter} disabled={!options}>重新随机草稿</button>
                 {stepIndex < steps.length - 1 ? <button type="button" onClick={saveDraft} disabled={saveBusy || confirmBusy}>{saveBusy ? '保存中...' : '保存草稿'}</button> : null}
                 <button type="button" onClick={previous} disabled={stepIndex === 0}>上一步</button>
                 {stepIndex < steps.length - 1 ? (

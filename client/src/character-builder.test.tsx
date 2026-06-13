@@ -56,7 +56,7 @@ vi.mock('./api', () => ({
   getCharacterBuilderOptions: vi.fn(async () => ({ options: mockOptions })),
   auditCharacterBuilderDraft: vi.fn(async (_token: string, draft: unknown) => ({
     draft,
-    audit: { valid: true, issues: [] }
+    audit: { valid: true, issues: [], warnings: [] }
   })),
   saveCharacterBuilderDraft: vi.fn(async () => ({
     character: { id: 'char-1', confirmed: false }
@@ -247,7 +247,8 @@ describe('CharacterBuilder', () => {
         issues: [
           { field: 'abilityScores', message: '属性总值不符合当前规则。' },
           { field: 'className', message: '请选择职业。' }
-        ]
+        ],
+        warnings: []
       }
     });
 
@@ -289,5 +290,112 @@ describe('CharacterBuilder', () => {
 
     expect(confirmSpy).toHaveBeenCalled();
     expect(screen.getByRole('dialog', { name: '角色创建向导' })).toBeInTheDocument();
+  });
+
+  it('filters sub-species after the selected species changes', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getCharacterBuilderOptions).mockResolvedValueOnce({
+      options: {
+        ...mockOptions,
+        species: [
+          { id: 's-human', optionType: 'species', name: '人类', summary: '人类', ruleData: {}, prerequisites: {}, sourceRef: '' },
+          { id: 's-elf', optionType: 'species', name: '精灵', summary: '精灵', ruleData: {}, prerequisites: {}, sourceRef: '' }
+        ],
+        subSpecies: [
+          { id: 'ss-human', optionType: 'subspecies', name: '变体人类', summary: '人类变体', ruleData: {}, prerequisites: { species: ['人类'] }, sourceRef: '' },
+          { id: 'ss-elf', optionType: 'subspecies', name: '高等精灵', summary: '精灵分支', ruleData: {}, prerequisites: { species: ['精灵'] }, sourceRef: '' }
+        ]
+      }
+    });
+
+    render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={vi.fn()} setError={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: '创建角色' }));
+    await user.click(screen.getByRole('button', { name: /种族/ }));
+    await user.selectOptions(screen.getByLabelText('种族'), '精灵');
+
+    const subSpeciesSelect = screen.getByLabelText('子种族 / 血统');
+    expect(subSpeciesSelect).toHaveTextContent('高等精灵');
+    expect(subSpeciesSelect).not.toHaveTextContent('变体人类');
+  });
+
+  it('clears incompatible approved spells when class changes', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getCharacterBuilderOptions).mockResolvedValueOnce({
+      options: {
+        ...mockOptions,
+        classes: [
+          { id: 'c-fighter', optionType: 'class', name: '战士', summary: '战士', ruleData: {}, prerequisites: {}, sourceRef: '' },
+          { id: 'c-wizard', optionType: 'class', name: '法师', summary: '法师', ruleData: {}, prerequisites: {}, sourceRef: '' }
+        ],
+        spells: [
+          { id: 'sp-mm', optionType: 'spell', name: '魔法飞弹', summary: '法术', ruleData: { level: 1 }, prerequisites: { classNames: ['法师'], requiresSpellcastingAtLevel1: true }, sourceRef: '' }
+        ]
+      }
+    });
+
+    render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={vi.fn()} setError={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: '创建角色' }));
+    await user.click(screen.getByRole('button', { name: /职业/ }));
+    await user.selectOptions(screen.getByLabelText('职业'), '法师');
+    await user.click(screen.getByRole('button', { name: /装备/ }));
+    await user.click(screen.getByLabelText('魔法飞弹'));
+    await user.click(screen.getByRole('button', { name: /职业/ }));
+    await user.selectOptions(screen.getByLabelText('职业'), '战士');
+    await user.click(screen.getByRole('button', { name: /装备/ }));
+
+    await waitFor(() => expect(screen.queryByLabelText('魔法飞弹')).not.toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: '保存草稿' }));
+    await waitFor(() => expect(api.saveCharacterBuilderDraft).toHaveBeenCalledWith('token-1', expect.objectContaining({
+      className: '战士',
+      spells: []
+    })));
+  });
+
+  it('renders custom-choice warnings from audit results', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.auditCharacterBuilderDraft).mockResolvedValueOnce({
+      draft: validDraft,
+      audit: {
+        valid: true,
+        issues: [],
+        warnings: [
+          { field: 'equipment', message: '黄铜罗盘 是自定义项，请由 DM 复核。' }
+        ]
+      }
+    });
+
+    render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={vi.fn()} setError={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: '创建角色' }));
+    await user.click(screen.getByRole('button', { name: /复核确认/ }));
+    await user.click(screen.getByRole('button', { name: '审核角色' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('DM 复核提示');
+    expect(screen.getByRole('status')).toHaveTextContent('装备：黄铜罗盘 是自定义项，请由 DM 复核。');
+  });
+
+  it('does not randomize spells from an incompatible catalog', async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getCharacterBuilderOptions).mockResolvedValueOnce({
+      options: {
+        ...mockOptions,
+        classes: [{ id: 'c-fighter', optionType: 'class', name: '战士', summary: '战士', ruleData: {}, prerequisites: {}, sourceRef: '' }],
+        spells: [
+          { id: 'sp-mm', optionType: 'spell', name: '魔法飞弹', summary: '法术', ruleData: { level: 1 }, prerequisites: { classNames: ['法师'], requiresSpellcastingAtLevel1: true }, sourceRef: '' }
+        ]
+      }
+    });
+
+    render(<CharacterBuilder token="token-1" initialDraft={null} onChanged={vi.fn()} setError={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: '随机角色' }));
+    await user.click(screen.getByRole('button', { name: '保存草稿' }));
+
+    await waitFor(() => expect(api.saveCharacterBuilderDraft).toHaveBeenCalledWith('token-1', expect.objectContaining({
+      className: '战士',
+      spells: []
+    })));
   });
 });

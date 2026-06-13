@@ -17,6 +17,12 @@ import { listCharacterResourceChanges } from '../services/characterAuditService.
 import { listSessionSummaries, listCampaignQuests, listCampaignNpcs } from '../services/campaignMemoryService.js';
 import { getTurnReadiness } from '../services/turnReadinessService.js';
 import { buildFiveERulesSummary } from '../services/fiveERulesService.js';
+import { PersonalOpeningIntroError, preparePersonalOpeningIntrosForConfirmation, type PreparedPersonalOpeningIntro } from '../services/personalOpeningIntroService.js';
+import {
+  generateCurrentPlayerTurnSuggestions,
+  loadCachedCurrentPlayerTurnSuggestions,
+  PlayerTurnSuggestionError
+} from '../services/playerTurnSuggestionService.js';
 
 const actionSchema = z.object({
   text: z.string().min(1),
@@ -51,6 +57,12 @@ function getCharacterByPlayerId(db: AppDatabase, playerId: string): any | null {
   return db.prepare('SELECT id, player_id as playerId, sheet_json as sheetJson, draft_source as draftSource, confirmed, updated_at as updatedAt FROM characters WHERE player_id = ?').get(playerId) as any | null;
 }
 
+function isRoomAtExpectedPlayerCount(db: AppDatabase, roomId: string, expectedPlayerCount: number | null | undefined): boolean {
+  if (!expectedPlayerCount) return false;
+  const row = db.prepare('SELECT COUNT(*) as count FROM players WHERE room_id = ?').get(roomId) as { count: number };
+  return row.count >= expectedPlayerCount;
+}
+
 function mapCharacterRow(row: any): { id: string; playerId: string; sheet: any; draftSource: 'ai' | 'manual'; confirmed: boolean; updatedAt: string } {
   const draftSource = row.draftSource === 'ai' ? 'ai' as const : 'manual' as const;
   return {
@@ -70,7 +82,7 @@ export function createPlayerRouter(db: AppDatabase): Router {
     const player = getPlayerByToken(db, req.params.token);
     if (!player) return res.status(404).json({ error: 'Not found' });
 
-    const room = db.prepare('SELECT id, name, system_prompt as systemPrompt, world_info as worldInfo, current_turn as currentTurn, status, created_at as createdAt FROM rooms WHERE id = ?').get(player.roomId) as any;
+    const room = db.prepare('SELECT id, name, system_prompt as systemPrompt, world_info as worldInfo, current_turn as currentTurn, status, expected_player_count as expectedPlayerCount, created_at as createdAt FROM rooms WHERE id = ?').get(player.roomId) as any;
     const players = db.prepare('SELECT id, room_id as roomId, name, token, is_connected as isConnected, created_at as createdAt FROM players WHERE room_id = ? ORDER BY created_at ASC').all(player.roomId) as any[];
     const characterRow = getCharacterByPlayerId(db, player.id);
     const character = characterRow ? mapCharacterRow(characterRow) : null;
@@ -146,8 +158,32 @@ export function createPlayerRouter(db: AppDatabase): Router {
     const quests = listCampaignQuests(db, player.roomId);
     const npcs = listCampaignNpcs(db, player.roomId);
     const rules = buildFiveERulesSummary(character);
+    const turnSuggestions = loadCachedCurrentPlayerTurnSuggestions(db, { roomId: player.roomId, playerId: player.id });
 
-    res.json(buildPlayerVisibleState({ room, player, players, character, logs, actions, interactions, ruleSummaries, resources, recentChanges, combatState, recentDiceLogs: diceLogs, campaignSummary, quests, npcs, rules }));
+    res.json(buildPlayerVisibleState({ room, player, players, character, logs, actions, interactions, ruleSummaries, resources, recentChanges, combatState, recentDiceLogs: diceLogs, campaignSummary, quests, npcs, rules, turnSuggestions }));
+  });
+
+  router.post('/:token/turn-suggestions', async (req, res, next) => {
+    try {
+      const player = getPlayerByToken(db, req.params.token);
+      if (!player) return res.status(404).json({ error: 'Not found' });
+      const turnSuggestions = await generateCurrentPlayerTurnSuggestions(db, {
+        roomId: player.roomId,
+        playerId: player.id
+      });
+      publishRoomUpdate(player.roomId);
+      res.json({
+        suggestions: turnSuggestions.options,
+        status: turnSuggestions.status,
+        error: turnSuggestions.error ?? undefined
+      });
+    } catch (error) {
+      if (error instanceof PlayerTurnSuggestionError) {
+        res.status(error.statusCode).json({ error: error.message });
+        return;
+      }
+      next(error);
+    }
   });
 
   router.get('/:token/character-builder/options', (req, res) => {
@@ -161,7 +197,8 @@ export function createPlayerRouter(db: AppDatabase): Router {
     if (!player) return res.status(404).json({ error: 'Not found' });
     const input = builderDraftSchema.parse(req.body);
     const draft = normalizeCharacterBuilderDraft(input.draft);
-    const audit = auditCharacterBuilderDraft(draft);
+    const options = listCharacterBuilderOptions(db);
+    const audit = auditCharacterBuilderDraft(draft, options);
     res.json({ draft, audit });
   });
 
@@ -206,7 +243,7 @@ export function createPlayerRouter(db: AppDatabase): Router {
     res.json({ character });
   });
 
-  router.post('/:token/character-builder/confirm', (req, res) => {
+  router.post('/:token/character-builder/confirm', async (req, res) => {
     const player = getPlayerByToken(db, req.params.token);
     if (!player) return res.status(404).json({ error: 'Not found' });
 
@@ -217,17 +254,49 @@ export function createPlayerRouter(db: AppDatabase): Router {
     const input = optionalBuilderDraftSchema.parse(req.body ?? {});
     const rawDraft = input.draft ?? currentSheet.builderDraft ?? currentSheet;
     const draft = normalizeCharacterBuilderDraft(rawDraft);
-    const audit = auditCharacterBuilderDraft(draft);
+    const options = listCharacterBuilderOptions(db);
+    const audit = auditCharacterBuilderDraft(draft, options);
 
     if (!audit.valid) {
       return res.status(400).json({ error: 'Character builder draft is incomplete', audit });
     }
 
     const builtSheet = buildCharacterSheetFromDraft(draft);
+    let personalOpeningIntros: PreparedPersonalOpeningIntro[] = [];
+    try {
+      personalOpeningIntros = await preparePersonalOpeningIntrosForConfirmation(db, {
+        roomId: player.roomId,
+        playerId: player.id,
+        builtSheet
+      });
+    } catch (err) {
+      if (err instanceof PersonalOpeningIntroError) {
+        return res.status(err.statusCode).json({ error: 'PERSONAL_OPENING_INTRO_FAILED', message: err.message });
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      return res.status(500).json({ error: 'PERSONAL_OPENING_INTRO_FAILED', message });
+    }
 
     const now = new Date().toISOString();
-    db.prepare('UPDATE characters SET sheet_json = ?, confirmed = ?, updated_at = ? WHERE player_id = ?')
-      .run(JSON.stringify(builtSheet), 1, now, player.id);
+    const tx = db.transaction(() => {
+      db.prepare('UPDATE characters SET sheet_json = ?, confirmed = ?, updated_at = ? WHERE player_id = ?')
+        .run(JSON.stringify(builtSheet), 1, now, player.id);
+      const existingIntro = db.prepare(`
+        SELECT id FROM log_entries
+        WHERE room_id = ? AND visibility_scope = 'private' AND player_id = ? AND title = ?
+        LIMIT 1
+      `);
+      const insertIntro = db.prepare(`
+        INSERT INTO log_entries (id, room_id, turn_id, visibility_scope, player_id, title, content, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      for (const intro of personalOpeningIntros) {
+        const existing = existingIntro.get(intro.roomId, intro.playerId, intro.title);
+        if (existing) continue;
+        insertIntro.run(intro.id, intro.roomId, intro.turnId, 'private', intro.playerId, intro.title, intro.content, intro.createdAt);
+      }
+    });
+    tx();
     publishRoomUpdate(player.roomId);
 
     const refreshed = getCharacterByPlayerId(db, player.id);
@@ -239,8 +308,15 @@ export function createPlayerRouter(db: AppDatabase): Router {
     const input = actionSchema.parse(req.body);
     const player = getPlayerByToken(db, req.params.token);
     if (!player) return res.status(404).json({ error: 'Not found' });
-    const room = db.prepare('SELECT id, current_turn as currentTurn, status FROM rooms WHERE id = ?').get(player.roomId) as { id: string; currentTurn: number; status: Room['status'] } | undefined;
+    const room = db.prepare('SELECT id, current_turn as currentTurn, status, expected_player_count as expectedPlayerCount FROM rooms WHERE id = ?').get(player.roomId) as { id: string; currentTurn: number; status: Room['status']; expectedPlayerCount: number | null } | undefined;
     if (!room) return res.status(404).json({ error: 'Room not found' });
+    const characterRow = getCharacterByPlayerId(db, player.id);
+    if (isRoomAtExpectedPlayerCount(db, player.roomId, room.expectedPlayerCount) && !characterRow?.confirmed) {
+      return res.status(409).json({
+        error: 'CHARACTER_NOT_CONFIRMED',
+        message: '确认角色后才能提交本回合行动。'
+      });
+    }
     const turn = db.prepare('SELECT id, status FROM turns WHERE room_id = ? AND number = ?').get(player.roomId, room.currentTurn) as { id: string; status: Turn['status'] } | undefined;
     if (!turn) return res.status(409).json({ error: 'TURN_NOT_OPEN', message: '当前没有可提交行动的回合。' });
     if (room.status !== 'waiting_for_actions' || !['open', 'waiting_for_actions'].includes(turn.status)) {

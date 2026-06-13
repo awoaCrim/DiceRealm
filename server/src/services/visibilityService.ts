@@ -1,4 +1,4 @@
-import type { CampaignNpc, CampaignQuest, CharacterRecord, CharacterResources, CombatState, InteractionRequest, LogEntry, Player, PlayerAction, PlayerRulesSummary, PlayerVisibleCombatState, PlayerVisibleDiceLog, PlayerVisibleState, Room, RuleSummary, SessionSummary } from '../domain/types.js';
+import type { CampaignNpc, CampaignQuest, CharacterRecord, CharacterResources, CombatState, InteractionRequest, LogEntry, Player, PlayerAction, PlayerRulesSummary, PlayerTurnSuggestionsCache, PlayerVisibleCombatState, PlayerVisibleDiceLog, PlayerVisibleState, Room, RuleSummary, SessionSummary } from '../domain/types.js';
 
 export interface BuildPlayerVisibleStateInput {
   room: Room;
@@ -17,6 +17,7 @@ export interface BuildPlayerVisibleStateInput {
   quests?: CampaignQuest[];
   npcs?: CampaignNpc[];
   rules?: PlayerRulesSummary;
+  turnSuggestions?: PlayerTurnSuggestionsCache;
 }
 
 function sanitizeCampaignSummary(summary: SessionSummary | null | undefined): SessionSummary | null {
@@ -124,6 +125,9 @@ export function buildPlayerVisibleState(input: BuildPlayerVisibleStateInput): Pl
       (interaction) => interaction.targetPlayerId === input.player.id && interaction.status === 'pending_target'
     ),
     currentAction,
+    turnSuggestions: input.turnSuggestions?.options ?? [],
+    turnSuggestionStatus: input.turnSuggestions?.status ?? 'missing',
+    turnSuggestionError: input.turnSuggestions?.error ?? null,
     submittedPlayers: input.players.filter((player) => submittedPlayerIds.has(player.id)).map((player) => player.name),
     waitingPlayers: input.players.filter((player) => !submittedPlayerIds.has(player.id)).map((player) => player.name),
     ruleSummaries: input.ruleSummaries ?? [],

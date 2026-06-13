@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { getPlayerState, respondToInteraction, submitAction, subscribeRoom } from '../api';
+import { generatePlayerTurnSuggestions, getPlayerState, respondToInteraction, submitAction, subscribeRoom } from '../api';
 import { CharacterBuilder } from '../components/CharacterBuilder';
 import { CharacterCard } from '../components/CharacterCard';
 import { LogList } from '../components/LogList';
 import { TurnPanel } from '../components/TurnPanel';
-import { formatIsoDateTime, npcAttitudeLabel, questStatusLabel } from '../displayLabels';
-import type { PlayerRuleAvailableAction, PlayerRuleStat, PlayerVisibleState } from '../types';
+import { formatIsoDateTime, npcAttitudeLabel, questStatusLabel, roomStatusLabel } from '../displayLabels';
+import type { PlayerRuleAvailableAction, PlayerRuleStat, PlayerRulesSummary, PlayerTurnSuggestion, PlayerVisibleState } from '../types';
 
 type PlayerActionType = 'in_character_action' | 'player_question' | 'meta_question' | 'observe' | 'wait' | 'skip' | 'ready' | 'follow' | 'combat_action' | 'narrative' | 'exploration' | 'social' | 'combat' | 'ooc';
 type ExplorationAction = 'stealth' | 'perception' | 'investigation' | 'lockpick' | 'disarmTrap' | 'track' | 'solvePuzzle';
@@ -58,7 +58,7 @@ const itemInfo: Record<string, { type: string; detail: string }> = {
   盾牌: { type: '防具', detail: '装备后护甲等级 +2。' },
   轻弩: { type: '武器', detail: '远程武器，1d8 穿刺伤害，射程 80/320，需要弩矢。' },
   巨剑: { type: '武器', detail: '双手近战武器，2d6 挥砍伤害。' },
-  奥术法器: { type: '施法工具', detail: '术士可用作施法焦点。' },
+  奥术法器: { type: '施法工具', detail: '施法者可用作法术焦点；具体可用性以职业和 DM 判定为准。' },
   弩矢: { type: '弹药', detail: '用于弩类武器的弹药，通常命中后消耗。' },
   治疗包: { type: '工具', detail: '可用于稳定 0 HP 生物，通常有有限使用次数。' }
 };
@@ -144,6 +144,32 @@ function defaultActionText(actionType: PlayerActionType): string {
     case 'follow': return '跟随队伍行动。';
     default: return '';
   }
+}
+
+function draftActionType(actionType: PlayerTurnSuggestion['actionType']): PlayerActionType {
+  return actionType === 'combat' ? 'combat_action' : actionType;
+}
+
+function inferTextSubAction(actionType: PlayerTurnSuggestion['actionType'] | PlayerActionType | undefined, text: string): string {
+  if (actionType === 'exploration') {
+    if (/(调查|调查技能|现场|复核|粉末|质地|气味|岩壁比对)/.test(text)) return 'investigation';
+    if (/(脚印|足迹|踪迹|拖痕|追踪|尾随|痕迹)/.test(text)) return 'track';
+    if (/(搜索|搜查|线索)/.test(text)) return 'investigation';
+    if (/(观察|察觉|警戒|留意|环顾|侦查|监视)/.test(text)) return 'perception';
+    if (/(潜行|隐匿|悄悄|避开视线)/.test(text)) return 'stealth';
+    if (/(开锁|锁孔|撬锁)/.test(text)) return 'lockpick';
+    if (/(陷阱|机关|解除)/.test(text)) return 'disarmTrap';
+    if (/(谜题|谜团|符文|机关谜)/.test(text)) return 'solvePuzzle';
+    return explorationActions.find((item) => text.includes(item.label))?.value ?? '';
+  }
+  if (actionType === 'social') {
+    return socialActions.find((item) => text.includes(item.label))?.value ?? '';
+  }
+  return '';
+}
+
+function inferSuggestionSubAction(suggestion: PlayerTurnSuggestion): string {
+  return inferTextSubAction(suggestion.actionType, `${suggestion.title} ${suggestion.actionText} ${suggestion.hint}`);
 }
 
 function describeItem(name: string): { type: string; detail: string } {
@@ -465,7 +491,7 @@ function actionTypeLabel(type: string | undefined): string {
     case 'ready': return '准备';
     case 'follow': return '跟随';
     case 'combat_action':
-    case 'combat': return '战斗行动';
+    case 'combat': return '临场行动';
     case 'exploration': return '探索行动';
     case 'social': return '社交行动';
     case 'ooc': return '场外说明';
@@ -491,10 +517,12 @@ function actionStatusLabel(status: string | undefined): string {
 
 export function PlayerPage({ token }: { token: string }) {
   const [state, setState] = useState<PlayerVisibleState | null>(null);
+  const [loadError, setLoadError] = useState('');
   const [action, setAction] = useState('');
   const [error, setError] = useState('');
   const [actionNotice, setActionNotice] = useState('');
   const [isSubmittingAction, setIsSubmittingAction] = useState(false);
+  const [isGeneratingTurnSuggestions, setIsGeneratingTurnSuggestions] = useState(false);
   const [actionType, setActionType] = useState<PlayerActionType>('in_character_action');
   const [subAction, setSubAction] = useState('');
   const [isHiddenRoll, setIsHiddenRoll] = useState(false);
@@ -502,18 +530,28 @@ export function PlayerPage({ token }: { token: string }) {
   const [activeLogTab, setActiveLogTab] = useState<LogTab>('public');
   const [interactionResponses, setInteractionResponses] = useState<Record<string, string>>({});
   const [interactionNotice, setInteractionNotice] = useState('');
+  const [selectedSuggestionId, setSelectedSuggestionId] = useState('');
   const logScrollRef = useRef<HTMLDivElement | null>(null);
+  const requestedSuggestionTurnsRef = useRef<Set<string>>(new Set());
 
   async function refresh() {
-    setState(await getPlayerState(token));
+    try {
+      setState(await getPlayerState(token));
+      setLoadError('');
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   useEffect(() => {
     let unsubscribe = () => {};
     void getPlayerState(token).then((next) => {
       setState(next);
+      setLoadError('');
       if (next.character && !next.character.confirmed) setActiveTab('character');
       unsubscribe = subscribeRoom(next.room.id, () => void refresh());
+    }).catch((err) => {
+      setLoadError(err instanceof Error ? err.message : String(err));
     });
     return () => unsubscribe();
   }, [token]);
@@ -525,6 +563,130 @@ export function PlayerPage({ token }: { token: string }) {
     node.scrollTop = node.scrollHeight;
   }, [activeTab, activeLogTab, state?.publicLogs.length, state?.privateLogs.length]);
 
+  useEffect(() => {
+    if (!state) return;
+    if (!state.character?.confirmed || state.room.status !== 'waiting_for_actions' || state.currentAction || state.turnSuggestionStatus !== 'missing') return;
+    const requestKey = `${state.room.id}:${state.room.currentTurn}:${state.player.id}`;
+    if (requestedSuggestionTurnsRef.current.has(requestKey)) return;
+    requestedSuggestionTurnsRef.current.add(requestKey);
+    let isActive = true;
+    let settled = false;
+    const timeoutId = window.setTimeout(() => {
+      if (!isActive || settled) return;
+      isActive = false;
+      setIsGeneratingTurnSuggestions(false);
+      setState((current) => {
+        if (!current || current.room.id !== state.room.id || current.room.currentTurn !== state.room.currentTurn) return current;
+        return {
+          ...current,
+          turnSuggestions: [],
+          turnSuggestionStatus: 'failed',
+          turnSuggestionError: '建议生成超过 45 秒未完成，可重新生成或直接输入行动。'
+        };
+      });
+    }, 45_000);
+    setIsGeneratingTurnSuggestions(true);
+    void generatePlayerTurnSuggestions(token)
+      .then((result) => {
+        if (!isActive) return;
+        settled = true;
+        setState((current) => {
+          if (!current || current.room.id !== state.room.id || current.room.currentTurn !== state.room.currentTurn) return current;
+          return {
+            ...current,
+            turnSuggestions: result.suggestions,
+            turnSuggestionStatus: result.status,
+            turnSuggestionError: result.error ?? null
+          };
+        });
+      })
+      .catch((err) => {
+        if (!isActive) return;
+        settled = true;
+        setState((current) => {
+          if (!current || current.room.id !== state.room.id || current.room.currentTurn !== state.room.currentTurn) return current;
+          return {
+            ...current,
+            turnSuggestions: [],
+            turnSuggestionStatus: 'failed',
+            turnSuggestionError: err instanceof Error ? err.message : String(err)
+          };
+        });
+      })
+      .finally(() => {
+        window.clearTimeout(timeoutId);
+        if (isActive) setIsGeneratingTurnSuggestions(false);
+      });
+    return () => {
+      isActive = false;
+      window.clearTimeout(timeoutId);
+    };
+  }, [state?.room.id, state?.room.currentTurn, state?.room.status, state?.character?.confirmed, state?.currentAction?.id, state?.turnSuggestionStatus, state?.player.id, token]);
+
+  useEffect(() => {
+    setSelectedSuggestionId('');
+  }, [state?.room.id, state?.room.currentTurn]);
+
+  useEffect(() => {
+    if (!state) return;
+    setSelectedSuggestionId('');
+    setActionNotice('');
+    if (state.currentAction) {
+      const syncedActionType = draftActionType(state.currentAction.actionType ?? 'in_character_action');
+      setAction(state.currentAction.text);
+      setActionType(syncedActionType);
+      setSubAction(inferTextSubAction(syncedActionType, state.currentAction.text));
+      return;
+    }
+    setAction('');
+    setActionType('in_character_action');
+    setSubAction('');
+  }, [
+    state?.room.id,
+    state?.room.currentTurn,
+    state?.currentAction?.id,
+    state?.currentAction?.text,
+    state?.currentAction?.actionType
+  ]);
+
+  async function retryTurnSuggestions() {
+    if (!state || !state.character?.confirmed || isGeneratingTurnSuggestions) return;
+    const roomId = state.room.id;
+    const currentTurn = state.room.currentTurn;
+    const requestKey = `${roomId}:${currentTurn}:${state.player.id}`;
+    requestedSuggestionTurnsRef.current.add(requestKey);
+    setError('');
+    setState((current) => {
+      if (!current || current.room.id !== roomId || current.room.currentTurn !== currentTurn) return current;
+      return { ...current, turnSuggestions: [], turnSuggestionStatus: 'missing', turnSuggestionError: null };
+    });
+    setIsGeneratingTurnSuggestions(true);
+    try {
+      const result = await generatePlayerTurnSuggestions(token);
+      setState((current) => {
+        if (!current || current.room.id !== roomId || current.room.currentTurn !== currentTurn) return current;
+        return {
+          ...current,
+          turnSuggestions: result.suggestions,
+          turnSuggestionStatus: result.status,
+          turnSuggestionError: result.error ?? null
+        };
+      });
+    } catch (err) {
+      setState((current) => {
+        if (!current || current.room.id !== roomId || current.room.currentTurn !== currentTurn) return current;
+        return {
+          ...current,
+          turnSuggestions: [],
+          turnSuggestionStatus: 'failed',
+          turnSuggestionError: err instanceof Error ? err.message : String(err)
+        };
+      });
+    } finally {
+      setIsGeneratingTurnSuggestions(false);
+    }
+  }
+
   async function submit() {
     setError('');
     setActionNotice('');
@@ -535,7 +697,7 @@ export function PlayerPage({ token }: { token: string }) {
       const inferredType = inferActionType(action, actionType);
       const submittedText = action.trim() || defaultActionText(inferredType);
       await submitAction(token, submittedText, inferredType, isHiddenRoll, inferActionVisibility(inferredType));
-      setAction('');
+      setAction(submittedText);
       await refresh();
       setActionNotice('行动已提交，等待 DM 处理。');
     } catch (err) {
@@ -543,6 +705,15 @@ export function PlayerPage({ token }: { token: string }) {
     } finally {
       setIsSubmittingAction(false);
     }
+  }
+
+  function applyTurnSuggestion(suggestion: PlayerTurnSuggestion) {
+    setSelectedSuggestionId(suggestion.id);
+    setAction(suggestion.actionText);
+    setActionType(draftActionType(suggestion.actionType));
+    setSubAction(inferSuggestionSubAction(suggestion));
+    setActionNotice(`已套用建议：${suggestion.title}。确认内容后点击提交行动。`);
+    setError('');
   }
 
   function getSubActionDcInfo(): string | null {
@@ -576,11 +747,26 @@ export function PlayerPage({ token }: { token: string }) {
     }
   }
 
-  if (!state) return <main className="shell"><p>加载中...</p></main>;
-  const canSubmitAction = state.room.status === 'waiting_for_actions';
+  if (!state) {
+    return (
+      <main className="shell">
+        {loadError ? (
+          <section className="card">
+            <h1>无法加载玩家页面</h1>
+            <p role="alert" className="form-error">{loadError}</p>
+            <button type="button" onClick={() => window.location.reload()}>重新加载</button>
+          </section>
+        ) : <p>加载中...</p>}
+      </main>
+    );
+  }
+  const hasConfirmedCharacter = Boolean(state.character?.confirmed);
+  const canSubmitAction = hasConfirmedCharacter && state.room.status === 'waiting_for_actions';
   const fallbackActionText = defaultActionText(actionType);
   const canSubmitCurrentAction = Boolean(action.trim() || fallbackActionText);
-  const actionDisabledReason = canSubmitAction
+  const actionDisabledReason = !hasConfirmedCharacter
+    ? '确认角色后才能提交本回合行动。'
+    : canSubmitAction
     ? ''
     : state.room.status === 'waiting_for_interaction'
       ? (state.pendingInteractions.length > 0
@@ -589,12 +775,20 @@ export function PlayerPage({ token }: { token: string }) {
       : state.room.status === 'ready_to_resolve'
         ? '所有必要行动已完成，等待主持人结算，本回合暂不能修改行动。'
         : '当前回合未开放行动提交。';
-  const showResources = state.resources && state.character?.confirmed;
   const availableActions = state.rules?.availableActions ?? buildAvailableActions(state);
   const actionEconomy = state.rules?.actionEconomy ?? buildActionEconomy(state);
   const savingThrows = state.rules?.savingThrows ?? buildSavingThrows(state);
   const skillChecks = state.rules?.skills ?? buildSkillChecks(state);
+  const characterRules: PlayerRulesSummary | undefined = state.rules ?? (state.character?.confirmed ? {
+    ruleset: '5e-2014',
+    actionEconomy,
+    savingThrows,
+    skills: skillChecks,
+    availableActions,
+    assumptions: []
+  } : undefined);
   const hasBackpackContent = Boolean(state.character?.sheet.equipment.length)
+    || Boolean(state.character?.sheet.spells.length)
     || Boolean(state.resources?.ammo.length)
     || Boolean(state.resources?.consumables.length)
     || Boolean(state.resources && (
@@ -602,6 +796,43 @@ export function PlayerPage({ token }: { token: string }) {
       || state.resources.currency.sp > 0
       || state.resources.currency.cp > 0
     ));
+  const statusSpellSlotSummary = state.resources
+    ? Object.entries(state.resources.spellSlots)
+      .filter(([, slots]) => slots.total > 0 || slots.used > 0)
+      .map(([level, slots]) => `${level.replace(/^level/, '')} 环 ${slots.total - slots.used}/${slots.total}`)
+      .join('、')
+    : '';
+  const statusAmmoSummary = state.resources?.ammo.map((item) => `${item.name} ${item.current}/${item.max}`).join('、') ?? '';
+  const turnSuggestionStatus = state.turnSuggestionStatus;
+  const turnSuggestions = state.turnSuggestions ?? [];
+  const showTurnSuggestions = canSubmitAction && !state.currentAction && activeLogTab === 'public';
+  const isWaitingForTurnSuggestions = showTurnSuggestions && turnSuggestionStatus === 'missing' && (isGeneratingTurnSuggestions || turnSuggestions.length === 0);
+  const hasTurnSuggestionPanel = showTurnSuggestions && (
+    isWaitingForTurnSuggestions
+    || turnSuggestionStatus === 'failed'
+    || (turnSuggestionStatus === 'ready' && turnSuggestions.length > 0)
+  );
+  const playerHpText = state.character?.confirmed
+    ? `${state.resources?.hitPoints.current ?? state.character.sheet.hitPoints.current}/${state.resources?.hitPoints.max ?? state.character.sheet.hitPoints.max}`
+    : '未确认';
+  const playerAcText = state.character?.confirmed ? String(state.character.sheet.armorClass) : '--';
+  const actionStateText = state.currentAction
+    ? '已提交'
+    : canSubmitAction
+      ? '等待你行动'
+      : state.room.status === 'ready_to_resolve'
+        ? '等待主持人结算'
+        : state.room.status === 'waiting_for_interaction'
+          ? '等待互动回应'
+          : '暂未开放';
+  const pendingInteractionText = state.pendingInteractions.length > 0 ? `${state.pendingInteractions.length} 个待回应` : '无';
+  const suggestionCountText = turnSuggestionStatus === 'ready'
+    ? `${turnSuggestions.length} 个建议`
+    : turnSuggestionStatus === 'failed'
+      ? '生成失败'
+      : canSubmitAction && !state.currentAction
+        ? '生成中'
+        : '未显示';
 
   return (
     <main className="shell player-shell">
@@ -610,19 +841,57 @@ export function PlayerPage({ token }: { token: string }) {
           <h1>{state.room.name}</h1>
           <p className="muted">玩家视图 · {state.player.name}</p>
         </div>
-        <nav className="player-tab-nav" aria-label="玩家功能区">
-          {playerTabs.map((tab) => (
-            <button
-              className={activeTab === tab.id ? 'active' : ''}
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              type="button"
-            >
-              {tab.label}
-            </button>
-          ))}
-        </nav>
       </div>
+
+      <div className="player-workbench-shell">
+        <aside className="player-rail">
+          <nav className="player-tab-nav" aria-label="玩家功能区">
+            {playerTabs.map((tab) => (
+              <button
+                aria-current={activeTab === tab.id ? 'page' : undefined}
+                className={activeTab === tab.id ? 'active' : ''}
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                type="button"
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+          <section className="player-quick-status" aria-label="玩家当前状态">
+            <div>
+              <span className="muted">回合</span>
+              <strong>第 {state.room.currentTurn} 回合</strong>
+            </div>
+            <div>
+              <span className="muted">行动</span>
+              <strong>{actionStateText}</strong>
+            </div>
+            <div>
+              <span className="muted">互动</span>
+              <strong>{pendingInteractionText}</strong>
+            </div>
+            <div>
+              <span className="muted">HP / AC</span>
+              <strong>{playerHpText} · AC {playerAcText}</strong>
+            </div>
+          </section>
+        </aside>
+
+        <div className="player-workbench-main">
+          <section className="player-command-strip" aria-label="本轮概览">
+            <div>
+              <span className="eyebrow">当前状态</span>
+              <h2>{actionStateText}</h2>
+              <p className="muted">{roomStatusLabel(state.room.status)} · 建议行动：{suggestionCountText}</p>
+            </div>
+            <div className="status-chip-grid">
+              <span className={`status-chip${state.currentAction ? ' ok' : canSubmitAction ? ' warning' : ''}`}>行动：{actionStateText}</span>
+              <span className={`status-chip${state.pendingInteractions.length > 0 ? ' warning' : ' ok'}`}>互动：{pendingInteractionText}</span>
+              <span className="status-chip">HP：{playerHpText}</span>
+              <span className="status-chip">AC：{playerAcText}</span>
+            </div>
+          </section>
 
       {activeTab === 'story' ? (
         <div className="player-story-layout">
@@ -676,21 +945,27 @@ export function PlayerPage({ token }: { token: string }) {
             <section className="card action-card">
               <h2>你的行动</h2>
               <label>行动类型
-                <select value={actionType} onChange={(event) => { setActionType(event.target.value as PlayerActionType); setSubAction(''); }}>
+                <select
+                  value={actionType}
+                  disabled={!canSubmitAction || isSubmittingAction}
+                  onChange={(event) => { setActionType(event.target.value as PlayerActionType); setSubAction(''); }}
+                >
                   <option value="in_character_action">角色行动</option>
+                  <option value="exploration">探索行动</option>
+                  <option value="social">社交行动</option>
                   <option value="observe">观察</option>
                   <option value="wait">等待</option>
                   <option value="skip">跳过本回合</option>
                   <option value="ready">准备</option>
                   <option value="follow">跟随</option>
-                  <option value="combat_action">战斗行动</option>
+                  <option value="combat_action">临场行动</option>
                   <option value="player_question">玩家问题</option>
                   <option value="meta_question">场外问题</option>
                 </select>
               </label>
               {(actionType === 'exploration' || actionType === 'social') ? (
                 <label>具体行动
-                  <select value={subAction} onChange={(event) => setSubAction(event.target.value)}>
+                  <select value={subAction} disabled={!canSubmitAction || isSubmittingAction} onChange={(event) => setSubAction(event.target.value)}>
                     <option value="">(选择具体行动)</option>
                     {actionType === 'exploration'
                       ? explorationActions.map((a) => <option key={a.value} value={a.value}>{a.label}</option>)
@@ -709,19 +984,62 @@ export function PlayerPage({ token }: { token: string }) {
                     {state.currentAction.submittedAt ? ` · 提交时间 ${formatIsoDateTime(state.currentAction.submittedAt)}` : ''}
                   </p>
                   <p className="muted">
-                    {canSubmitAction ? '再次提交会替换你本回合的行动。' : '当前回合已锁定，不能再修改本次行动。'}
+                    {canSubmitAction ? '可在下方修改文本后再次提交，以替换本回合行动。' : '当前回合已锁定，不能再修改本次行动。'}
                   </p>
                 </div>
               ) : null}
               <label className="check-row">
-                <input type="checkbox" checked={isHiddenRoll} onChange={(event) => setIsHiddenRoll(event.target.checked)} />
+                <input type="checkbox" checked={isHiddenRoll} disabled={!canSubmitAction || isSubmittingAction} onChange={(event) => setIsHiddenRoll(event.target.checked)} />
                 隐藏骰点（仅玩家本人可见）
               </label>
+              {hasTurnSuggestionPanel ? (
+                <div className="turn-suggestions" aria-live={turnSuggestionStatus === 'missing' ? 'polite' : undefined}>
+                  <div className="section-header">
+                    <div>
+                      <h3>本轮四个选项</h3>
+                      <p className="muted">可以直接套用建议，也可以把它当灵感后自由改写。</p>
+                    </div>
+                  </div>
+                  {isWaitingForTurnSuggestions ? <p className="muted">正在生成本轮建议...</p> : null}
+                  {turnSuggestionStatus === 'failed' ? (
+                    <div className="stack">
+                      <p className="muted">本轮建议生成失败，可自由输入行动。</p>
+                      {state.turnSuggestionError ? <p className="form-error">{state.turnSuggestionError}</p> : null}
+                      <button type="button" onClick={retryTurnSuggestions} disabled={isGeneratingTurnSuggestions}>
+                        {isGeneratingTurnSuggestions ? '生成中...' : '重新生成建议'}
+                      </button>
+                    </div>
+                  ) : null}
+                  {turnSuggestionStatus === 'ready' && turnSuggestions.length > 0 ? (
+                    <div className="turn-suggestions-grid" aria-label="本轮 AI 行动建议">
+                      {turnSuggestions.map((suggestion) => {
+                        const selected = selectedSuggestionId === suggestion.id;
+                        return (
+                        <button
+                          className={`turn-suggestion-card${selected ? ' selected' : ''}`}
+                          key={suggestion.id}
+                          onClick={() => applyTurnSuggestion(suggestion)}
+                          aria-pressed={selected}
+                          type="button"
+                        >
+                          <span className="turn-suggestion-title">{suggestion.title}</span>
+                          <span className="turn-suggestion-meta">{actionTypeLabel(suggestion.actionType)}</span>
+                          <span className="turn-suggestion-action">{suggestion.actionText}</span>
+                          {suggestion.hint ? <span className="turn-suggestion-hint">{suggestion.hint}</span> : null}
+                          {selected ? <span className="turn-suggestion-applied">已套用</span> : null}
+                        </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <textarea
                 value={action}
                 disabled={!canSubmitAction || isSubmittingAction}
                 onChange={(event) => {
                   setAction(event.target.value);
+                  setSelectedSuggestionId('');
                   setActionNotice('');
                 }}
                 placeholder={fallbackActionText ? `${fallbackActionText} 可补充细节。` : '描述你的角色本回合想尝试做什么。'}
@@ -764,52 +1082,11 @@ export function PlayerPage({ token }: { token: string }) {
       {activeTab === 'character' ? (
         <section className="player-tab-panel">
           {state.character?.confirmed ? (
-            <div>
-              <section className="card">
-                <h2>完整人物卡</h2>
-                <div className="character-sheet-grid">
-                  <div className="subcard">
-                    <h3>身份</h3>
-                    <p><strong>{state.character.sheet.name}</strong></p>
-                    <p>{state.character.sheet.species}{state.character.sheet.subSpecies ? `（${state.character.sheet.subSpecies}）` : ''} · {state.character.sheet.className}{state.character.sheet.classDetail ? `（${state.character.sheet.classDetail}）` : ''} · {state.character.sheet.level} 级</p>
-                    <p>背景：{state.character.sheet.background || '未填写'}</p>
-                    {state.character.sheet.concept ? <p>概念：{state.character.sheet.concept}</p> : null}
-                  </div>
-                  <div className="subcard">
-                    <h3>核心数值</h3>
-                    <p>HP：{state.character.sheet.hitPoints.current} / {state.character.sheet.hitPoints.max}</p>
-                    <p>AC：{state.character.sheet.armorClass ?? '--'}</p>
-                    <p>熟练加值：+{state.character.sheet.proficiencyBonus ?? 2}</p>
-                  </div>
-                  <div className="subcard">
-                    <h3>属性</h3>
-                    <div className="ability-grid">
-                      <span>力量 {state.character.sheet.abilityScores.str}</span>
-                      <span>敏捷 {state.character.sheet.abilityScores.dex}</span>
-                      <span>体质 {state.character.sheet.abilityScores.con}</span>
-                      <span>智力 {state.character.sheet.abilityScores.int}</span>
-                      <span>感知 {state.character.sheet.abilityScores.wis}</span>
-                      <span>魅力 {state.character.sheet.abilityScores.cha}</span>
-                    </div>
-                  </div>
-                  <div className="subcard">
-                    <h3>技能 / 熟练</h3>
-                    <p>技能：{state.character.sheet.skills.length ? state.character.sheet.skills.join('、') : '无'}</p>
-                    <p>语言：{state.character.sheet.languages?.length ? state.character.sheet.languages.join('、') : '无'}</p>
-                    <p>熟练：{state.character.sheet.proficiencies?.length ? state.character.sheet.proficiencies.join('、') : '无'}</p>
-                  </div>
-                  <div className="subcard">
-                    <h3>装备 / 法术</h3>
-                    <p>装备：{state.character.sheet.equipment.length ? state.character.sheet.equipment.join('、') : '无'}</p>
-                    <p>法术：{state.character.sheet.spells.length ? state.character.sheet.spells.join('、') : '无'}</p>
-                  </div>
-                  <div className="subcard">
-                    <h3>个性 / 备注</h3>
-                    <p>{state.character.sheet.privateNotes || '暂无备注。'}</p>
-                  </div>
-                </div>
-              </section>
-            </div>
+            <CharacterCard
+              character={state.character}
+              resources={state.resources}
+              rules={characterRules}
+            />
           ) : (
             <CharacterBuilder
               token={token}
@@ -824,7 +1101,7 @@ export function PlayerPage({ token }: { token: string }) {
       {activeTab === 'backpack' ? (
         <section className="card player-tab-panel">
           <h2>背包</h2>
-          <p className="muted">{state.character?.sheet.name ?? state.player.name} 的可见装备、消耗品和货币。</p>
+          <p className="muted">{state.character?.sheet.name ?? state.player.name} 的可见装备、法术、消耗品和货币。</p>
           {state.character ? (
             <>
               <div className="subcard">
@@ -843,6 +1120,20 @@ export function PlayerPage({ token }: { token: string }) {
                     })}
                   </div>
                 ) : <p className="muted">暂无装备。</p>}
+              </div>
+              <div className="subcard">
+                <h3>法术</h3>
+                {state.character.sheet.spells.length > 0 ? (
+                  <div className="inventory-grid">
+                    {state.character.sheet.spells.map((spell) => (
+                      <article className="inventory-item-card" key={spell}>
+                        <strong>{spell}</strong>
+                        <span>法术</span>
+                        <p>具体施法时间、距离和消耗以法术条目为准。</p>
+                      </article>
+                    ))}
+                  </div>
+                ) : <p className="muted">暂无法术。</p>}
               </div>
               <div className="subcard">
                 <h3>弹药 / 消耗品</h3>
@@ -887,134 +1178,102 @@ export function PlayerPage({ token }: { token: string }) {
       {activeTab === 'status' ? (
         <div className="player-status-layout">
           <div className="status-column">
-            {showResources ? (
-              <section className="card">
-                <h2>角色资源</h2>
+            <section className="card">
+              <h2>当前状态</h2>
+              <div className="stat-grid">
+                <div className="stat-tile">
+                  <span className="muted">回合</span>
+                  <strong>第 {state.room.currentTurn} 回合</strong>
+                </div>
+                <div className="stat-tile">
+                  <span className="muted">房间状态</span>
+                  <strong>{roomStatusLabel(state.room.status)}</strong>
+                </div>
+                <div className="stat-tile">
+                  <span className="muted">行动提交</span>
+                  <strong>{state.currentAction ? '已提交' : '未提交'}</strong>
+                </div>
+                <div className="stat-tile">
+                  <span className="muted">等待中</span>
+                  <strong>{state.waitingPlayers.length ? state.waitingPlayers.join('、') : '无人'}</strong>
+                </div>
+              </div>
+              {state.currentAction ? (
                 <div className="subcard">
-                  <strong>HP: {state.resources!.hitPoints.current} / {state.resources!.hitPoints.max}</strong>
-                  {state.resources!.hitPoints.temp > 0 ? <span> (临时 {state.resources!.hitPoints.temp})</span> : null}
-                  <div className="hp-bar-bg">
-                    <div className="hp-bar-fill" style={{
-                      width: `${Math.min(100, Math.round(state.resources!.hitPoints.current / state.resources!.hitPoints.max * 100))}%`,
-                      background: state.resources!.hitPoints.current > state.resources!.hitPoints.max / 2 ? '#79bd74' : state.resources!.hitPoints.current > 0 ? '#dfa34b' : '#de6f62'
-                    }} />
-                  </div>
+                  <h3>本回合行动</h3>
+                  <p>{state.currentAction.text}</p>
+                  <p className="muted">{actionTypeLabel(state.currentAction.actionType)} · {actionVisibilityLabel(state.currentAction.visibility)} · {actionStatusLabel(state.currentAction.status)}</p>
                 </div>
-                {state.resources!.hitDice.total > 0 ? (
-                  <p>生命骰: {state.resources!.hitDice.remaining} / {state.resources!.hitDice.total} ({state.resources!.hitDice.die})</p>
-                ) : null}
-                {Object.keys(state.resources!.spellSlots).length > 0 ? (
-                  <div>
-                    <strong>法术位</strong>
-                    {Object.entries(state.resources!.spellSlots).map(([level, slots]) => (
-                      <p key={level}>{level}环: {slots.total - slots.used} / {slots.total}</p>
-                    ))}
+              ) : <p className="muted">你还没有提交本回合行动。</p>}
+              {state.pendingInteractions.length > 0 ? (
+                <p className="muted">有 {state.pendingInteractions.length} 个互动请求等待回应。</p>
+              ) : null}
+            </section>
+
+            <section className="card">
+              <h2>角色资源概览</h2>
+              {state.character?.confirmed ? (
+                <>
+                  <div className="stat-grid">
+                    <div className="stat-tile">
+                      <span className="muted">HP</span>
+                      <strong>{state.resources?.hitPoints.current ?? state.character.sheet.hitPoints.current}/{state.resources?.hitPoints.max ?? state.character.sheet.hitPoints.max}</strong>
+                    </div>
+                    <div className="stat-tile">
+                      <span className="muted">AC</span>
+                      <strong>{state.character.sheet.armorClass}</strong>
+                    </div>
+                    <div className="stat-tile">
+                      <span className="muted">条件</span>
+                      <strong>{state.resources?.conditions.length ? state.resources.conditions.join('、') : '无'}</strong>
+                    </div>
                   </div>
-                ) : null}
-                <p>货币: {state.resources!.currency.gp} gp · {state.resources!.currency.sp} sp · {state.resources!.currency.cp} cp</p>
-                {state.resources!.conditions.length > 0 ? (
-                  <p>状态: {state.resources!.conditions.join(', ')}</p>
-                ) : null}
-              </section>
-            ) : null}
-            {savingThrows.length > 0 ? (
-              <section className="card">
-                <h2>豁免</h2>
-                <div className="rules-stat-grid">
-                  {savingThrows.map((save) => (
-                    <div className={save.proficient ? 'is-proficient' : ''} key={save.key}>
-                      <strong>{save.label}</strong>
-                      <span>{save.modifier}</span>
-                      <small>{save.proficient ? '熟练' : '未熟练'}</small>
+                  {statusSpellSlotSummary ? <p>法术位：{statusSpellSlotSummary}</p> : null}
+                  {statusAmmoSummary ? <p>弹药：{statusAmmoSummary}</p> : null}
+                </>
+              ) : <p className="muted">确认角色后会显示资源概览。</p>}
+            </section>
+
+            <section className="card">
+              <h2>最近骰点</h2>
+              {state.recentDiceLogs && state.recentDiceLogs.length > 0 ? (
+                <>
+                  {state.recentDiceLogs.map((log) => (
+                    <div className="subcard" key={log.id}>
+                      <p>{log.reason}：{log.die} [{log.values.join(', ')}] + {log.modifier} = {log.total}{log.success !== undefined ? (log.success ? ' (成功)' : ' (失败)') : ''}</p>
+                      <p className="muted">{log.playerName} · {formatIsoDateTime(log.createdAt)}</p>
                     </div>
                   ))}
-                </div>
-              </section>
-            ) : null}
-            {skillChecks.length > 0 ? (
-              <section className="card">
-                <h2>技能检定</h2>
-                <div className="rules-stat-grid skills-grid">
-                  {skillChecks.map((skill) => (
-                    <div className={skill.proficient ? 'is-proficient' : ''} key={skill.key}>
-                      <strong>{skill.label}</strong>
-                      <span>{skill.modifier}</span>
-                      <small>{skill.ability}{skill.proficient ? ' · 熟练' : ''}</small>
+                </>
+              ) : <p className="muted">暂无骰点记录。</p>}
+            </section>
+
+            <section className="card">
+              <h2>最近资源变动</h2>
+              {state.recentChanges && state.recentChanges.length > 0 ? (
+                <>
+                  {state.recentChanges.slice(0, 5).map((change) => (
+                    <div className="subcard" key={change.id}>
+                      <strong>{change.path}</strong>
+                      <p>{String(change.before)} → {String(change.after)}</p>
+                      <p className="muted">{change.reason}</p>
                     </div>
                   ))}
-                </div>
-              </section>
-            ) : null}
-            {state.recentDiceLogs && state.recentDiceLogs.length > 0 ? (
-              <section className="card">
-                <h2>最近骰点</h2>
-                {state.recentDiceLogs.map((log) => (
-                  <div className="subcard" key={log.id}>
-                    <p>{log.reason}：{log.die} [{log.values.join(', ')}] + {log.modifier} = {log.total}{log.success !== undefined ? (log.success ? ' (成功)' : ' (失败)') : ''}</p>
-                    <p className="muted">{log.playerName} · {formatIsoDateTime(log.createdAt)}</p>
-                  </div>
-                ))}
-              </section>
-            ) : null}
-            {state.recentChanges && state.recentChanges.length > 0 ? (
-              <section className="card">
-                <h2>最近资源变动</h2>
-                {state.recentChanges.slice(0, 5).map((change) => (
-                  <div className="subcard" key={change.id}>
-                    <strong>{change.path}</strong>
-                    <p>{String(change.before)} → {String(change.after)}</p>
-                    <p className="muted">{change.reason}</p>
-                  </div>
-                ))}
-              </section>
-            ) : null}
+                </>
+              ) : <p className="muted">暂无资源变动。</p>}
+            </section>
           </div>
           <div className="status-column">
-            {state.character?.confirmed ? (
-              <section className="card">
-                <h2>行动资源</h2>
-                <div className="action-economy-grid">
-                  {actionEconomy.map((item) => (
-                    <div key={item.title}>
-                      <strong>{item.title}</strong>
-                      <span>{item.value}</span>
-                      <small>{item.detail}</small>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-            {availableActions.length > 0 ? (
-              <section className="card available-actions-card">
-                <h2>可用行动</h2>
-                <div className="available-action-list">
-                  {availableActions.map((item) => (
-                    <article className="available-action-item" key={item.id}>
-                      <header>
-                        <div>
-                          <strong>{item.title}</strong>
-                          <p>{item.subtitle}</p>
-                        </div>
-                        <span className="action-timing">{item.timing}</span>
-                      </header>
-                      <div className="action-tag-row">
-                        {item.tags.map((tag) => <span className="pill" key={tag}>{tag}</span>)}
-                      </div>
-                      {item.detail ? <p className="muted">{item.detail}</p> : null}
-                    </article>
-                  ))}
-                </div>
-              </section>
-            ) : null}
-            {state.combatState ? (
-              <section className="card">
-                <h2>战斗</h2>
-                <p className="muted">第 {state.combatState.round} 回合 · 当前行动者：{state.combatState.participants[state.combatState.currentTurnIndex]?.name ?? '--'}</p>
+            <section className="card">
+              <h2>临场态势</h2>
+              {state.combatState ? (
+                <>
+                <p className="muted">第 {state.combatState.round} 轮态势 · 当前焦点：{state.combatState.participants[state.combatState.currentTurnIndex]?.name ?? '--'}</p>
                 {state.combatState.participants
                   .map((p, i) => (
                     <div className="subcard" key={p.id} style={i === state.combatState!.currentTurnIndex ? { border: '2px solid #ffd700' } : undefined}>
                       <strong>{p.name}{p.isNpc ? ' (NPC)' : ''}</strong>
-                      <p>先攻: {p.initiative ?? '--'}{p.ac !== null ? ` · AC: ${p.ac}` : ''}</p>
+                      <p>顺序参考: {p.initiative ?? '--'}{p.ac !== null ? ` · 防护参考: AC ${p.ac}` : ''}</p>
                       {p.hp !== null && p.maxHp !== null ? (
                         <>
                           <div className="hp-bar-bg">
@@ -1023,30 +1282,36 @@ export function PlayerPage({ token }: { token: string }) {
                               background: p.hp > p.maxHp / 2 ? '#79bd74' : p.hp > 0 ? '#dfa34b' : '#de6f62'
                             }} />
                           </div>
-                          <p className="muted">HP: {p.hp}/{p.maxHp}</p>
+                          <p className="muted">体力参考: {p.hp}/{p.maxHp}</p>
                         </>
                       ) : (
                         <p className="muted">状态：{combatHealthText(p.healthLabel)}</p>
                       )}
                     </div>
                   ))}
-              </section>
-            ) : null}
-            {state.ruleSummaries.length ? (
-              <section className="card">
-                <h2>本轮规则摘要</h2>
-                {state.ruleSummaries.map((summary) => (
-                  <div className="subcard" key={summary.entryId}>
-                    <strong>{summary.title}</strong>
-                    <p>{summary.summary}</p>
-                    <p className="muted">{summary.reason}</p>
-                  </div>
-                ))}
-              </section>
-            ) : null}
+                </>
+              ) : <p className="muted">当前没有锁定的临场态势；剧情会按场景描述和本回合行动推进。</p>}
+            </section>
+
+            <section className="card">
+              <h2>本轮规则摘要</h2>
+              {state.ruleSummaries.length ? (
+                <>
+                  {state.ruleSummaries.map((summary) => (
+                    <div className="subcard" key={summary.entryId}>
+                      <strong>{summary.title}</strong>
+                      <p>{summary.summary}</p>
+                      <p className="muted">{summary.reason}</p>
+                    </div>
+                  ))}
+                </>
+              ) : <p className="muted">本轮暂无规则摘要。</p>}
+            </section>
           </div>
         </div>
       ) : null}
+        </div>
+      </div>
     </main>
   );
 }

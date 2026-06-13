@@ -43,6 +43,17 @@ const legacyProcessTurnInit = {
   headers: { 'x-test-allow-legacy-process-turn': '1' }
 };
 
+const fallbackAiOpeningTextForTest = [
+  '灰松镇的钟声在潮湿的山谷里缓慢散开，矿道驿站前的泥地被马蹄、矿靴和雨水踩成深浅不一的褐色纹路。队伍抵达时，低云正贴着远处的松林移动，旧矿车的铁轮在风里轻轻晃动，像有什么东西仍在地下深处回响。镇长德伦站在工具棚前，披风被雨水压得发沉，他身后聚着几名沉默的矿工家属，有人紧握帽檐，有人盯着矿道方向不敢眨眼。失踪的矿工名叫霍伯，昨夜换班后没有回家，留下的只有一只破旧皮手套、半截断绳，以及棚门口一道延向废弃矿道的拖痕。队伍能够看见，拖痕在碎石路边忽然变浅，像是被人刻意扫过，又像是有什么沉重的东西在那里改变了方向。',
+  '公开可见的线索并不多，却足够让现场紧绷。工具棚里还残留着冷掉的灯油味，墙角有新翻出的湿泥，木桌上压着一份矿道旧图，边缘被手汗和雨点弄皱。几名年轻矿工互相避开视线，只说夜里听见犬吠和一声短促呼喊；霍伯的妻子则坚持丈夫不会主动走进封停矿道，因为那里三年前塌过一次，后来再也没人愿意接近。道路南侧的林线安静得不自然，偶尔有水滴从针叶间落下，声音却显得过分清晰。镇长希望队伍尽快判断该先追问目击者、检查工具棚和泥地、安抚家属，还是趁痕迹尚未被雨水冲散，直接沿旧路进入矿道口。',
+  '这不是已经解决的案件，而是刚刚打开的门。每个人都能感觉到，灰松镇表面上只是请求外来者寻找失踪矿工，但镇民闪烁的眼神、被反复提起又被迅速避开的旧矿道、以及矿车里少得不合常理的矿石，都暗示事情并不单纯。队伍现在站在驿站、工具棚、林线和废弃矿道之间，所有选择都会决定接下来看到的是人的谎言、自然的危险，还是地下更古老的回声。',
+  '远处的主路偶尔传来车轮声，却没有商队愿意在驿站前久停。木棚檐下挂着一排旧矿灯，其中三盏已经坏掉，只有最靠近门口的一盏还在微微摇晃。镇长把旧矿道图摊开时，纸面上几个被圈出的岔路口都被水汽洇开，像是有人曾经反复用手指按在同一个位置。矿工家属没有催促队伍立刻冲进去，他们更害怕的是队伍进去后也不再回来。公开能确认的事实只有这些：霍伯失踪、拖痕存在、工具棚被人翻动过、矿道口附近有人刻意隐瞒昨夜的细节。接下来，队伍可以选择从人群中寻找矛盾证词，也可以先保护现场、检查拖痕和断绳，或者在雨势变大前推进到矿道入口。所有人都知道，拖延只会让答案更远。'
+].join('\n\n');
+
+function markPlayerCharacterConfirmed(db: ReturnType<typeof createMemoryDb>, playerId: string): void {
+  db.prepare('UPDATE characters SET confirmed = 1 WHERE player_id = ?').run(playerId);
+}
+
 type OpenAiStubResponse = { status?: number; statusText?: string; body?: unknown; rawBody?: string };
 
 async function createOpenAiStub(handler: (body: any) => OpenAiStubResponse | Promise<OpenAiStubResponse>) {
@@ -341,7 +352,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Runtime Provider Room' })
+        body: JSON.stringify({ name: 'Runtime Provider Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -389,7 +400,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Test Room' })
+        body: JSON.stringify({ name: 'Test Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -451,7 +462,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Action Gate Room' })
+        body: JSON.stringify({ name: 'Action Gate Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -535,7 +546,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Skip Readiness Room' })
+        body: JSON.stringify({ name: 'Skip Readiness Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -609,7 +620,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Legacy Preview Gate Room' })
+        body: JSON.stringify({ name: 'Legacy Preview Gate Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -665,7 +676,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Constraint Room' })
+        body: JSON.stringify({ name: 'Constraint Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -741,7 +752,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: '可删除房间' })
+        body: JSON.stringify({ name: '可删除房间', expectedPlayerCount: 4 })
       });
       expect(roomRes.status).toBe(200);
       const room = await roomRes.json() as { roomId: string };
@@ -892,7 +903,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Disabled Lore Room' })
+        body: JSON.stringify({ name: 'Disabled Lore Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const bookRes = await fetch(`${base}/api/admin/config/world-books`, {
@@ -937,7 +948,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Lore Room' })
+        body: JSON.stringify({ name: 'Lore Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -1055,7 +1066,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Native Contract Room' })
+        body: JSON.stringify({ name: 'Native Contract Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -1104,7 +1115,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Duplicate Contract Room' })
+        body: JSON.stringify({ name: 'Duplicate Contract Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const fullContract = renderDndOutputContract();
@@ -1135,7 +1146,7 @@ describe('DND AI-DM integration', () => {
     }
   });
 
-  it('marks the current turn as needing admin attention when AI processing fails', async () => {
+  it('keeps the current turn retryable when legacy AI processing fails', async () => {
     const db = createMemoryDb();
     migrate(db);
     seedBuiltinRules(db);
@@ -1150,7 +1161,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Failing AI Room' })
+        body: JSON.stringify({ name: 'Failing AI Room', expectedPlayerCount: 1 })
       });
       const room = await roomRes.json() as { roomId: string };
       const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -1159,6 +1170,7 @@ describe('DND AI-DM integration', () => {
         body: JSON.stringify({ name: 'Ari' })
       });
       const player = await playerRes.json() as { playerId: string };
+      markPlayerCharacterConfirmed(db, player.playerId);
       const configRes = await fetch(`${base}/api/admin/config/ai-provider`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
@@ -1176,8 +1188,8 @@ describe('DND AI-DM integration', () => {
       const turnRow = db.prepare('SELECT status FROM turns WHERE id = ?').get(turn.id) as { status: string };
       const turnCount = db.prepare('SELECT COUNT(*) as count FROM turns WHERE room_id = ?').get(room.roomId) as { count: number };
       const generation = db.prepare('SELECT error FROM ai_generations WHERE room_id = ? AND turn_id = ?').get(room.roomId, turn.id) as { error: string | null };
-      expect(roomRow.status).toBe('needs_admin_attention');
-      expect(turnRow.status).toBe('needs_admin_attention');
+      expect(roomRow.status).toBe('ready_to_resolve');
+      expect(turnRow.status).toBe('ready_to_resolve');
       expect(turnCount.count).toBe(1);
       expect(generation.error).toContain('simulated AI failure');
     } finally {
@@ -1201,7 +1213,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Legacy Disabled Room' })
+        body: JSON.stringify({ name: 'Legacy Disabled Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -1230,7 +1242,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Claimed Room' })
+        body: JSON.stringify({ name: 'Claimed Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -1270,7 +1282,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Turn Claimed Room' })
+        body: JSON.stringify({ name: 'Turn Claimed Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -1312,7 +1324,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'ST Preview Room' })
+        body: JSON.stringify({ name: 'ST Preview Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -1436,7 +1448,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'ST Process Room' })
+        body: JSON.stringify({ name: 'ST Process Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -1650,7 +1662,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Global Config Room' })
+        body: JSON.stringify({ name: 'Global Config Room', expectedPlayerCount: 4 })
       });
       expect(roomRes.status).toBe(200);
       const room = await roomRes.json() as { roomId: string };
@@ -1688,11 +1700,14 @@ describe('DND AI-DM integration', () => {
       const firstRoomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'FirstMes Opening Room' })
+        body: JSON.stringify({ name: 'FirstMes Opening Room', expectedPlayerCount: 4 })
       });
       const firstRoom = await firstRoomRes.json() as { roomId: string };
-      const firstLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(firstRoom.roomId, 'Opening Scene') as { content: string };
-      expect(firstLog.content).toBe('First message opening text.');
+      const firstLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(firstRoom.roomId, '公开开场') as { content: string };
+      expect(firstLog.content).toContain('First message opening text.');
+      expect(firstLog.content).toContain('Scenario fallback text.');
+      expect(firstLog.content).toContain('Opening description');
+      expect(firstLog.content.length).toBeGreaterThanOrEqual(1000);
 
       const scenarioScriptRes = await fetch(`${base}/api/admin/resources/script-cards/import/sillytavern`, {
         method: 'POST',
@@ -1708,22 +1723,151 @@ describe('DND AI-DM integration', () => {
       const scenarioRoomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Scenario Opening Room' })
+        body: JSON.stringify({ name: 'Scenario Opening Room', expectedPlayerCount: 4 })
       });
       const scenarioRoom = await scenarioRoomRes.json() as { roomId: string };
-      const scenarioLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(scenarioRoom.roomId, 'Opening Scene') as { content: string };
-      expect(scenarioLog.content).toBe('Scenario only opening text.');
+      const scenarioLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(scenarioRoom.roomId, '公开开场') as { content: string };
+      expect(scenarioLog.content).toContain('Scenario only opening text.');
+      expect(scenarioLog.content).toContain('Scenario description');
+      expect(scenarioLog.content.length).toBeGreaterThanOrEqual(1000);
 
       expect((await fetch(`${base}/api/admin/config/script-card`, { method: 'DELETE' })).status).toBe(200);
       const defaultRoomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Default Opening Room' })
+        body: JSON.stringify({ name: 'Default Opening Room', expectedPlayerCount: 4 })
       });
       const defaultRoom = await defaultRoomRes.json() as { roomId: string };
-      const defaultLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(defaultRoom.roomId, 'Opening Scene') as { content: string };
-      expect(defaultLog.content).toBe('此房间已创建。请在全局配置中选择主剧本卡后开始游戏。');
+      const defaultLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(defaultRoom.roomId, '公开开场') as { content: string };
+      expect(defaultLog.content).toContain('灰松镇');
+      expect(defaultLog.content).toContain('失踪的矿工');
+      expect(defaultLog.content).toContain('断绳');
+      expect(defaultLog.content).toContain('皮手套');
+      expect(defaultLog.content.length).toBeGreaterThanOrEqual(1000);
     } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      db.close();
+    }
+  });
+
+  it('generates room opening logs with the real AI provider when configured', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    const openingText = [
+      '灰松镇的钟声在潮湿的山谷里缓慢散开，矿道驿站前的泥地被马蹄、矿靴和雨水踩成深浅不一的褐色纹路。队伍抵达时，低云正贴着远处的松林移动，旧矿车的铁轮在风里轻轻晃动，像有什么东西仍在地下深处回响。镇长德伦站在工具棚前，披风被雨水压得发沉，他身后聚着几名沉默的矿工家属，有人紧握帽檐，有人盯着矿道方向不敢眨眼。失踪的矿工名叫霍伯，昨夜换班后没有回家，留下的只有一只破旧皮手套、半截断绳，以及棚门口一道延向废弃矿道的拖痕。队伍能够看见，拖痕在碎石路边忽然变浅，像是被人刻意扫过，又像是有什么沉重的东西在那里改变了方向。',
+      '公开可见的线索并不多，却足够让现场紧绷。工具棚里还残留着冷掉的灯油味，墙角有新翻出的湿泥，木桌上压着一份矿道旧图，边缘被手汗和雨点弄皱。几名年轻矿工互相避开视线，只说夜里听见犬吠和一声短促呼喊；霍伯的妻子则坚持丈夫不会主动走进封停矿道，因为那里三年前塌过一次，后来再也没人愿意接近。道路南侧的林线安静得不自然，偶尔有水滴从针叶间落下，声音却显得过分清晰。镇长希望队伍尽快判断该先追问目击者、检查工具棚和泥地、安抚家属，还是趁痕迹尚未被雨水冲散，直接沿旧路进入矿道口。',
+      '这不是已经解决的案件，而是刚刚打开的门。每个人都能感觉到，灰松镇表面上只是请求外来者寻找失踪矿工，但镇民闪烁的眼神、被反复提起又被迅速避开的旧矿道、以及矿车里少得不合常理的矿石，都暗示事情并不单纯。队伍现在站在驿站、工具棚、林线和废弃矿道之间，所有选择都会决定接下来看到的是人的谎言、自然的危险，还是地下更古老的回声。',
+      '远处的主路偶尔传来车轮声，却没有商队愿意在驿站前久停。木棚檐下挂着一排旧矿灯，其中三盏已经坏掉，只有最靠近门口的一盏还在微微摇晃。镇长把旧矿道图摊开时，纸面上几个被圈出的岔路口都被水汽洇开，像是有人曾经反复用手指按在同一个位置。矿工家属没有催促队伍立刻冲进去，他们更害怕的是队伍进去后也不再回来。公开能确认的事实只有这些：霍伯失踪、拖痕存在、工具棚被人翻动过、矿道口附近有人刻意隐瞒昨夜的细节。接下来，队伍可以选择从人群中寻找矛盾证词，也可以先保护现场、检查拖痕和断绳，或者在雨势变大前推进到矿道入口。雨云仍在压低，半小时后泥地上的痕迹可能会被彻底冲散；而矿道深处偶尔传来的空洞回声，也让旁观镇民一次次停下低语。队伍尚未踏出第一步，现场已经把风险、时间和方向清楚摆在每个人眼前。所有人都知道，拖延只会让答案更远。'
+    ].join('\n\n');
+    const stub = await createOpenAiStub((body) => ({
+      body: { choices: [{ message: { content: openingText } }], model: body.model }
+    }));
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      await fetch(`${base}/api/admin/config/ai-provider`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai-compatible', baseUrl: stub.baseUrl, apiKey: 'opening-key', model: 'opening-model' })
+      });
+      const scriptRes = await fetch(`${base}/api/admin/resources/script-cards/import/sillytavern`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ characterCard: { data: { name: 'Opening Script', description: '矿镇、失踪者、旧矿道。', scenario: '队伍来到灰松镇矿道驿站。', first_mes: '队伍抵达驿站。' } } })
+      });
+      const script = await scriptRes.json() as { scriptCard: { id: string } };
+      await fetch(`${base}/api/admin/config/script-card`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ scriptCardId: script.scriptCard.id })
+      });
+
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'AI Opening Room', expectedPlayerCount: 4 })
+      });
+      expect(roomRes.status).toBe(200);
+      const room = await roomRes.json() as { roomId: string };
+      let publicLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(room.roomId, '公开开场') as { content: string };
+      for (let index = 0; index < 20 && publicLog.content !== openingText; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        publicLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(room.roomId, '公开开场') as { content: string };
+      }
+      const objectiveLog = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(room.roomId, '客观开场') as { content: string };
+
+      expect(publicLog.content).toBe(openingText);
+      expect(objectiveLog.content).toBe(openingText);
+      expect(publicLog.content.length).toBeGreaterThanOrEqual(1000);
+      expect(stub.requests).toHaveLength(1);
+      expect(JSON.stringify(stub.requests[0].messages)).toContain('至少 1000 个中文字符');
+      expect(JSON.stringify(stub.requests[0].messages)).toContain('队伍来到灰松镇矿道驿站');
+    } finally {
+      await stub.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      db.close();
+    }
+  });
+
+  it('does not block room creation while AI opening generation is still running', async () => {
+    const db = createMemoryDb();
+    migrate(db);
+    seedBuiltinRules(db);
+    let releaseOpening: () => void = () => {};
+    const openingFinished = new Promise<void>((resolve) => {
+      releaseOpening = resolve;
+    });
+    const stub = await createOpenAiStub(async () => {
+      await openingFinished;
+      return {
+        body: {
+          choices: [{
+            message: {
+              content: `${fallbackAiOpeningTextForTest}\n\n后台生成完成后，公开开场会被替换为真实 AI 版本。`
+            }
+          }]
+        }
+      };
+    });
+    const app = createApp(db);
+    const server = app.listen(0);
+    const address = server.address();
+    if (!address || typeof address === 'string') throw new Error('No test port');
+    const base = `http://127.0.0.1:${address.port}`;
+
+    try {
+      await fetch(`${base}/api/admin/config/ai-provider`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ provider: 'openai-compatible', baseUrl: stub.baseUrl, apiKey: 'opening-key', model: 'opening-model' })
+      });
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 200);
+      const roomRes = await fetch(`${base}/api/admin/rooms`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Non Blocking Opening Room', expectedPlayerCount: 4 }),
+        signal: controller.signal
+      });
+      clearTimeout(timeout);
+      expect(roomRes.status).toBe(200);
+      const room = await roomRes.json() as { roomId: string };
+      const publicLogBefore = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?')
+        .get(room.roomId, '公开开场') as { content: string };
+      expect(publicLogBefore.content.length).toBeGreaterThanOrEqual(1000);
+
+      releaseOpening();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(stub.requests.length).toBeGreaterThanOrEqual(1);
+    } finally {
+      releaseOpening();
+      await stub.close();
       await new Promise<void>((resolve) => server.close(() => resolve()));
       db.close();
     }
@@ -1748,7 +1892,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Global Runtime Room' })
+        body: JSON.stringify({ name: 'Global Runtime Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const scriptRes = await fetch(`${base}/api/admin/resources/script-cards/import/sillytavern`, {
@@ -1801,7 +1945,7 @@ describe('DND AI-DM integration', () => {
 
       const generationBefore = db.prepare('SELECT output FROM ai_generations WHERE room_id = ?').get(room.roomId) as { output: string };
       const actionBefore = db.prepare('SELECT text FROM actions WHERE id = ?').get('runtime-action') as { text: string };
-      const logBefore = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(room.roomId, 'Opening Scene') as { content: string };
+      const logBefore = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(room.roomId, '公开开场') as { content: string };
       await fetch(`${base}/api/admin/config/ai-config`, {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
@@ -1809,7 +1953,7 @@ describe('DND AI-DM integration', () => {
       });
       const generationAfter = db.prepare('SELECT output FROM ai_generations WHERE room_id = ?').get(room.roomId) as { output: string };
       const actionAfter = db.prepare('SELECT text FROM actions WHERE id = ?').get('runtime-action') as { text: string };
-      const logAfter = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(room.roomId, 'Opening Scene') as { content: string };
+      const logAfter = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND title = ?').get(room.roomId, '公开开场') as { content: string };
       expect(generationAfter.output).toBe(generationBefore.output);
       expect(actionAfter.text).toBe(actionBefore.text);
       expect(logAfter.content).toBe(logBefore.content);
@@ -1894,7 +2038,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: '规则注入房间' })
+        body: JSON.stringify({ name: '规则注入房间', expectedPlayerCount: 4 })
       });
       expect(roomRes.status).toBe(200);
       const room = await roomRes.json() as { roomId: string };
@@ -1973,7 +2117,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: '规则摘要房间' })
+        body: JSON.stringify({ name: '规则摘要房间', expectedPlayerCount: 4 })
       });
       expect(roomRes.status).toBe(200);
       const room = await roomRes.json() as { roomId: string };
@@ -2230,7 +2374,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: '建卡房间' })
+        body: JSON.stringify({ name: '建卡房间', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -2338,7 +2482,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Import Room' })
+        body: JSON.stringify({ name: 'Import Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -2428,7 +2572,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: '资源房间' })
+        body: JSON.stringify({ name: '资源房间', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -2461,6 +2605,12 @@ describe('DND AI-DM integration', () => {
         level: 1,
         abilityScores: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 },
         hitPoints: { current: 12, max: 12 },
+        armorClass: 16,
+        proficiencyBonus: 2,
+        skills: [],
+        equipment: [],
+        spells: [],
+        privateNotes: '',
         resources: initialResources
       };
       db.prepare('UPDATE characters SET confirmed = 1, sheet_json = ? WHERE id = ?')
@@ -2585,7 +2735,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Resource Change Room' })
+        body: JSON.stringify({ name: 'Resource Change Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -2609,6 +2759,12 @@ describe('DND AI-DM integration', () => {
         level: 1,
         abilityScores: { str: 15, dex: 13, con: 14, int: 10, wis: 12, cha: 8 },
         hitPoints: { current: 12, max: 12 },
+        armorClass: 16,
+        proficiencyBonus: 2,
+        skills: [],
+        equipment: [],
+        spells: [],
+        privateNotes: '',
         resources: {
           hitPoints: { current: 12, max: 12, temp: 0 },
           hitDice: { total: 1, remaining: 1, die: 'd10' },
@@ -2698,7 +2854,7 @@ describe('DND AI-DM integration', () => {
       const badRoomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Bad Char Room' })
+        body: JSON.stringify({ name: 'Bad Char Room', expectedPlayerCount: 4 })
       });
       const badRoom = await badRoomRes.json() as { roomId: string };
 
@@ -2719,6 +2875,12 @@ describe('DND AI-DM integration', () => {
         level: 1,
         abilityScores: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
         hitPoints: { current: 12, max: 12 },
+        armorClass: 12,
+        proficiencyBonus: 2,
+        skills: [],
+        equipment: [],
+        spells: [],
+        privateNotes: '',
         resources: {
           hitPoints: { current: 12, max: 12, temp: 0 },
           hitDice: { total: 1, remaining: 1, die: 'd10' },
@@ -2744,8 +2906,8 @@ describe('DND AI-DM integration', () => {
       });
 
       const badProcessRes = await fetch(`${base}/api/admin/rooms/${badRoom.roomId}/process-turn`, legacyProcessTurnInit);
-      // Turn should still succeed (invalid patches are logged, not thrown)
-      expect(badProcessRes.status).toBe(200);
+      // Invalid patches block this apply attempt, but the turn remains retryable.
+      expect(badProcessRes.status).toBe(500);
 
       // No audit changes for the bad room (invalid characterId was rejected)
       const badChangesRes = await fetch(`${base}/api/admin/rooms/${badRoom.roomId}/character-resource-changes`);
@@ -2756,6 +2918,10 @@ describe('DND AI-DM integration', () => {
       // Verify the error was recorded in ai_generations
       const badGen = db.prepare('SELECT error FROM ai_generations WHERE room_id = ? ORDER BY created_at DESC LIMIT 1').get(badRoom.roomId) as { error: string | null };
       expect(badGen.error).toContain('not found in room');
+      const badRoomStatus = db.prepare('SELECT status FROM rooms WHERE id = ?').get(badRoom.roomId) as { status: string };
+      const badTurnStatus = db.prepare('SELECT status FROM turns WHERE room_id = ? AND number = ?').get(badRoom.roomId, 1) as { status: string };
+      expect(badRoomStatus.status).toBe('ready_to_resolve');
+      expect(badTurnStatus.status).toBe('ready_to_resolve');
 
       await badCharStub.close();
 
@@ -2779,7 +2945,7 @@ describe('DND AI-DM integration', () => {
       const badBeforeRoomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Bad Before Room' })
+        body: JSON.stringify({ name: 'Bad Before Room', expectedPlayerCount: 4 })
       });
       const badBeforeRoom = await badBeforeRoomRes.json() as { roomId: string };
 
@@ -2802,6 +2968,12 @@ describe('DND AI-DM integration', () => {
         level: 1,
         abilityScores: { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
         hitPoints: { current: 12, max: 12 },
+        armorClass: 12,
+        proficiencyBonus: 2,
+        skills: [],
+        equipment: [],
+        spells: [],
+        privateNotes: '',
         resources: {
           hitPoints: { current: 12, max: 12, temp: 0 },
           hitDice: { total: 1, remaining: 1, die: 'd10' },
@@ -2827,8 +2999,8 @@ describe('DND AI-DM integration', () => {
       });
 
       const badBeforeProcessRes = await fetch(`${base}/api/admin/rooms/${badBeforeRoom.roomId}/process-turn`, legacyProcessTurnInit);
-      // Turn should still succeed
-      expect(badBeforeProcessRes.status).toBe(200);
+      // Turn is not applied, but remains retryable.
+      expect(badBeforeProcessRes.status).toBe(500);
 
       // No audit changes written (before mismatch rejected)
       const badBeforeChangesRes = await fetch(`${base}/api/admin/rooms/${badBeforeRoom.roomId}/character-resource-changes`);
@@ -2844,6 +3016,10 @@ describe('DND AI-DM integration', () => {
       // Verify error in ai_generations
       const badBeforeGen = db.prepare('SELECT error FROM ai_generations WHERE room_id = ? ORDER BY created_at DESC LIMIT 1').get(badBeforeRoom.roomId) as { error: string | null };
       expect(badBeforeGen.error).toContain('Before value mismatch');
+      const badBeforeRoomStatus = db.prepare('SELECT status FROM rooms WHERE id = ?').get(badBeforeRoom.roomId) as { status: string };
+      const badBeforeTurnStatus = db.prepare('SELECT status FROM turns WHERE room_id = ? AND number = ?').get(badBeforeRoom.roomId, 1) as { status: string };
+      expect(badBeforeRoomStatus.status).toBe('ready_to_resolve');
+      expect(badBeforeTurnStatus.status).toBe('ready_to_resolve');
 
       await badBeforeStub.close();
     } finally {
@@ -2885,7 +3061,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: '骰点房间' })
+        body: JSON.stringify({ name: '骰点房间', expectedPlayerCount: 1 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -2936,13 +3112,10 @@ describe('DND AI-DM integration', () => {
       expect(processRes.status).toBe(200);
       const processResult = await processRes.json() as { result: { publicLog: string } };
 
-      // Verify publicLog contains dice result summary
+      // Verify publicLog keeps narrative text while dice details stay in dice_logs.
       const publicLog = processResult.result.publicLog;
       expect(publicLog).toContain('你尝试推开沉重的石门。');
-      expect(publicLog).toContain('系统骰点');
-      expect(publicLog).toContain('推开石门');
-      expect(publicLog).toContain('DC 15');
-      expect(publicLog).toMatch(/成功|失败/);
+      expect(publicLog).not.toContain('系统骰点');
 
       // Verify dice_logs table has 1 record
       const diceLogCount = db.prepare('SELECT COUNT(*) as count FROM dice_logs').get() as { count: number };
@@ -3023,7 +3196,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Invalid Dice Room' })
+        body: JSON.stringify({ name: 'Invalid Dice Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -3098,7 +3271,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: '战斗房间' })
+        body: JSON.stringify({ name: '战斗房间', expectedPlayerCount: 4 })
       });
       expect(roomRes.status).toBe(200);
       const room = await roomRes.json() as { roomId: string };
@@ -3255,7 +3428,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: '摘要测试房间' })
+        body: JSON.stringify({ name: '摘要测试房间', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -3363,7 +3536,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Blocked Prompt Room' })
+        body: JSON.stringify({ name: 'Blocked Prompt Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const ariRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -3415,7 +3588,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Stale Preview Room' })
+        body: JSON.stringify({ name: 'Stale Preview Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -3498,7 +3671,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Prompt Loop Room' })
+        body: JSON.stringify({ name: 'Prompt Loop Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -3683,7 +3856,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Post Roll Narration Room' })
+        body: JSON.stringify({ name: 'Post Roll Narration Room', expectedPlayerCount: 1 })
       });
       const room = await roomRes.json() as { roomId: string };
       const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -3696,6 +3869,7 @@ describe('DND AI-DM integration', () => {
         'SELECT c.id FROM characters c JOIN players p ON c.player_id = p.id WHERE p.token = ?'
       ).get(player.token) as { id: string };
       thornCharacterId = charRow.id;
+      db.prepare('UPDATE characters SET confirmed = 1 WHERE id = ?').run(thornCharacterId);
 
       await fetch(`${base}/api/admin/config/ai-provider`, {
         method: 'PUT',
@@ -3730,9 +3904,9 @@ describe('DND AI-DM integration', () => {
       expect(postResolutionPrompt).toContain('DC 1');
       expect(postResolutionPrompt).toContain('成功');
       expect(postResolutionPrompt).toContain(`Private result target playerIds: ${player.playerId}`);
-      expect(sent.responseText).toContain('托恩从补给车上跳下来');
+      expect(sent.responseText).not.toContain('托恩从补给车上跳下来');
       expect(sent.responseText).not.toContain('🎲 系统骰点');
-      expect(sent.responseText).not.toContain('他在北侧林线的灌木后捕捉到');
+      expect(sent.responseText).toContain('他在北侧林线的灌木后捕捉到');
 
       const applyRes = await fetch(`${base}/api/admin/ai/apply-preview`, {
         method: 'POST',
@@ -3744,13 +3918,14 @@ describe('DND AI-DM integration', () => {
         .get(room.roomId, 'public') as { content: string };
       const privateLog = db.prepare('SELECT player_id as playerId, content FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at DESC LIMIT 1')
         .get(room.roomId, 'private') as { playerId: string; content: string };
-      expect(materializedLog.content).toContain('托恩从补给车上跳下来');
-      expect(materializedLog.content).not.toContain('他在北侧林线的灌木后捕捉到');
+      expect(materializedLog.content).not.toContain('托恩从补给车上跳下来');
+      expect(materializedLog.content).toContain('他在北侧林线的灌木后捕捉到');
       expect(materializedLog.content).not.toContain('🎲 系统骰点');
       expect(privateLog.playerId).toBe(player.playerId);
       expect(privateLog.content).not.toContain('🎲 隐藏骰点');
       expect(privateLog.content).toContain('成功');
-      expect(privateLog.content).toContain('他在北侧林线的灌木后捕捉到');
+      expect(privateLog.content).not.toContain('托恩从补给车上跳下来');
+      expect(privateLog.content).not.toContain('他在北侧林线的灌木后捕捉到');
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await stub.close();
@@ -3793,7 +3968,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Combat Consistency Room' })
+        body: JSON.stringify({ name: 'Combat Consistency Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -3932,7 +4107,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Private Routing Room' })
+        body: JSON.stringify({ name: 'Private Routing Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const ariRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -4047,7 +4222,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Interaction Routing Room' })
+        body: JSON.stringify({ name: 'Interaction Routing Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const sourceRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -4158,7 +4333,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Interaction State Room' })
+        body: JSON.stringify({ name: 'Interaction State Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const sourceRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -4277,7 +4452,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Empty Character Room' })
+        body: JSON.stringify({ name: 'Empty Character Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
       const playerRes = await fetch(`${base}/api/admin/rooms/${room.roomId}/players`, {
@@ -4344,7 +4519,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Exploration Test Room' })
+        body: JSON.stringify({ name: 'Exploration Test Room', expectedPlayerCount: 1 })
       });
       const room = await roomRes.json() as { roomId: string };
 
@@ -4362,7 +4537,7 @@ describe('DND AI-DM integration', () => {
       sheet.abilityScores = { str: 10, dex: 16, con: 12, int: 10, wis: 14, cha: 8 };
       sheet.skills = ['stealth'];
       sheet.proficiencyBonus = 2;
-      db.prepare('UPDATE characters SET sheet_json = ? WHERE id = ?').run(JSON.stringify(sheet), charRow.id);
+      db.prepare('UPDATE characters SET confirmed = 1, sheet_json = ? WHERE id = ?').run(JSON.stringify(sheet), charRow.id);
 
       // Submit exploration action
       await fetch(`${base}/api/player/${player.token}/actions`, {
@@ -4390,10 +4565,10 @@ describe('DND AI-DM integration', () => {
       const adminState = await adminRes.json() as { actions: Array<{ text: string; actionType: string | null }> };
       expect(adminState.actions.some((a) => a.text === '我尝试潜行穿过哥布林巡逻的走廊。')).toBe(true);
 
-      // Verify public log includes dice summary
+      // Verify public log does not include mechanical dice summary; dice details live in dice_logs.
       const logs = db.prepare('SELECT content FROM log_entries WHERE room_id = ? AND visibility_scope = ? ORDER BY created_at DESC').all(room.roomId, 'public') as Array<{ content: string }>;
-      expect(logs.some((l) => l.content.includes('系统骰点'))).toBe(true);
-      expect(logs.some((l) => l.content.includes('潜行检定'))).toBe(true);
+      expect(logs.some((l) => l.content.includes('系统骰点'))).toBe(false);
+      expect(logs.some((l) => l.content.includes('艾拉尝试潜行'))).toBe(true);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
       await stub.close();
@@ -4419,7 +4594,7 @@ describe('DND AI-DM integration', () => {
       const roomRes = await fetch(`${base}/api/admin/rooms`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'Social Test Room' })
+        body: JSON.stringify({ name: 'Social Test Room', expectedPlayerCount: 4 })
       });
       const room = await roomRes.json() as { roomId: string };
 

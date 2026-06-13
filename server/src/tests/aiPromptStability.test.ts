@@ -11,6 +11,7 @@ const room: Room = {
   worldInfo: 'High Road goblin ambush. Two dead horses block the road.',
   currentTurn: 1,
   status: 'ready_to_resolve',
+  expectedPlayerCount: null,
   aiConfig: {} as Room['aiConfig'],
   createdAt: '2026-05-31T00:00:00.000Z'
 };
@@ -63,9 +64,12 @@ describe('AI-DM prompt stability', () => {
     const contract = renderDndOutputContract();
 
     expect(contract).toContain('objectiveLog 最多 300 个中文字符');
-    expect(contract).toContain('publicLog 最多 300 个中文字符');
-    expect(contract).toContain('privateUpdatesByPlayer 每名玩家最多 150 个中文字符');
+    expect(contract).toContain('publicLog 最多 1500 个中文字符');
+    expect(contract).toContain('常规多人行动回合的 publicLog 写 500-900 个中文字符');
+    expect(contract).toContain('privateUpdatesByPlayer 每名玩家最多 300 个中文字符');
     expect(contract).toContain('超过上限属于格式错误');
+    expect(contract).toContain('objectiveLog 和 publicLog 默认使用第三人称或客观陈述');
+    expect(contract).toContain('privateUpdatesByPlayer 默认使用第二人称');
   });
 
   it('uses active narrative length limits in the output contract and validation warnings', () => {
@@ -90,7 +94,7 @@ describe('AI-DM prompt stability', () => {
     expect(contract).toContain('objectiveLog 最多 1000 个中文字符');
     expect(contract).toContain('publicLog 最多 1500 个中文字符');
     expect(contract).toContain('privateUpdatesByPlayer 每名玩家最多 800 个中文字符');
-    expect(contract).not.toContain('objectiveLog 最多 300 个中文字符、publicLog 最多 300 个中文字符');
+    expect(contract).not.toContain('objectiveLog 最多 300 个中文字符、publicLog 最多 1500 个中文字符');
 
     const prompt = buildTurnPrompt({
       room,
@@ -102,12 +106,12 @@ describe('AI-DM prompt stability', () => {
       promptBlocks
     });
     expect(prompt).toContain('objectiveLog 最多 1000 个中文字符');
-    expect(prompt).not.toContain('objectiveLog 最多 300 个中文字符、publicLog 最多 300 个中文字符');
+    expect(prompt).not.toContain('objectiveLog 最多 300 个中文字符、publicLog 最多 1500 个中文字符');
 
     const parsed = validateAiTurnResult({
       objectiveLog: '客'.repeat(301),
-      publicLog: '公'.repeat(301),
-      privateUpdatesByPlayer: { tk: '私'.repeat(151) },
+      publicLog: '公'.repeat(1500),
+      privateUpdatesByPlayer: { tk: '私'.repeat(301) },
       ruleResults: [],
       interactionRequests: [],
       diceRequests: [],
@@ -148,8 +152,8 @@ describe('AI-DM prompt stability', () => {
   it('reports hard length limit warnings after parsing AI JSON', () => {
     const parsed = validateAiTurnResult({
       objectiveLog: '客'.repeat(301),
-      publicLog: '公'.repeat(301),
-      privateUpdatesByPlayer: { tk: '私'.repeat(151) },
+      publicLog: '公'.repeat(1501),
+      privateUpdatesByPlayer: { tk: '私'.repeat(301) },
       ruleResults: ['规'.repeat(121)],
       interactionRequests: [],
       diceRequests: [{ type: 'skillCheck', reason: '骰'.repeat(81) }],
@@ -166,8 +170,8 @@ describe('AI-DM prompt stability', () => {
 
     expect(validateAiTurnResultLengthWarnings(parsed)).toEqual(expect.arrayContaining([
       'objectiveLog 长度 301/300，超过上限。',
-      'publicLog 长度 301/300，超过上限。',
-      'privateUpdatesByPlayer.tk 长度 151/150，超过上限。',
+      'publicLog 长度 1501/1500，超过上限。',
+      'privateUpdatesByPlayer.tk 长度 301/300，超过上限。',
       'ruleResults[0] 长度 121/120，超过上限。',
       'diceRequests[0].reason 长度 81/80，超过上限。'
     ]));
@@ -187,6 +191,27 @@ describe('AI-DM prompt stability', () => {
 
     expect(prompt).toContain('tk [player_question, private]: 我是谁？');
     expect(prompt).toContain('wk [observe, public]: 观察四周');
+  });
+
+  it('summarizes skipped actors as pacing control instead of raw admin text', () => {
+    const prompt = buildTurnPrompt({
+      room,
+      players,
+      publicLogs: [],
+      actions: [
+        action({
+          playerId: 'tk',
+          text: '主持人标记 tk 本回合跳过。',
+          actionType: 'skip',
+          submittedAt: '2026-05-31T00:00:03.000Z'
+        })
+      ],
+      interactions: []
+    });
+
+    expect(prompt).toContain('tk [skip, public]: 本回合暂不主动行动');
+    expect(prompt).toContain('不要写进 publicLog');
+    expect(prompt).not.toContain('主持人标记 tk 本回合跳过');
   });
 
   it('shows explicit action order and infers legacy narrative action types in prompt summaries', () => {

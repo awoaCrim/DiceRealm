@@ -9,6 +9,7 @@ export function migrate(db: AppDatabase): void {
       world_info TEXT NOT NULL,
       current_turn INTEGER NOT NULL,
       status TEXT NOT NULL,
+      expected_player_count INTEGER,
       ai_config_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT NOT NULL
     );
@@ -209,6 +210,19 @@ export function migrate(db: AppDatabase): void {
       output TEXT NOT NULL,
       error TEXT,
       created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS turn_suggestions (
+      room_id TEXT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+      turn_id TEXT NOT NULL REFERENCES turns(id) ON DELETE CASCADE,
+      player_id TEXT NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+      suggestions_json TEXT NOT NULL DEFAULT '{"options":[]}',
+      status TEXT NOT NULL,
+      error TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (room_id, turn_id, player_id),
+      CHECK (status IN ('ready', 'failed'))
     );
 
     CREATE TABLE IF NOT EXISTS ai_turn_previews (
@@ -622,6 +636,7 @@ export function migrate(db: AppDatabase): void {
   db.prepare('CREATE INDEX IF NOT EXISTS rule_world_book_entries_category_idx ON rule_world_book_entries(category)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS resource_rules_category_idx ON resource_rules(category)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS character_resource_changes_room_char_idx ON character_resource_changes(room_id, character_id, created_at)').run();
+  db.prepare('CREATE INDEX IF NOT EXISTS turn_suggestions_room_turn_idx ON turn_suggestions(room_id, turn_id, updated_at)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS ai_turn_previews_room_idx ON ai_turn_previews(room_id, created_at)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS turn_resolution_runs_preview_idx ON turn_resolution_runs(preview_id, created_at)').run();
   db.prepare('CREATE INDEX IF NOT EXISTS turn_resolution_runs_room_turn_idx ON turn_resolution_runs(room_id, turn_id, created_at)').run();
@@ -651,6 +666,9 @@ export function migrate(db: AppDatabase): void {
   const roomColumns = db.prepare('PRAGMA table_info(rooms)').all() as Array<{ name: string }>;
   if (!roomColumns.some((column) => column.name === 'ai_config_json')) {
     db.prepare("ALTER TABLE rooms ADD COLUMN ai_config_json TEXT NOT NULL DEFAULT '{}'").run();
+  }
+  if (!roomColumns.some((column) => column.name === 'expected_player_count')) {
+    db.prepare('ALTER TABLE rooms ADD COLUMN expected_player_count INTEGER').run();
   }
 
   const globalConfigColumns = db.prepare('PRAGMA table_info(global_config)').all() as Array<{ name: string }>;

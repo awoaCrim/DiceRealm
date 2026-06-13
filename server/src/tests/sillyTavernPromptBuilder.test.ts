@@ -12,6 +12,7 @@ const room: Room = {
   worldInfo: 'A Candlekeep gate.',
   currentTurn: 1,
   status: 'processing',
+  expectedPlayerCount: null,
   aiConfig: defaultAiConfig,
   createdAt: '2026-05-28T00:00:00.000Z'
 };
@@ -286,8 +287,9 @@ describe('buildSillyTavernPromptPreview', () => {
           },
           {
             identifier: 'mLCAugZZ91eSB65HPak_d',
+            name: '战斗规则',
             role: 'system',
-            content: '战斗中严格遵循先攻顺序。每次攻击检定前明确说明 AC 和 DC。'
+            content: '战斗中以轻量临场态势说明当前威胁、可见风险和关键判定参考。'
           },
           {
             identifier: 'N9_JLOcQW1sQVP9O7j9Vf',
@@ -297,7 +299,7 @@ describe('buildSillyTavernPromptPreview', () => {
         ],
         prompt_order: [{ order: [
           { identifier: 'plqGRxqxkIwGvcbkiYxIi', enabled: true },
-          { identifier: 'mLCAugZZ91eSB65HPak_d', enabled: true },
+          { identifier: 'mLCAugZZ91eSB65HPak_d', name: '战斗规则', enabled: true },
           { identifier: 'N9_JLOcQW1sQVP9O7j9Vf', enabled: true }
         ] }]
       })

@@ -36,7 +36,7 @@ const locationUpdateSchema = z.object({
 }).strict();
 
 function getRoom(db: AppDatabase, roomId: string): Room | null {
-  const row = db.prepare('SELECT id, name, system_prompt as systemPrompt, world_info as worldInfo, current_turn as currentTurn, status, ai_config_json as aiConfigJson, created_at as createdAt FROM rooms WHERE id = ?').get(roomId) as any;
+  const row = db.prepare('SELECT id, name, system_prompt as systemPrompt, world_info as worldInfo, current_turn as currentTurn, status, expected_player_count as expectedPlayerCount, ai_config_json as aiConfigJson, created_at as createdAt FROM rooms WHERE id = ?').get(roomId) as any;
   return row ? {
     id: row.id,
     name: row.name,
@@ -44,6 +44,7 @@ function getRoom(db: AppDatabase, roomId: string): Room | null {
     worldInfo: row.worldInfo,
     currentTurn: row.currentTurn,
     status: row.status,
+    expectedPlayerCount: row.expectedPlayerCount ?? null,
     aiConfig: parseAiConfigJson(row.aiConfigJson),
     createdAt: row.createdAt
   } : null;
