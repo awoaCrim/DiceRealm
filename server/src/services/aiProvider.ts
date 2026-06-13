@@ -81,6 +81,24 @@ function extractJsonCandidate(text: string): string | null {
   return null;
 }
 
+export const STATE_PATCH_SEPARATOR = '===STATE PATCH===';
+
+export interface DualSegmentResponse {
+  publicLog: string;
+  jsonPart: string | null;
+}
+
+export function parseDualSegmentResponse(text: string): DualSegmentResponse {
+  const separatorPattern = /^[ \t]*={2,}\s*STATE\s*PATCH\s*={2,}[ \t]*$/im;
+  const match = text.match(separatorPattern);
+  if (!match || match.index === undefined) {
+    return { publicLog: text.trim(), jsonPart: null };
+  }
+  const before = text.slice(0, match.index);
+  const after = text.slice(match.index + match[0].length);
+  return { publicLog: before.trim(), jsonPart: after.trim() || null };
+}
+
 function parseJsonWithMessage(text: string, message: string, allowEmbeddedJson = false): unknown {
   try {
     return JSON.parse(text) as unknown;
@@ -147,7 +165,6 @@ function firstStringField(value: Record<string, unknown>, keys: string[]): strin
 
 const requiredAiTurnFields = [
   'objectiveLog',
-  'publicLog',
   'privateUpdatesByPlayer',
   'ruleResults',
   'interactionRequests',
@@ -403,23 +420,45 @@ export class OpenAiCompatibleProvider implements AiProvider {
 
   async generateTurnResult(prompt: string): Promise<AiTurnResult> {
     const content = await requestOpenAiCompatibleMessage(this.config, [
-      { role: 'system', content: 'Return strict JSON only. Never include markdown fences.' },
+      { role: 'system', content: 'Follow the DND output contract embedded in the user message: write narrative prose as publicLog, then a separator line, then a strict JSON object with the remaining fields.' },
       { role: 'user', content: prompt }
     ]);
 
+    return parseTurnResultFromProviderText(content);
+  }
+}
+
+export function parseTurnResultFromProviderText(content: string): AiTurnResult {
+  const dual = parseDualSegmentResponse(content);
+
+  if (dual.jsonPart) {
     let parsed: unknown;
     try {
-      parsed = parseJsonWithMessage(content, 'AI provider returned invalid AiTurnResult JSON', true);
+      parsed = parseJsonWithMessage(dual.jsonPart, 'AI provider returned invalid AiTurnResult JSON', true);
     } catch {
-      parsed = {
-        publicLog: content.trim(),
-        privateUpdatesByPlayer: {},
-        ruleResults: [],
-        interactionRequests: []
-      };
+      parsed = {};
     }
-    return validateAiTurnResult(parsed, { strictRequiredFields: true });
+    if (isPlainObject(parsed)) {
+      const merged: Record<string, unknown> = { ...parsed };
+      if (typeof merged.publicLog !== 'string' || !merged.publicLog.trim()) {
+        merged.publicLog = dual.publicLog;
+      }
+      return validateAiTurnResult(merged, { strictRequiredFields: false });
+    }
   }
+
+  let parsed: unknown;
+  try {
+    parsed = parseJsonWithMessage(content, 'AI provider returned invalid AiTurnResult JSON', true);
+  } catch {
+    parsed = {
+      publicLog: dual.publicLog || content.trim(),
+      privateUpdatesByPlayer: {},
+      ruleResults: [],
+      interactionRequests: []
+    };
+  }
+  return validateAiTurnResult(parsed, { strictRequiredFields: false });
 }
 
 export function createAiProviderFromConfig(config: AiProviderConfig): AiProvider {

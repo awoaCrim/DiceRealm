@@ -113,7 +113,7 @@ describe('buildSillyTavernPromptPreview', () => {
     expect(preview.prompt).toContain('1. Ari [in_character_action, public]: I inspect Candlekeep.');
     expect(preview.prompt).toContain(dndOutputContract);
     expect(preview.prompt).toContain('# DND 输出契约');
-    expect(preview.prompt).toContain('严格 JSON 输出：只返回一个 JSON 对象');
+    expect(preview.prompt).toContain('===STATE PATCH===');
     expect(occurrenceCount(preview.prompt, '# DND 输出契约')).toBe(1);
     expect(preview.prompt.indexOf('中文 DM 系统提示。')).toBeLessThan(preview.prompt.indexOf('The gate responds to silver keys.'));
     expect(preview.prompt.indexOf('1. Ari [in_character_action, public]: I inspect Candlekeep.')).toBeLessThan(preview.prompt.indexOf(dndOutputContract));

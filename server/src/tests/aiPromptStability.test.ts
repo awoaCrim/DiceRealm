@@ -57,7 +57,8 @@ function worldBookEntry(overrides: Partial<WorldBookEntry>): WorldBookEntry {
 describe('AI-DM prompt stability', () => {
   it('requires characterResourceChanges in the output contract', () => {
     expect(renderDndOutputContract()).toContain('characterResourceChanges');
-    expect(renderDndOutputContract()).toContain('JSON 字段必须包含 objectiveLog、publicLog、privateUpdatesByPlayer、ruleResults、interactionRequests、diceRequests、suggestedStateChanges、characterResourceChanges');
+    expect(renderDndOutputContract()).toContain('===STATE PATCH===');
+    expect(renderDndOutputContract()).toContain('分隔符之后的 JSON 字段必须包含 objectiveLog、privateUpdatesByPlayer、ruleResults、interactionRequests、diceRequests、suggestedStateChanges、characterResourceChanges');
   });
 
   it('includes default narrative length limits in the output contract', () => {
@@ -68,7 +69,7 @@ describe('AI-DM prompt stability', () => {
     expect(contract).toContain('常规多人行动回合的 publicLog 写 500-900 个中文字符');
     expect(contract).toContain('privateUpdatesByPlayer 每名玩家最多 300 个中文字符');
     expect(contract).toContain('超过上限属于格式错误');
-    expect(contract).toContain('objectiveLog 和 publicLog 默认使用第三人称或客观陈述');
+    expect(contract).toContain('publicLog 和 objectiveLog 默认使用第三人称或客观陈述');
     expect(contract).toContain('privateUpdatesByPlayer 默认使用第二人称');
   });
 

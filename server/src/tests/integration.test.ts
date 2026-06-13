@@ -1090,7 +1090,7 @@ describe('DND AI-DM integration', () => {
       expect(preview.mode).toBe('native');
       expect(preview.prompt).toContain('普通最终块：可以描述风格，但不能替代契约。');
       expect(preview.prompt).toContain('# DND 输出契约');
-      expect(preview.prompt).toContain('严格 JSON 输出：只返回一个 JSON 对象');
+      expect(preview.prompt).toContain('===STATE PATCH===');
       expect(preview.prompt.trim().endsWith(preview.promptBlocks.at(-1)?.content ?? '')).toBe(true);
       expect(preview.promptBlocks.at(-1)).toMatchObject({ identifier: 'dndOutputContract', source: 'dnd-contract' });
       expect(preview.prompt.indexOf('普通最终块：可以描述风格，但不能替代契约。')).toBeLessThan(preview.prompt.lastIndexOf('# DND 输出契约'));
@@ -1513,7 +1513,7 @@ describe('DND AI-DM integration', () => {
       expect(capturedPrompt).toContain('ST process preset main block.');
       expect(capturedPrompt).toContain('I test the ST process prompt.');
       expect(capturedPrompt).toContain('# DND 输出契约');
-      expect(capturedPrompt).toContain('严格 JSON 输出：只返回一个 JSON 对象');
+      expect(capturedPrompt).toContain('===STATE PATCH===');
       expect(capturedPrompt).toContain(renderDndOutputContract());
       expect(capturedPrompt).not.toContain(poison);
       expect(occurrenceCount(capturedPrompt, '# DND 输出契约')).toBe(1);
