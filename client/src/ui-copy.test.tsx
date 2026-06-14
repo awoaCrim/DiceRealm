@@ -1421,6 +1421,7 @@ describe('中文界面文案', () => {
     expect(screen.queryByText('客观剧情最少字数')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '保存剧情长度硬上限' })).toBeInTheDocument();
     expect(screen.getByText('默认强约束预设（当前启用）')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '调试' }));
     expect(screen.getByRole('button', { name: '预览 AI 请求' })).toBeInTheDocument();
   });
 
@@ -1870,6 +1871,7 @@ describe('中文界面文案', () => {
     render(<AdminPage roomId="room-1" />);
 
     await user.click(await screen.findByRole('button', { name: 'AI 主持' }));
+    await user.click(screen.getByRole('button', { name: '调试' }));
 
     expect(await screen.findByText('当前激活模板类型：')).toBeInTheDocument();
     expect(screen.getByText('规则参考')).toBeInTheDocument();
@@ -1888,6 +1890,7 @@ describe('中文界面文案', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('连接失败');
 
     await user.click(screen.getByRole('button', { name: 'AI 主持' }));
+    await user.click(screen.getByRole('button', { name: '调试' }));
     await user.click(screen.getByRole('button', { name: '预览 AI 请求' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('预览失败');

@@ -110,7 +110,7 @@ describe('buildSillyTavernPromptPreview', () => {
     expect(preview.prompt).toContain('中文 DM 系统提示。');
     expect(preview.prompt).toContain('The gate responds to silver keys.');
     expect(preview.prompt).toContain('The party stands before the Candlekeep gate.');
-    expect(preview.prompt).toContain('1. Ari [in_character_action, public]: I inspect Candlekeep.');
+    expect(preview.prompt).toContain('1. Ari [in_character_action, public]: <peip player="Ari" type="in_character_action">I inspect Candlekeep.</peip>');
     expect(preview.prompt).toContain(dndOutputContract);
     expect(preview.prompt).toContain('# DND 输出契约');
     expect(preview.prompt).toContain('===STATE PATCH===');

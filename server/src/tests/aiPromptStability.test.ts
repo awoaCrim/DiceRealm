@@ -190,8 +190,8 @@ describe('AI-DM prompt stability', () => {
       interactions: []
     });
 
-    expect(prompt).toContain('tk [player_question, private]: 我是谁？');
-    expect(prompt).toContain('wk [observe, public]: 观察四周');
+    expect(prompt).toContain('tk [player_question, private]: <peip player="tk" type="player_question">我是谁？</peip>');
+    expect(prompt).toContain('wk [observe, public]: <peip player="wk" type="observe">观察四周</peip>');
   });
 
   it('summarizes skipped actors as pacing control instead of raw admin text', () => {
@@ -227,9 +227,9 @@ describe('AI-DM prompt stability', () => {
       interactions: []
     });
 
-    expect(prompt).toContain('1. tk [player_question, private]: 我是谁？');
-    expect(prompt).toContain('2. wk [observe, public]: 观察四周');
-    expect(prompt.indexOf('1. tk [player_question, private]: 我是谁？')).toBeLessThan(prompt.indexOf('2. wk [observe, public]: 观察四周'));
+    expect(prompt).toContain('1. tk [player_question, private]: <peip player="tk" type="player_question">我是谁？</peip>');
+    expect(prompt).toContain('2. wk [observe, public]: <peip player="wk" type="observe">观察四周</peip>');
+    expect(prompt.indexOf('1. tk [player_question, private]:')).toBeLessThan(prompt.indexOf('2. wk [observe, public]:'));
   });
 
   it('contains private routing and public dice safety rules', () => {

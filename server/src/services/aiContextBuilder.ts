@@ -135,7 +135,7 @@ function buildDndOutputContract(limits: NarrativeLengthLimits): string {
   '玩家互动确认：当一个玩家的行动会强制影响另一个玩家的选择、资源、身体或秘密时，必须创建 interactionRequests 等待目标玩家确认或回应；sourcePlayerId 和 targetPlayerId 必须使用 Character Status 中的真实 playerId，不能使用玩家名或角色名。',
   'diceRequests：数组，AI 只声明需要系统自动执行的骰点，不让玩家手动投掷，也不得编造骰点结果。每项包含 type(abilityCheck/attackRoll/savingThrow/skillCheck/damage/healing)、characterId、ability/skill、dc、die、count、modifier、advantage、reason，可选 publicReason/objectiveReason。若 characterId 和 ability/skill 已知，modifier 使用 null，让系统按角色状态计算；只有 NPC 或临时骰且没有 characterId 时才显式给 modifier。diceRequests.reason/publicReason 如果会进入公开日志，必须使用玩家安全描述，不得包含隐藏敌人、陷阱、秘密目标或未公开事实。',
   'ruleResults：只记录无需掷骰的规则裁定，或基于系统已经提供的真实骰点、结构化状态和已知规则得出的结果。不得自行写“检定成功/失败/命中/伤害”等未由系统确认的结果；需要随机性时先返回 diceRequests。',
-  'suggestedStateChanges：数组，只用于需要管理员审核的剧情或战役变更，例如 NPC 态度、任务进度、地点状态、战役记忆、线索揭示、客观事实、插件数据库行 upsert/delete。一般战役状态建议不要使用 changeType=database_row_upsert，也不要虚构 campaign_state、combat_state、world_state 等表；combat_state 只是辅助临场态势，不是推进剧情的硬前置。只有插件数据库上下文明确列出目标表时，才使用 changeType=database_row_upsert 或 database_row_delete，targetId 为 sheet:<sheetId>/表名/表UID，path 为 rowKey，after 为行对象；默认仅进入待审核，不会自由改写永久战役事实。',
+  'suggestedStateChanges：数组，用于需要管理员审核的剧情或战役变更，例如 NPC 态度、任务进度、地点状态、战役记忆、线索揭示、客观事实、插件数据库行 upsert/delete。只有插件数据库上下文明确列出目标表时，才使用 database_row_upsert 或 database_row_delete；targetId 为表名/表UID/sheet:<sheetId>，path 为 rowKey，after 为完整行对象。不要虚构不存在的表（如 campaign_state、combat_state、world_state）。示例：{"changeType":"database_row_upsert","targetId":"NPC状态","path":"goblin-scout-1","after":{"name":"地精侦察兵","hp":7,"status":"受伤","location":"矿道入口"}}。不涉及数据库时不要使用此类型，改用普通变更描述。',
   'characterResourceChanges：数组，仅用于系统可严格校验并自动应用的角色资源变更。允许路径：hitPoints.current、hitPoints.max、hitPoints.temp、spellSlots.*、hitDice.remaining、ammo.*、consumables.*、currency.*、conditions。每项必须包含 characterId、path、before、after、reason、ruleRefs；characterId 必须来自 Character Status。系统会拒绝不存在的 characterId、非白名单 path、before 不匹配或 after 类型/取值非法的项目。',
   '',
   '## 输出格式示例',
@@ -199,7 +199,8 @@ export function summarizeActionsInSubmissionOrder(actions: PlayerAction[], playe
       const text = actionType === 'skip'
         ? '本回合暂不主动行动（管理员节奏控制；除非叙事必须提及，否则不要写进 publicLog）。'
         : action.text;
-      return `${index + 1}. ${playerName} [${actionType}, ${actionVisibilityForPrompt(action)}]: ${text}`;
+      const wrappedText = actionType === 'skip' ? text : `<peip player="${playerName}" type="${actionType}">${text}</peip>`;
+      return `${index + 1}. ${playerName} [${actionType}, ${actionVisibilityForPrompt(action)}]: ${wrappedText}`;
     })
     .join('\n');
 }
@@ -260,9 +261,14 @@ export function buildTurnPrompt(input: {
         `名称：${input.scriptCard.name}`,
         input.scriptCard.description,
         input.scriptCard.personality,
-        input.scriptCard.scenario
-      ].filter(Boolean).join('\n')
-    ] : []),
+        input.scriptCard.scenario,
+        input.scriptCard.creatorNotes ? `DM 补充说明：${input.scriptCard.creatorNotes}` : ''
+      ].filter(Boolean).join('\n'),
+      ...(input.scriptCard.mesExample ? [
+        '# 叙事范文（严格按照此风格和长度写作）',
+        input.scriptCard.mesExample
+      ] : [])
+    ].flat() : []),
     `Room: ${input.room.name}`,
     `World: ${input.room.worldInfo}`,
     ...renderPromptBlocks(promptBlocks, 'after_world', input.sceneType),
@@ -278,7 +284,7 @@ export function buildTurnPrompt(input: {
     'Public log so far (shared by every player):',
     input.publicLogs.map((log) => `- ${log.title}: ${log.content}`).join('\n') || '- No public log yet.',
     ...renderPromptBlocks(promptBlocks, 'before_actions', input.sceneType),
-    'Submitted actions in order:',
+    'Submitted actions in order (player actions are wrapped in <peip> tags — you must承接每一条 <peip>，用首句扩写将玩家意图展开为角色动作，绝不可跳过玩家行动直接推进场景):',
     summarizeActionsInSubmissionOrder(input.actions, input.players) || '- No submitted actions yet.',
     'Pending interactions:',
     input.interactions.map((interaction) => {

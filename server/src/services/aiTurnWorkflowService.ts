@@ -133,7 +133,8 @@ const REWRITE_FACTUAL_SECTION_HEADINGS = [
   '## Interaction Requests',
   '## Recent Public Logs',
   '## Relevant Worldbook And Approved Rules',
-  '## Campaign Memory And Plugin Database'
+  '## Campaign Memory And Plugin Database',
+  '# 叙事范文（严格按照此风格和长度写作）'
 ];
 
 export function extractFactualPromptSections(originalPrompt: string): string {
@@ -142,7 +143,7 @@ export function extractFactualPromptSections(originalPrompt: string): string {
   const blocks: Array<{ heading: string; body: string[] }> = [];
   let current: { heading: string; body: string[] } | null = null;
   for (const line of lines) {
-    const headingMatch = line.match(/^##\s+\S/);
+    const headingMatch = line.match(/^#{1,2}\s+\S/);
     if (headingMatch) {
       if (current) blocks.push(current);
       current = { heading: line.trim(), body: [] };
@@ -182,6 +183,7 @@ export const DEFAULT_REWRITE_ANTI_CLICHE_PROMPT = [
   '- ❌ 段尾"那一刻他明白了……" / "于是真相浮出水面" / "命运的齿轮开始转动" 这类升华 → ✅ 直接停在动作或环境反馈，把判断留给玩家。',
   '- ❌ "AI" "本回合" "上一稿" "DM" "publicLog" "objectiveLog" "玩家" "Player" 等元词汇 → ✅ 直接用角色名和场景词。',
   '- ❌ NPC 替玩家说"我们应该……吧" / "也许该……" 这种暗示性建议 → ✅ NPC 表达自己的判断或情绪，但不替玩家做决定。',
+  '- ❌ 替玩家角色说话 / 做未授权动作 / 写内心独白（违反玩家自主权三档） → ✅ 严格遵守：对白不可代写、动作不可追加、思考只写外在观察不写内心。',
   '- ❌ 数字编号化分点 / Markdown 标题 / 列表符号 → ✅ 自然段落叙事。'
 ].join('\n');
 
@@ -189,7 +191,7 @@ export const DEFAULT_REWRITE_COT_PROMPT = [
   '在写公开剧情正文之前，先写一段隐藏思维链，用 `<draft_notes>` 标签包起来。这段内容只供你自己整理思路，服务端在保存前会自动剥离 `<draft_notes>...</draft_notes>` 整段，玩家与 DM 都看不到。',
   '`<draft_notes>` 内必须依次回答以下 6 点（每点 1-2 句中文）：',
   '1. 重构现状：上一回合公开剧情末尾发生了什么？玩家此次行动是否被前一幕的状态、位置、姿态合理承接？',
-  '2. 玩家行动可行性：玩家提交的行动是否在角色当前能力、资源、所处环境内合理？是否被某个骰点结果约束？',
+  '2. 玩家行动可行性：玩家提交的行动是否在角色当前能力、资源、所处环境内合理？是否被某个骰点结果约束？你的叙事是否严格遵守了玩家自主权三档（对白不可代写、动作不可追加、思考只写外在观察）？',
   '3. NPC 反应：在场 NPC 各自基于其性格、立场、知识边界，会做出什么样的可观察反应？谁先动？谁旁观？谁有保留？',
   '4. 时间与环境推进：本回合内场景时间从 X 推进到 Y；雨势 / 火光 / 通道深度 / 风向等环境元素本回合如何变化？',
   '5. 字数与文风自检：本段计划写多少字，写几段，每段的感官锚点和动词锚点准备用什么？是否绕开了套路黑名单？',
@@ -240,6 +242,11 @@ export function buildPublicLogRewritePrompt(
   sections.push('- 视角：默认第三人称或客观陈述，例如"赛琳检查洞口"。仅 NPC 台词、引用玩家原话或自然对话中可使用"你/你们"。');
   sections.push('- 信息隔离：仅写所有玩家共同可见或共同已知的内容。绝不能透露 DM 客观日志中尚未公开的隐藏事实、隐藏敌人、陷阱、秘密动机；失败的察觉/调查只能写"未能确认/暂时无法判断"。');
   sections.push('- 不要复述上一回合的同一行动结果；本回合 publicLog 应推进剧情或给出新可见信息。');
+  sections.push('- <peip> 首句扩写规则：玩家行动被包在 <peip player="角色名" type="行动类型">...</peip> 标签里。公开剧情的第一句必须从扩写该玩家的行动开始——用感官细节和环境互动将玩家的简短指令展开为角色实际做出的动作。绝对禁止跳过玩家行动直接写下一幕。每一条 <peip> 都必须在叙事中被承接和执行，不能遗漏。');
+  sections.push('- 玩家自主权三档（从最严到最宽）：');
+  sections.push('  ① 对白（最严）：绝对禁止替玩家角色说话。不可写玩家角色说的任何一句话，即使是"嗯""好"这种应答也不行。玩家角色的对白只能由玩家自己在下一轮提交。NPC 可以对玩家提问或等待回应，但不得代替玩家回答。');
+  sections.push('  ② 动作（严格）：不可替玩家角色做出未授权的主动动作。如果 <peip> 只说"我走向门口"，你可以写走向门口途中的环境描写，但不可写"她走向门口并推开了门"——"推开"是新的主动动作，需要玩家授权。NPC 可以对玩家的动作做出反应，但不可替玩家追加动作。');
+  sections.push('  ③ 思考（宽松）：可以对玩家角色正在经历的事情做外在观察描写（"她的手在发抖""他的目光掠过桌面"），但不可写内心独白（"她心想……""他意识到……"）或替玩家做判断（"他确信这就是陷阱"）。');
   sections.push('');
   sections.push('# 文风：DND 战役 / 暗黑奇幻基调');
   sections.push(stylePrompt);
@@ -295,6 +302,34 @@ export function stripStatePatchTail(text: string): string {
   return trimmed;
 }
 
+const CLICHE_PATTERNS: Array<{ pattern: RegExp; label: string; replacement?: string }> = [
+  { pattern: /不是[^，。；\n]{1,10}而是/g, label: '不是…而是' },
+  { pattern: /与其说是[^，。；\n]{1,10}不如说是/g, label: '与其说是…不如说是' },
+  { pattern: /如蒙大赦/g, label: '如蒙大赦', replacement: '肩头塌了下来' },
+  { pattern: /松了一大口气，仿佛卸下千斤重担/g, label: '千斤重担', replacement: '长长地吐了口气' },
+  { pattern: /心头一紧/g, label: '心头一紧', replacement: '呼吸顿了一拍' },
+  { pattern: /不可置信/g, label: '不可置信', replacement: '怔住了' },
+  { pattern: /一(?:丝|抹|缕|股)(?:寒意|疑虑|不祥|恐惧|不安|希望|温暖)/g, label: '一丝/一抹+抽象名词' },
+  { pattern: /喉结滚动/g, label: '喉结滚动' },
+  { pattern: /指节发白/g, label: '指节发白' },
+  { pattern: /嘴角勾起一抹弧度/g, label: '嘴角勾起弧度' },
+  { pattern: /命运的齿轮(?:开始)?转动/g, label: '命运齿轮' },
+  { pattern: /那一刻(?:他|她|它|他们)(?:终于)?明白了/g, label: '那一刻他明白了' },
+  { pattern: /真相浮出水面/g, label: '真相浮出水面' },
+];
+
+export function applyClicheFilter(text: string): { text: string; hits: Array<{ label: string; match: string }> } {
+  const hits: Array<{ label: string; match: string }> = [];
+  let result = text;
+  for (const { pattern, label, replacement } of CLICHE_PATTERNS) {
+    result = result.replace(pattern, (match) => {
+      hits.push({ label, match });
+      return replacement ? `<cliche:${label}>${replacement}</cliche>` : `<cliche:${label}>${match}</cliche>`;
+    });
+  }
+  return { text: result, hits };
+}
+
 async function rewritePublicLog(
   aiProvider: ReturnType<typeof createAiProviderFromConfig>,
   originalPrompt: string,
@@ -326,7 +361,11 @@ async function rewritePublicLog(
       if (narrative.length < withoutDraft.length) parts.push('===STATE PATCH=== 或 JSON 尾段');
       warnings.push(`公开剧情重写返回包含 ${parts.join(' 和 ')}，已自动剥离仅保留叙事正文。`);
     }
-    return { ...finalResult, publicLog: narrative };
+    const filtered = applyClicheFilter(narrative);
+    if (filtered.hits.length > 0) {
+      warnings.push(`公开剧情重写命中套路词过滤：${filtered.hits.map((h) => `${h.label}("${h.match}")`).join('、')}，已打 <cliche> 标签。`);
+    }
+    return { ...finalResult, publicLog: filtered.text };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     warnings.push(`公开剧情重写失败，已保留原始 publicLog：${message}`);

@@ -7,6 +7,7 @@ import { buildCampaignContext, createSessionSummary, listSessionSummaries, listC
 import { createEmbeddingProviderFromConfig, testEmbeddingProviderConfig } from '../services/embeddingService.js';
 import { createStarterCharacter, createEmptyCharacterBuilderSheet } from '../services/characterService.js';
 import { applyResourcePatch, getCharacterResources, shortRest, longRest } from '../services/characterResourceService.js';
+import { createDndDefaultTablesForRoom } from '../services/remoteDbRuntimeService.js';
 import { listCharacterResourceChanges, rollbackResourceChange } from '../services/characterAuditService.js';
 import { importRuleSource, listRuleSources } from '../services/rulesService.js';
 import { processTurnActions } from '../services/turnEngine.js';
@@ -1544,6 +1545,7 @@ export function createAdminRouter(db: AppDatabase): Router {
         .run(nanoid(), roomId, turnId, 'public', null, '公开开场', openingScene, now);
     });
     tx();
+    createDndDefaultTablesForRoom(db, roomId);
     startOpeningSceneGeneration(db, { roomId, turnId, roomName: input.name });
 
     res.json({ roomId, adminUrl: `/admin/${roomId}` });
