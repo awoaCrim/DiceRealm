@@ -55,16 +55,18 @@ import {
   updateNpc,
   listLocations,
   updateLocation,
-  updateRoomExpectedPlayerCount
+  updateRoomExpectedPlayerCount,
+  invalidateAiTimeoutCache
 } from './api';
 import type { AiProviderConfig, EmbeddingProviderConfig, PromptPreviewResponse } from './types';
 
 function mockFetchJson(value: unknown) {
-  const fetchMock = vi.fn(async () => ({
-    ok: true,
-    json: async () => value,
-    text: async () => JSON.stringify(value)
-  }) as Response);
+  const fetchMock = vi.fn(async (url: string) => {
+    if (typeof url === 'string' && url.includes('/player/public/runtime')) {
+      return { ok: true, json: async () => ({ timeoutMs: 120000 }), text: async () => JSON.stringify({ timeoutMs: 120000 }) } as Response;
+    }
+    return { ok: true, json: async () => value, text: async () => JSON.stringify(value) } as Response;
+  });
   vi.stubGlobal('fetch', fetchMock);
   return fetchMock;
 }
@@ -72,6 +74,7 @@ function mockFetchJson(value: unknown) {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  invalidateAiTimeoutCache();
 });
 
 describe('resource API helpers', () => {
@@ -461,6 +464,11 @@ describe('resource API helpers', () => {
       } as Response)
       .mockResolvedValueOnce({
         ok: true,
+        json: async () => ({ timeoutMs: 120000 }),
+        text: async () => JSON.stringify({ timeoutMs: 120000 })
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
         json: async () => sendResponse,
         text: async () => JSON.stringify(sendResponse)
       } as Response)
@@ -477,7 +485,7 @@ describe('resource API helpers', () => {
     }));
 
     await expect(sendAiTurnPreview('room-1', 'preview-1', 'edited prompt')).resolves.toEqual(sendResponse);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/admin/ai/send-preview', expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/admin/ai/send-preview', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({ roomId: 'room-1', previewId: 'preview-1', flatPrompt: 'edited prompt' })
     }));
@@ -486,7 +494,7 @@ describe('resource API helpers', () => {
       confirmedSuggestedStateChangeIndexes: [0],
       confirmedCharacterResourceChangeIndexes: [1]
     })).resolves.toEqual(applyResponse);
-    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/admin/ai/apply-preview', expect.objectContaining({
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/admin/ai/apply-preview', expect.objectContaining({
       method: 'POST',
       body: JSON.stringify({
         roomId: 'room-1',

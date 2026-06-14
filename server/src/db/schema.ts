@@ -703,6 +703,21 @@ export function migrate(db: AppDatabase): void {
   addColumnIfMissing(db, 'turns', 'submitted_actor_ids_json', "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(db, 'turns', 'skipped_actor_ids_json', "TEXT NOT NULL DEFAULT '[]'");
   addColumnIfMissing(db, 'turns', 'excluded_actor_ids_json', "TEXT NOT NULL DEFAULT '[]'");
+
+  // --- DM Chat persistence ---
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dm_chat_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      room_id TEXT NOT NULL,
+      player_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('user', 'assistant')),
+      content TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  addColumnIfMissing(db, 'dm_chat_messages', 'room_id', "TEXT NOT NULL DEFAULT ''");
+  addColumnIfMissing(db, 'dm_chat_messages', 'player_id', "TEXT NOT NULL DEFAULT ''");
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_dm_chat_room_player ON dm_chat_messages(room_id, player_id, id)`);
 }
 
 function addColumnIfMissing(db: AppDatabase, table: string, column: string, colDef: string): void {

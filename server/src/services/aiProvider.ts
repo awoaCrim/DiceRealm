@@ -492,3 +492,70 @@ export async function testAiProviderConfig(config: AiProviderConfig): Promise<vo
     { role: 'user', content: 'Reply with ok.' }
   ]);
 }
+
+export interface ChatTool {
+  type: 'function';
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
+}
+
+export interface ChatToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+}
+
+export interface ChatCompletionResult {
+  content: string | null;
+  toolCalls: ChatToolCall[] | null;
+}
+
+export async function requestOpenAiCompatibleChatWithTools(
+  config: AiProviderConfig,
+  messages: Array<Record<string, unknown>>,
+  tools: ChatTool[] | undefined,
+  runtimeSettings?: RuntimeSettings
+): Promise<ChatCompletionResult> {
+  if (!config.apiKey) throw new Error('apiKey is required');
+
+  const settings = runtimeSettings ?? defaultRuntimeSettings;
+  const url = chatCompletionsUrl(config.baseUrl);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), settings.timeoutMs);
+
+  try {
+    const body: Record<string, unknown> = {
+      model: config.model,
+      messages,
+      temperature: settings.temperature,
+      stream: false
+    };
+    if (tools && tools.length > 0) body.tools = tools;
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${config.apiKey}` },
+      body: JSON.stringify(body),
+      signal: controller.signal
+    });
+
+    const responseText = await response.text();
+    if (!response.ok) {
+      throw new Error(`AI provider failed with ${response.status}: ${sanitizeProviderBody(responseText, config.apiKey)}`);
+    }
+
+    const data = parseOpenAiCompatibleResponseText(responseText);
+    if (!isPlainObject(data)) throw new Error('Invalid JSON response');
+    const msg = (data.choices as any[])?.[0]?.message;
+    if (!isPlainObject(msg)) throw new Error('No message in response');
+
+    const content = typeof msg.content === 'string' ? msg.content : null;
+    const toolCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0 ? msg.tool_calls as ChatToolCall[] : null;
+    return { content, toolCalls };
+  } finally {
+    clearTimeout(timer);
+  }
+}

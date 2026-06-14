@@ -12,7 +12,7 @@ import type {
   Room,
   ScriptCard
 } from '../domain/types.js';
-import { renderDndOutputContract, summarizeActionsInSubmissionOrder } from './aiContextBuilder.js';
+import { renderDndOutputContract, sanitizeContractContent, summarizeActionsInSubmissionOrder } from './aiContextBuilder.js';
 import { buildWorldBookScanText, matchResourceWorldBookEntries, renderResourceWorldBookMatches } from './worldBookService.js';
 
 interface SillyTavernPromptBuilderInput {
@@ -55,7 +55,7 @@ function normalizeRole(role: unknown): PromptRole {
 }
 
 function sanitizePromptContent(content: string): string {
-  return content
+  return sanitizeContractContent(content)
     .replace('需要真实随机数时使用 diceRequests', '需要随机结果时声明 diceRequests，由系统内部自动掷骰')
     .replace('AI 不直接掷骰，必须用 diceRequests 请求系统骰点。', '需要随机结果时用 diceRequests 让系统内部自动骰点，不要求玩家手动投掷。')
     .replace('AI 只输出 suggestedStateChanges，由管理员或系统应用。', 'AI 只输出 suggestedStateChanges 或可校验的 characterResourceChanges，由系统应用合法变更。');

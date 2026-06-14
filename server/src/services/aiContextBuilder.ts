@@ -129,6 +129,7 @@ function buildDndOutputContract(limits: NarrativeLengthLimits): string {
   '权限边界：objectiveLog 绝不能写给玩家；publicLog 也不能暗示 objectiveLog 中尚未被玩家发现的隐藏事实，除非当前行动、已公开线索或系统骰点结果支持。失败的察觉/调查等公开描述不得泄露隐藏敌人、陷阱、秘密动机、数量、位置或未来剧情；例如不要写“发现地精伏兵失败”，应写“观察林线是否有隐藏威胁失败”。',
   '失败检定表述：失败的调查、察觉、洞察、自然、生存、解除陷阱等检定只能说明角色“未能确认”“没有发现更多证据”“暂时无法判断”。不要写成“确认没有陷阱/确认安全/只是普通物品/不存在威胁”，除非该结论来自成功检定或无需骰点的公开事实。',
   'objectiveLog 是 DM 追踪客观事实、隐藏真相和裁定依据的日志，不写“AI-DM 需要在 publicLog 中...”这类元指令。',
+  'objectiveLog 内容增量原则：objectiveLog 不是 publicLog 的复制粘贴。publicLog 已有的可观察事实不要在 objectiveLog 重复整段；objectiveLog 只写 publicLog 没有写出的隐藏真相、骰点判定细节、NPC 真实意图、未被发现的陷阱/敌人、DM 需要追踪但玩家暂不知道的事实。如果本回合没有任何隐藏增量，objectiveLog 可以只写"无隐藏增量；公开剧情已覆盖本回合事实"一句，绝不能整段复制 publicLog。',
   '玩家自主权限制：不得把含糊或被动行动扩写成玩家未提交的姿态、武器架势、台词、情绪、内心想法或详细动作。“我是谁？”通常只产生私人身份说明；“静观其变”只表示原地等待/观察，不代表拔武器、靠墙、紧张或自语。',
   '玩家自主权：不得替任何玩家决定意图、台词、同意、反抗、情绪、选择或 PvP 回应。',
   '玩家互动确认：当一个玩家的行动会强制影响另一个玩家的选择、资源、身体或秘密时，必须创建 interactionRequests 等待目标玩家确认或回应；sourcePlayerId 和 targetPlayerId 必须使用 Character Status 中的真实 playerId，不能使用玩家名或角色名。',
@@ -148,6 +149,26 @@ function buildDndOutputContract(limits: NarrativeLengthLimits): string {
 
 export function renderDndOutputContract(limits: NarrativeLengthLimits = defaultNarrativeLengthLimits): string {
   return buildDndOutputContract(limits);
+}
+
+const CONTRACT_REPLACEMENT_FRAGMENT = '输出契约要求两段格式：先写公开剧情正文，再写 ===STATE PATCH=== 分隔符，最后写一个严格 JSON 对象（仅承载 objectiveLog 等结构化字段，不要包整段输出）';
+
+export function sanitizeContractContent(content: string): string {
+  if (!content) return content;
+  let next = content;
+  // 修复历史替换链产生的 “输出格式：先写公开剧情正文：先写公开剧情正文…” 重叠
+  next = next.replace(/输出格式：先写公开剧情正文：先写公开剧情正文/g, defaultAiConfig.outputFormatRules.replace(/。$/, ''));
+  // 整句旧 outputFormatRules（“输出格式：只返回严格 JSON，字段为…不要使用 Markdown 代码块。”）
+  next = next.replace(/输出格式：只返回严格\s*JSON[^。]*不要使用\s*Markdown\s*代码块。?/g, defaultAiConfig.outputFormatRules);
+  // 旧反套路块尾巴：“最终响应必须保持系统要求的严格 JSON 结构。”
+  next = next.replace(/最终响应必须保持系统要求的严格\s*JSON\s*结构。?/g, `${CONTRACT_REPLACEMENT_FRAGMENT}。`);
+  // 其余零散的“只返回严格 JSON / 必须返回严格 JSON / 严格 JSON 输出：xxx”片段
+  next = next.replace(/只返回严格\s*JSON\s*[，,]\s*字段为[^。]*。/g, `${CONTRACT_REPLACEMENT_FRAGMENT}。`);
+  next = next.replace(/只返回严格\s*JSON。?/g, `${CONTRACT_REPLACEMENT_FRAGMENT}。`);
+  next = next.replace(/只返回一个\s*JSON\s*对象[^。]*。/g, `${CONTRACT_REPLACEMENT_FRAGMENT}。`);
+  next = next.replace(/严格\s*JSON\s*输出：?[^。]*。/g, `${CONTRACT_REPLACEMENT_FRAGMENT}。`);
+  next = next.replace(/必须返回严格的\s*JSON[^。]*。/g, `${CONTRACT_REPLACEMENT_FRAGMENT}。`);
+  return next;
 }
 
 export function buildPublicContext(input: BuildPublicContextInput): PublicContext {
@@ -193,7 +214,7 @@ function renderPromptBlocks(blocks: PromptBlock[], position: PromptBlockPosition
   return blocks
     .filter((block) => block.enabled && block.position === position && sceneMatchesBlock(block.sceneType, sceneType))
     .sort((left, right) => left.orderIndex - right.orderIndex || left.name.localeCompare(right.name))
-    .map((block) => `# ${block.name}\n${block.content}`);
+    .map((block) => `# ${block.name}\n${sanitizeContractContent(block.content)}`);
 }
 
 export function renderRuleMatches(matches: RuleRetrievalMatch[]): string {
@@ -221,10 +242,15 @@ export function buildTurnPrompt(input: {
   campaignContext?: string;
   sceneType?: SceneType;
 }): string {
-  const finalContract = renderDndOutputContract(parseNarrativeLengthLimitsFromPromptBlocks(input.promptBlocks));
+  const overrideContractBlock = (input.promptBlocks ?? []).find(
+    (block) => block.enabled && block.position === 'output_contract'
+  );
+  const codeDefaultContract = renderDndOutputContract(parseNarrativeLengthLimitsFromPromptBlocks(input.promptBlocks));
+  const finalContract = overrideContractBlock?.content?.trim() || codeDefaultContract;
   const defaultContract = renderDndOutputContract();
   const promptBlocks = (input.promptBlocks ?? [])
-    .filter((block) => !(block.enabled && (block.content.trim() === finalContract || block.content.trim() === defaultContract)));
+    .filter((block) => block.position !== 'output_contract')
+    .filter((block) => !(block.enabled && (block.content.trim() === finalContract || block.content.trim() === codeDefaultContract || block.content.trim() === defaultContract)));
   const worldBookMatches = input.worldBookMatches ?? [];
   const sections = [
     ...renderPromptBlocks(promptBlocks, 'before_world', input.sceneType),

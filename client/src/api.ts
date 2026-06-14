@@ -56,10 +56,32 @@ import type {
 } from './types';
 
 const REQUEST_TIMEOUT_MS = 15000;
-const AI_TURN_SEND_TIMEOUT_MS = 120000;
+const DEFAULT_AI_TIMEOUT_MS = 120000;
 const CHARACTER_CONFIRM_TIMEOUT_MS = 120000;
 const ROOM_CREATE_TIMEOUT_MS = 120000;
 const DEV_BACKEND_PORT = '3000';
+
+let cachedAiTimeoutMs: number | null = null;
+
+async function getAiTimeoutMs(): Promise<number> {
+  if (cachedAiTimeoutMs !== null) return cachedAiTimeoutMs;
+  try {
+    const res = await fetch(eventSourceUrl('/api/player/public/runtime'));
+    if (res.ok) {
+      const data = await res.json();
+      cachedAiTimeoutMs = typeof data.timeoutMs === 'number' && data.timeoutMs > 0 ? data.timeoutMs : DEFAULT_AI_TIMEOUT_MS;
+    } else {
+      cachedAiTimeoutMs = DEFAULT_AI_TIMEOUT_MS;
+    }
+  } catch {
+    cachedAiTimeoutMs = DEFAULT_AI_TIMEOUT_MS;
+  }
+  return cachedAiTimeoutMs!;
+}
+
+export function invalidateAiTimeoutCache(): void {
+  cachedAiTimeoutMs = null;
+}
 
 function eventSourceUrl(path: string): string {
   if (typeof window === 'undefined') return path;
@@ -223,12 +245,13 @@ export function createAiTurnPreview(roomId: string) {
   });
 }
 
-export function sendAiTurnPreview(roomId: string, previewId: string, flatPrompt: string) {
+export async function sendAiTurnPreview(roomId: string, previewId: string, flatPrompt: string) {
+  const timeoutMs = await getAiTimeoutMs();
   return jsonRequest<AiTurnPromptSendResponse>('/api/admin/ai/send-preview', {
     method: 'POST',
     body: JSON.stringify({ roomId, previewId, flatPrompt })
   }, {
-    timeoutMs: AI_TURN_SEND_TIMEOUT_MS,
+    timeoutMs,
     timeoutLabel: 'AI 回合生成'
   });
 }
@@ -418,11 +441,12 @@ export function getPlayerState(token: string) {
   return jsonRequest<PlayerVisibleState>(`/api/player/${token}/state`);
 }
 
-export function generatePlayerTurnSuggestions(token: string) {
+export async function generatePlayerTurnSuggestions(token: string) {
+  const timeoutMs = await getAiTimeoutMs();
   return jsonRequest<{ suggestions: PlayerTurnSuggestion[]; status: PlayerTurnSuggestionStatus; error?: string }>(`/api/player/${token}/turn-suggestions`, {
     method: 'POST'
   }, {
-    timeoutMs: AI_TURN_SEND_TIMEOUT_MS,
+    timeoutMs,
     timeoutLabel: '玩家回合建议生成'
   });
 }
@@ -436,6 +460,15 @@ export function submitAction(token: string, text: string, actionType?: string, i
 
 export function respondToInteraction(token: string, interactionId: string, response: string) {
   return jsonRequest<{ ok: true }>(`/api/player/${token}/interactions/${interactionId}/respond`, { method: 'POST', body: JSON.stringify({ response }) });
+}
+
+export async function sendDmChatMessage(token: string, message: string, history: Array<{ role: 'user' | 'assistant'; content: string }>) {
+  const timeoutMs = await getAiTimeoutMs();
+  return jsonRequest<{ reply: string }>(`/api/player/${token}/dm-chat`, { method: 'POST', body: JSON.stringify({ message, history }) }, { timeoutMs, timeoutLabel: 'DM 助手' });
+}
+
+export function loadDmChatHistory(token: string) {
+  return jsonRequest<{ messages: Array<{ role: 'user' | 'assistant'; content: string; createdAt: string }> }>(`/api/player/${token}/dm-chat/history`);
 }
 
 export function getCharacterBuilderOptions(token: string) {

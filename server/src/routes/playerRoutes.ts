@@ -23,6 +23,8 @@ import {
   loadCachedCurrentPlayerTurnSuggestions,
   PlayerTurnSuggestionError
 } from '../services/playerTurnSuggestionService.js';
+import { requestOpenAiCompatibleChatWithTools, type ChatTool, type ChatToolCall } from '../services/aiProvider.js';
+import { getGlobalAiProviderConfig, getGlobalRuntimeSettings } from '../services/globalConfigService.js';
 
 const actionSchema = z.object({
   text: z.string().min(1),
@@ -77,6 +79,11 @@ function mapCharacterRow(row: any): { id: string; playerId: string; sheet: any; 
 
 export function createPlayerRouter(db: AppDatabase): Router {
   const router = Router();
+
+  router.get('/public/runtime', (_req, res) => {
+    const runtime = getGlobalRuntimeSettings(db);
+    res.json({ timeoutMs: runtime.timeoutMs });
+  });
 
   router.get('/:token/state', (req, res) => {
     const player = getPlayerByToken(db, req.params.token);
@@ -363,6 +370,309 @@ export function createPlayerRouter(db: AppDatabase): Router {
     tx();
     publishRoomUpdate(player.roomId);
     res.json({ ok: true });
+  });
+
+  router.get('/:token/dm-chat/history', (req, res) => {
+    const player = getPlayerByToken(db, req.params.token);
+    if (!player) return res.status(404).json({ error: 'Not found' });
+    const rows = db.prepare('SELECT role, content, created_at FROM dm_chat_messages WHERE room_id = ? AND player_id = ? ORDER BY id ASC')
+      .all(player.roomId, player.id) as Array<{ role: string; content: string; created_at: string }>;
+    res.json({ messages: rows.map(r => ({ role: r.role as 'user' | 'assistant', content: r.content, createdAt: r.created_at })) });
+  });
+
+  const dmChatSchema = z.object({
+    message: z.string().min(1).max(2000),
+    history: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string() })).max(20).optional()
+  });
+
+  const dmTools: ChatTool[] = [
+    {
+      type: 'function',
+      function: {
+        name: 'get_character',
+        description: '获取当前玩家的完整角色卡信息。返回角色名称、种族、职业、属性值、技能、装备、法术等所有字段。',
+        parameters: { type: 'object', properties: {}, required: [] }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'update_character',
+        description: '修改当前玩家的角色卡草稿。可以修改任意字段：name(名字)、species(种族)、subSpecies(亚种)、className(职业)、classDetail(职业细节)、background(背景)、abilityScores(属性值对象，键为str/dex/con/int/wis/cha)、skills(技能数组)、equipment(装备数组)、spells(法术数组)、concept(概念)、personality(人格)、ideal(理想)、bond(羁绊)、flaw(缺陷)。只需传要修改的字段，未传的字段保持不变。修改后角色变为未确认草稿状态。',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', description: '角色名称' },
+            species: { type: 'string', description: '种族，可选：人类、矮人、精灵、半身人、龙裔、侏儒、半精灵、半兽人、提夫林' },
+            subSpecies: { type: 'string', description: '亚种，如：标准人类、变体人类、丘陵矮人、山地矮人、高等精灵、木精灵、黑暗精灵等' },
+            className: { type: 'string', description: '职业，可选：野蛮人、吟游诗人、牧师、德鲁伊、战士、武僧、圣武士、游侠、游荡者、术士、邪术师、法师' },
+            classDetail: { type: 'string', description: '职业细节/子职' },
+            background: { type: 'string', description: '背景，如：侍僧、罪犯、民间英雄、贵族、贤者、士兵等' },
+            abilityScores: {
+              type: 'object',
+              description: '六项属性值，键为 str/dex/con/int/wis/cha，值为 1-30 整数',
+              properties: {
+                str: { type: 'number' }, dex: { type: 'number' }, con: { type: 'number' },
+                int: { type: 'number' }, wis: { type: 'number' }, cha: { type: 'number' }
+              }
+            },
+            skills: { type: 'array', items: { type: 'string' }, description: '熟练技能列表' },
+            equipment: { type: 'array', items: { type: 'string' }, description: '装备列表' },
+            spells: { type: 'array', items: { type: 'string' }, description: '法术列表' },
+            concept: { type: 'string', description: '角色概念' },
+            personality: { type: 'string', description: '人格特质' },
+            ideal: { type: 'string', description: '理想' },
+            bond: { type: 'string', description: '羁绊' },
+            flaw: { type: 'string', description: '缺陷' }
+          },
+          required: []
+        }
+      }
+    },
+    {
+      type: 'function',
+      function: {
+        name: 'list_builder_options',
+        description: '列出所有可用的建卡选项，包括种族、亚种、职业、背景、技能、装备、法术、语言、熟练项。用于向玩家推荐选择。',
+        parameters: {
+          type: 'object',
+          properties: {
+            optionType: { type: 'string', enum: ['species', 'subspecies', 'class', 'background', 'skill', 'equipment', 'spell', 'language', 'proficiency'], description: '要查看的选项类型，不传则返回所有类型的名称概览' }
+          }
+        }
+      }
+    }
+  ];
+
+  function buildRulesReference(): string {
+    try {
+      const options = listCharacterBuilderOptions(db);
+      const parts: string[] = ['=== 可用建卡选项 ==='];
+
+      const speciesNames = options.species.map(o => o.name);
+      parts.push(`种族：${speciesNames.join('、')}`);
+      for (const s of options.species) parts.push(`  ${s.name}：${s.summary}`);
+
+      const subNames = options.subSpecies.map(o => o.name);
+      parts.push(`\n亚种：${subNames.join('、')}`);
+      for (const s of options.subSpecies) {
+        const prereq = (s.prerequisites as Record<string, unknown> | undefined)?.species as string[] | undefined;
+        parts.push(`  ${s.name}（需${prereq?.join('/') ?? '无'}）：${s.summary}`);
+      }
+
+      parts.push(`\n职业：`);
+      for (const c of options.classes) parts.push(`  ${c.name}：${c.summary}`);
+
+      parts.push(`\n背景：${options.backgrounds.map(o => o.name).join('、')}`);
+      for (const b of options.backgrounds) parts.push(`  ${b.name}：${b.summary}`);
+
+      parts.push(`\n技能：${options.skills.map(o => o.name).join('、')}`);
+      parts.push(`\n装备：${options.equipment.map(o => o.name).join('、')}`);
+      for (const e of options.equipment) parts.push(`  ${e.name}：${e.summary}`);
+      parts.push(`\n法术：${options.spells.map(o => o.name).join('、')}`);
+      for (const sp of options.spells) parts.push(`  ${sp.name}：${sp.summary}`);
+      parts.push(`\n语言：${options.languages.map(o => o.name).join('、')}`);
+      parts.push(`\n熟练项：${options.proficiencies.map(o => o.name).join('、')}`);
+
+      return parts.join('\n');
+    } catch {
+      return '（规则数据加载失败）';
+    }
+  }
+
+  const rulesReference = buildRulesReference();
+
+  router.post('/:token/dm-chat', async (req, res) => {
+    const parsed = dmChatSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: 'Invalid request' });
+
+    const player = getPlayerByToken(db, req.params.token);
+    if (!player) return res.status(404).json({ error: 'Not found' });
+
+    const config = getGlobalAiProviderConfig(db);
+    if (config.provider === 'mock') return res.json({ reply: '（DM 助手暂不可用）' });
+
+    const systemPrompt = [
+      '你是 D&D 5e 中文跑团的 DM 助手。你可以直接操作玩家的角色卡来帮助他们创建和调整角色。',
+      '',
+      '你的能力：',
+      '- 使用 get_character 查看玩家当前完整角色信息',
+      '- 使用 update_character 直接修改角色卡的任意字段（种族、职业、属性、技能、装备、法术等）',
+      '- 使用 list_builder_options 查看所有可用的建卡选项及其规则说明',
+      '- 解答 D&D 5e 规则问题——战斗流程、法术机制、技能检定、状态效果等',
+      '- 提供角色扮演建议',
+      '',
+      '工作方式：',
+      '- 玩家描述角色概念时，先用 update_character 设置基础信息，再逐步完善',
+      '- 修改前先确认玩家意图；如果玩家说"帮我建一个战士"，直接设置并告知结果',
+      '- 每次修改后用中文告诉玩家你改了什么、为什么这么改',
+      '- 推荐选择时参考规则书中的选项描述和前置条件',
+      '- 不要泄露 DM 的秘密或未公开的剧情信息',
+      '- 用 Markdown 格式回复，简洁实用',
+      '',
+      '重要限制：',
+      '- 角色确认后（游戏已开始），update_character 将被禁止，你只能读取角色信息、解答规则问题',
+      '- 如果玩家在游戏开始后要求修改角色，告诉他们需要联系 DM 在管理端操作',
+      '',
+      '---',
+      '规则参考：',
+      rulesReference
+    ].join('\n');
+
+    const messages: Array<Record<string, unknown>> = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: `我的玩家名是：${player.name}` }
+    ];
+
+    if (parsed.data.history) {
+      for (const msg of parsed.data.history) {
+        messages.push({ role: msg.role, content: msg.content });
+      }
+    }
+
+    messages.push({ role: 'user', content: parsed.data.message });
+
+    // 保存用户消息
+    db.prepare('INSERT INTO dm_chat_messages (room_id, player_id, role, content) VALUES (?, ?, ?, ?)')
+      .run(player.roomId, player.id, 'user', parsed.data.message);
+
+    function executeTool(call: ChatToolCall): string {
+      const args = (() => { try { return JSON.parse(call.function.arguments); } catch { return {}; } })();
+
+      if (call.function.name === 'get_character') {
+        const characterRow = getCharacterByPlayerId(db, player.id);
+        if (!characterRow) return JSON.stringify({ error: '角色不存在，请先用 update_character 创建' });
+        const character = mapCharacterRow(characterRow);
+        if (character.sheet.builderDraft) {
+          return JSON.stringify({ status: character.confirmed ? '已确认' : '草稿', sheet: character.sheet, builderDraft: character.sheet.builderDraft }, null, 2);
+        }
+        return JSON.stringify({ status: character.confirmed ? '已确认' : '草稿', sheet: character.sheet }, null, 2);
+      }
+
+      if (call.function.name === 'update_character') {
+        const characterRow = getCharacterByPlayerId(db, player.id);
+        if (!characterRow) return JSON.stringify({ error: '角色行不存在' });
+        if (characterRow.confirmed) return JSON.stringify({ error: '角色已确认，游戏已开始。DM 助手不再允许修改角色卡。如需修改请联系 DM 在管理端操作。' });
+        const currentSheet = JSON.parse(characterRow.sheetJson);
+        const currentDraft = currentSheet.builderDraft ?? {
+          name: currentSheet.name ?? '', concept: '', species: currentSheet.species ?? '',
+          subSpecies: currentSheet.subSpecies ?? '', className: currentSheet.className ?? '',
+          classDetail: currentSheet.classDetail ?? '', background: currentSheet.background ?? '',
+          abilityScores: currentSheet.abilityScores ?? { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 },
+          skills: currentSheet.skills ?? [], equipment: currentSheet.equipment ?? [],
+          spells: currentSheet.spells ?? [], languages: currentSheet.languages ?? [],
+          proficiencies: currentSheet.proficiencies ?? [],
+          personality: currentSheet.personality ?? '', ideal: currentSheet.ideal ?? '',
+          bond: currentSheet.bond ?? '', flaw: currentSheet.flaw ?? '', notes: currentSheet.privateNotes ?? ''
+        };
+
+        const merged = { ...currentDraft };
+        for (const [key, value] of Object.entries(args)) {
+          if (value !== undefined && value !== null) (merged as any)[key] = value;
+        }
+        if (args.abilityScores) {
+          merged.abilityScores = { ...currentDraft.abilityScores, ...args.abilityScores };
+        }
+
+        const normalized = normalizeCharacterBuilderDraft(merged);
+        const updatedSheet = {
+          ...currentSheet,
+          name: normalized.name || currentSheet.name,
+          species: normalized.species || currentSheet.species,
+          subSpecies: normalized.subSpecies,
+          className: normalized.className || currentSheet.className,
+          classDetail: normalized.classDetail,
+          background: normalized.background,
+          abilityScores: normalized.abilityScores,
+          skills: normalized.skills,
+          equipment: normalized.equipment,
+          spells: normalized.spells,
+          concept: normalized.concept,
+          personality: normalized.personality,
+          ideal: normalized.ideal,
+          bond: normalized.bond,
+          flaw: normalized.flaw,
+          privateNotes: normalized.notes,
+          builderDraft: normalized,
+        };
+
+        const now = new Date().toISOString();
+        db.prepare('UPDATE characters SET sheet_json = ?, draft_source = ?, confirmed = ?, updated_at = ? WHERE player_id = ?')
+          .run(JSON.stringify(updatedSheet), 'manual', 0, now, player.id);
+        publishRoomUpdate(player.roomId);
+
+        const changedFields = Object.keys(args);
+        return JSON.stringify({ success: true, changedFields, message: `已更新角色卡字段：${changedFields.join('、')}。角色现为草稿状态，玩家确认后生效。` });
+      }
+
+      if (call.function.name === 'list_builder_options') {
+        const optionType = args.optionType as string | undefined;
+        try {
+          const options = listCharacterBuilderOptions(db);
+          if (optionType) {
+            const keyMap: Record<string, string> = { species: 'species', subspecies: 'subSpecies', class: 'classes', background: 'backgrounds', skill: 'skills', equipment: 'equipment', spell: 'spells', language: 'languages', proficiency: 'proficiencies' };
+            const key = keyMap[optionType] as keyof typeof options;
+            const list = options[key] ?? [];
+            return JSON.stringify(list.map(o => ({ name: o.name, summary: o.summary, prerequisites: o.prerequisites })), null, 2);
+          }
+          return JSON.stringify({
+            species: options.species.map(o => o.name),
+            subSpecies: options.subSpecies.map(o => o.name),
+            classes: options.classes.map(o => o.name),
+            backgrounds: options.backgrounds.map(o => o.name),
+            skills: options.skills.map(o => o.name),
+            equipment: options.equipment.map(o => o.name),
+            spells: options.spells.map(o => o.name),
+            languages: options.languages.map(o => o.name),
+            proficiencies: options.proficiencies.map(o => o.name),
+          }, null, 2);
+        } catch {
+          return JSON.stringify({ error: '加载选项失败' });
+        }
+      }
+
+      return JSON.stringify({ error: `未知工具：${call.function.name}` });
+    }
+
+    try {
+      const runtime = getGlobalRuntimeSettings(db);
+      const characterRow = getCharacterByPlayerId(db, player.id);
+      const isConfirmed = characterRow ? Boolean(characterRow.confirmed) : false;
+      const activeTools = isConfirmed ? dmTools.filter(t => t.function.name !== 'update_character') : dmTools;
+      let finalReply = '';
+
+      for (let round = 0; round < 8; round++) {
+        const result = await requestOpenAiCompatibleChatWithTools(config, messages, activeTools, runtime);
+
+        if (result.toolCalls && result.toolCalls.length > 0) {
+          if (result.content) {
+            messages.push({ role: 'assistant', content: result.content, tool_calls: result.toolCalls });
+          } else {
+            messages.push({ role: 'assistant', content: null, tool_calls: result.toolCalls });
+          }
+
+          for (const call of result.toolCalls) {
+            const toolResult = executeTool(call);
+            messages.push({ role: 'tool', tool_call_id: call.id, content: toolResult });
+          }
+          continue;
+        }
+
+        finalReply = result.content?.trim() ?? '';
+        break;
+      }
+
+      if (!finalReply) finalReply = '（DM 助手未能生成回复）';
+
+      // 保存助手回复
+      db.prepare('INSERT INTO dm_chat_messages (room_id, player_id, role, content) VALUES (?, ?, ?, ?)')
+        .run(player.roomId, player.id, 'assistant', finalReply);
+
+      res.json({ reply: finalReply });
+    } catch (err: any) {
+      console.error('DM chat error:', err.message);
+      res.status(502).json({ error: 'AI request failed', detail: err.message?.slice(0, 200) });
+    }
   });
 
   return router;

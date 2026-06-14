@@ -852,7 +852,13 @@ const DEFAULT_AI_OPENING_SCENE_PROMPT = [
   '- 绝对不要在开场抛任务钩子、行动菜单、剧情勾子或"队伍可以选择"之类的引导。主线任务是世界客观存在的事实，但不要主动告诉玩家。',
   '- 让玩家自己决定何时与谁接触、往哪里走。玩家主动靠近任务源时，后续回合自然会展开剧情。',
   '- 不要替玩家决定未来行动、台词、情绪或资源变化；不要写骰点和规则结算。',
-  '- 文风适合中文跑团记录：具体、可承接、信息密度高，不要像简介或摘要。'
+  '- 文风适合中文跑团记录：具体、可承接、信息密度高，不要像简介或摘要。',
+  '',
+  '极其重要的禁止项：',
+  '- 禁止写任何事件痕迹：不要写尸体、倒毙的动物、战斗痕迹、血迹、拖拽痕迹、翻找痕迹、散落的武器或物品。',
+  '- 禁止写任何暗示危险或异常的细节：不要写"安静得不自然"、"林线中隐藏着什么"、"可疑的窸窣声"等。',
+  '- 开场是一个和平的日常场景，玩家刚到达某个地点，一切看起来正常。事件和危险由后续回合展开。',
+  '- 素材中关于剧情事件、敌人、战斗、伏击的描述是 DM 的秘密，不是开场内容。只从中提取地理、气候、地名、城镇布局等客观环境信息。'
 ].join('\n');
 
 const MIN_STANDALONE_OPENING_SCENE_LENGTH = 420;
@@ -891,13 +897,11 @@ function globalOpeningScene(db: AppDatabase): string {
   const scriptCard = getActiveGlobalScriptCard(db);
   if (!scriptCard) return fallback;
 
-  const firstMes = cleanOpeningScenePart(scriptCard.firstMes);
-  if (firstMes.length >= MIN_STANDALONE_OPENING_SCENE_LENGTH) return firstMes;
-
+  // 开场素材取 scenario + description，但不取 first_mes（主线触发场景）
+  // scenario 包含地理/环境信息，AI 需要这些来写场景；prompt 会约束只提取环境部分
   const parts: string[] = [];
   appendOpeningScenePart(parts, scriptCard.scenario);
   appendOpeningScenePart(parts, scriptCard.description);
-  appendOpeningScenePart(parts, firstMes);
   const combined = parts.join('\n\n').trim();
   return combined || fallback;
 }

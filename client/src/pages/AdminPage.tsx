@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { activatePreset, addPlayer, adminSkipPlayerTurn, applyAiTurnPreview, applyPresetTemplate, checkDbSourceUpdates, createAiTurnPreview, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, getRuntimeSettings, listCharacterResourceChanges, listDbSourceSheets, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listRoomDbRows, listRoomDbSheets, listRoomDbSourceBindings, listSessionSummaries, previewAiPrompt, putRoomDbRow, putRoomDbSourceBindings, reindexRuleEmbeddings, rollbackCharacterResourceChange, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, sendAiTurnPreview, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updatePresetNumericConfig, updateQuest, updateRoomExpectedPlayerCount, updateRuntimeSettings } from '../api';
+import { activatePreset, addPlayer, adminSkipPlayerTurn, applyAiTurnPreview, applyPresetTemplate, checkDbSourceUpdates, createAiTurnPreview, createWorldBook, createWorldBookEntry, deleteDbSource, getActivePresetType, getAdminState, getGlobalAiProviderConfig, getGlobalEmbeddingProviderConfig, getRuntimeSettings, invalidateAiTimeoutCache, listCharacterResourceChanges, listDbSourceSheets, listDbSources, listLocations, listNpcs, listPresetTemplates, listQuests, listRoomDbRows, listRoomDbSheets, listRoomDbSourceBindings, listSessionSummaries, previewAiPrompt, putRoomDbRow, putRoomDbSourceBindings, reindexRuleEmbeddings, rollbackCharacterResourceChange, saveGlobalAiProviderConfig, saveGlobalEmbeddingProviderConfig, savePreset, sendAiTurnPreview, subscribeRoom, testGlobalAiProviderConfig, testGlobalEmbeddingProviderConfig, triggerSessionSummary, updateDbSource, updateLocation, updateNpc, updatePresetNumericConfig, updateQuest, updateRoomExpectedPlayerCount, updateRuntimeSettings } from '../api';
 import { LogList } from '../components/LogList';
 import { CharacterCard } from '../components/CharacterCard';
 import { PromptPreviewPanel } from '../components/PromptPreviewPanel';
@@ -12,6 +12,7 @@ import { actionStatusLabel, actionTypeLabel, actionVisibilityLabel, aiResultHasI
 
 type AdminTab = 'overview' | 'play' | 'campaignDatabase' | 'aiHost' | 'players' | 'settings';
 type AdminLogTab = 'objective' | 'public' | `player:${string}`;
+type AiHostSubTab = 'style' | 'currentPreset' | 'debug';
 type CampaignDatabaseCategory = 'all' | 'world' | 'npc' | 'location' | 'quest' | 'clue' | 'item' | 'summary' | 'source';
 
 interface CampaignDatabaseRecord {
@@ -41,6 +42,7 @@ const adminTabs: Array<{ id: AdminTab; label: string }> = [
 export function AdminPage({ roomId }: { roomId: string }) {
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [activeLogTab, setActiveLogTab] = useState<AdminLogTab>('objective');
+  const [aiHostSubTab, setAiHostSubTab] = useState<AiHostSubTab>('style');
   const [campaignDbCategory, setCampaignDbCategory] = useState<CampaignDatabaseCategory>('all');
   const [campaignDbSearch, setCampaignDbSearch] = useState('');
   const [selectedCampaignDbRecordId, setSelectedCampaignDbRecordId] = useState('');
@@ -678,6 +680,7 @@ export function AdminPage({ roomId }: { roomId: string }) {
     try {
       const updated = await updateRuntimeSettings(runtimeSettingsDraft);
       setRuntimeSettingsDraft(updated);
+      invalidateAiTimeoutCache();
       setRuntimeSettingsMessage('运行参数已保存，下一次 AI 请求开始生效。');
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -2126,231 +2129,246 @@ export function AdminPage({ roomId }: { roomId: string }) {
 
       <section className="card" role="tabpanel" hidden={activeTab !== 'aiHost'}>
         <h2>AI 主持</h2>
-        <p className="muted">这里控制 AI 怎么主持：剧情长度、人称、输出边界和当前启用的主持预设。世界资料请放到战役数据库。</p>
-        <div className="button-row">
-          <button onClick={loadPromptPreview}>预览 AI 请求</button>
-        </div>
-        <PromptPreviewPanel preview={promptPreview} />
-
-        <div className="subcard" style={{ marginTop: '16px' }}>
-          <h3>运行参数</h3>
-          <p className="muted">AI 请求超时、重试次数、采样温度。修改后下一次 AI 请求开始生效。</p>
-          <div className="form-grid">
-            <label>请求超时（毫秒）
-              <input type="number" min={10000} step={10000} value={runtimeSettingsDraft.timeoutMs} onChange={(event) => setRuntimeSettingsDraft({ ...runtimeSettingsDraft, timeoutMs: Number(event.target.value) })} />
-            </label>
-            <label>重试次数
-              <input type="number" min={1} max={10} value={runtimeSettingsDraft.maxAttempts} onChange={(event) => setRuntimeSettingsDraft({ ...runtimeSettingsDraft, maxAttempts: Number(event.target.value) })} />
-            </label>
-            <label>采样温度
-              <input type="number" min={0} max={2} step={0.1} value={runtimeSettingsDraft.temperature} onChange={(event) => setRuntimeSettingsDraft({ ...runtimeSettingsDraft, temperature: Number(event.target.value) })} />
-            </label>
-          </div>
-          <div className="button-row">
-            <button onClick={saveRuntimeSettings} disabled={runtimeSettingsSaving}>
-              {runtimeSettingsSaving ? '保存中...' : '保存运行参数'}
-            </button>
-          </div>
-          {runtimeSettingsMessage ? <p className="form-success">{runtimeSettingsMessage}</p> : null}
+        <div className="sub-tab-bar">
+          <button className={`sub-tab-btn${aiHostSubTab === 'style' ? ' active' : ''}`} onClick={() => setAiHostSubTab('style')}>主持风格</button>
+          <button className={`sub-tab-btn${aiHostSubTab === 'currentPreset' ? ' active' : ''}`} onClick={() => setAiHostSubTab('currentPreset')}>当前预设</button>
+          <button className={`sub-tab-btn${aiHostSubTab === 'debug' ? ' active' : ''}`} onClick={() => setAiHostSubTab('debug')}>调试</button>
         </div>
 
-        <div className="subcard" style={{ marginTop: '16px' }}>
-          <h3>AI 输出剧情长度</h3>
-          <p className="muted">这里控制 AI 返回的客观剧情、公开剧情、私人剧情硬上限。保存后会写入当前启用预设，并注入最终 AI prompt。</p>
-          <div className="form-grid">
-            <label>客观剧情最多字数
-              <input type="number" min={0} value={narrativeLengthDraft.objectiveMax} onChange={(event) => updateNarrativeLengthDraft('objectiveMax', event.target.value)} />
-            </label>
-            <label>公开剧情最多字数
-              <input type="number" min={0} value={narrativeLengthDraft.publicMax} onChange={(event) => updateNarrativeLengthDraft('publicMax', event.target.value)} />
-            </label>
-            <label>私人剧情最多字数/玩家
-              <input type="number" min={0} value={narrativeLengthDraft.privateMax} onChange={(event) => updateNarrativeLengthDraft('privateMax', event.target.value)} />
-            </label>
-          </div>
-          <div className="button-row">
-            <button onClick={saveNarrativeLengthLimits} disabled={narrativeLengthSaving}>
-              {narrativeLengthSaving ? '保存中...' : '保存剧情长度硬上限'}
-            </button>
-          </div>
-          {narrativeLengthMessage ? <p className="form-success">{narrativeLengthMessage}</p> : null}
-        </div>
+        {aiHostSubTab === 'style' ? (
+          <>
+            <div className="subcard" style={{ marginTop: '16px' }}>
+              <h3>运行参数</h3>
+              <p className="muted">AI 请求超时、重试次数、采样温度。修改后下一次 AI 请求开始生效。</p>
+              <div className="form-grid">
+                <label>请求超时（毫秒）
+                  <input type="number" min={10000} step={10000} value={runtimeSettingsDraft.timeoutMs} onChange={(event) => setRuntimeSettingsDraft({ ...runtimeSettingsDraft, timeoutMs: Number(event.target.value) })} />
+                </label>
+                <label>重试次数
+                  <input type="number" min={1} max={10} value={runtimeSettingsDraft.maxAttempts} onChange={(event) => setRuntimeSettingsDraft({ ...runtimeSettingsDraft, maxAttempts: Number(event.target.value) })} />
+                </label>
+                <label>采样温度
+                  <input type="number" min={0} max={2} step={0.1} value={runtimeSettingsDraft.temperature} onChange={(event) => setRuntimeSettingsDraft({ ...runtimeSettingsDraft, temperature: Number(event.target.value) })} />
+                </label>
+              </div>
+              <div className="button-row">
+                <button onClick={saveRuntimeSettings} disabled={runtimeSettingsSaving}>
+                  {runtimeSettingsSaving ? '保存中...' : '保存运行参数'}
+                </button>
+              </div>
+              {runtimeSettingsMessage ? <p className="form-success">{runtimeSettingsMessage}</p> : null}
+            </div>
 
-        <div className="subcard" style={{ marginTop: '16px' }}>
-          <h3>当前生效主持预设</h3>
-          {activePresetPackage ? (
-            <>
-              <p><strong>{activePresetPackage.name}</strong></p>
-              <p className="muted">启用块：{enabledPresetPackageBlocks.length} · 禁用块：{disabledPresetPackageBlocks.length}</p>
-              <details open>
-                <summary>启用并进入最终 prompt 的块</summary>
-                {enabledPresetPackageBlocks.length ? enabledPresetPackageBlocks.map((block, index) => (
-                  <div className="subcard" key={`${block.identifier}-enabled-${index}`}>
-                    <strong>{block.name}</strong>
-                    <p className="muted">{promptRoleLabel(block.role)} · ID: {block.identifier}</p>
-                    <pre>{promptPackageBlockContent(block)}</pre>
-                  </div>
-                )) : <p className="muted">没有启用块。</p>}
-              </details>
-              <details>
-                <summary>已导入但禁用的原始块</summary>
-                {disabledPresetPackageBlocks.length ? disabledPresetPackageBlocks.map((block, index) => (
-                  <div className="subcard" key={`${block.identifier}-disabled-${index}`}>
-                    <strong>{block.name}</strong>
-                    <p className="muted">{promptRoleLabel(block.role)} · ID: {block.identifier}</p>
-                    <pre>{promptPackageBlockContent(block)}</pre>
-                  </div>
-                )) : <p className="muted">没有禁用块。</p>}
-              </details>
-            </>
-          ) : (
-            <p className="muted">当前没有绑定资源预设包，最终请求会回退到旧原生预设。</p>
-          )}
-        </div>
+            <div className="subcard" style={{ marginTop: '16px' }}>
+              <h3>AI 输出剧情长度</h3>
+              <p className="muted">这里控制 AI 返回的客观剧情、公开剧情、私人剧情硬上限。保存后会写入当前启用预设，并注入最终 AI prompt。</p>
+              <div className="form-grid">
+                <label>客观剧情最多字数
+                  <input type="number" min={0} value={narrativeLengthDraft.objectiveMax} onChange={(event) => updateNarrativeLengthDraft('objectiveMax', event.target.value)} />
+                </label>
+                <label>公开剧情最多字数
+                  <input type="number" min={0} value={narrativeLengthDraft.publicMax} onChange={(event) => updateNarrativeLengthDraft('publicMax', event.target.value)} />
+                </label>
+                <label>私人剧情最多字数/玩家
+                  <input type="number" min={0} value={narrativeLengthDraft.privateMax} onChange={(event) => updateNarrativeLengthDraft('privateMax', event.target.value)} />
+                </label>
+              </div>
+              <div className="button-row">
+                <button onClick={saveNarrativeLengthLimits} disabled={narrativeLengthSaving}>
+                  {narrativeLengthSaving ? '保存中...' : '保存剧情长度硬上限'}
+                </button>
+              </div>
+              {narrativeLengthMessage ? <p className="form-success">{narrativeLengthMessage}</p> : null}
+            </div>
 
-        <div className="subcard" style={{ marginTop: '16px' }}>
-          <h3>高级：旧原生 Prompt 模板</h3>
-          <p className="muted">这部分是旧 prompt 系统。存在资源预设包时，它不是最终 AI 请求的主要来源。</p>
-          {activePresetType ? (
-            <p>当前激活模板类型：<strong>{presetTypeLabel(activePresetType)}</strong></p>
-          ) : (
-            <p className="muted">未使用预设模板（使用默认预设）。</p>
-          )}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px', marginTop: '12px' }}>
-            {presetTemplates.length === 0 ? (
-              <p className="muted">点击"加载模板"按钮查看可用预设模板。</p>
-            ) : (
-              presetTemplates.map((template) => (
-                <div
-                  className={`subcard${activePresetType === template.type ? '' : ''}`}
-                  key={template.type}
-                  style={activePresetType === template.type ? { border: '2px solid #ffd700' } : undefined}
-                >
-                  <h4>{template.name}{activePresetType === template.type ? ' (当前激活)' : ''}</h4>
-                  <p className="muted">{template.description}</p>
-                  <p>模块数量：{template.blockCount}</p>
-                  <div className="button-row">
-                    <button
-                      onClick={() => applyTemplate(template.type)}
-                      disabled={templateApplying === template.type}
-                    >
-                      {templateApplying === template.type ? '应用中...' : '应用此模板'}
-                    </button>
-                  </div>
+            {state.presets.map((preset) => (
+              <div className="subcard" key={preset.id}>
+                <h3>{preset.name}{preset.isActive ? '（当前启用）' : ''}</h3>
+                <p className="muted">{preset.description || '暂无描述。'}</p>
+                <p>提示词块：{preset.blocks.length}{preset.presetType ? ` · 类型：${presetTypeLabel(preset.presetType)}` : ''}{preset.isTemplate ? '（模板）' : ''}</p>
+                <div className="button-row">
+                  <button onClick={() => startEditingPreset(preset)}>编辑预设</button>
+                  {!preset.isActive ? <button onClick={() => usePreset(preset.id)}>启用预设</button> : null}
                 </div>
-              ))
+              </div>
+            ))}
+            {!presetDraft && activePreset() ? (
+              <div className="button-row">
+                <button onClick={() => startEditingPreset(activePreset()!)}>编辑当前预设</button>
+              </div>
+            ) : null}
+            {presetDraft ? (
+              <div className="preset-editor">
+                <label>预设名称<input value={presetDraft.name} onChange={(event) => setPresetDraft({ ...presetDraft, name: event.target.value })} /></label>
+                <label>预设描述<textarea value={presetDraft.description} onChange={(event) => setPresetDraft({ ...presetDraft, description: event.target.value })} /></label>
+                <label className="check-row"><input type="checkbox" checked={presetDraft.isActive} onChange={(event) => setPresetDraft({ ...presetDraft, isActive: event.target.checked })} /> 设为启用预设</label>
+                {(() => {
+                  const blocksWithIndex = presetDraft.blocks.map((block, index) => ({ block, index }));
+                  const groups: Array<{ key: string; label: string; positions: PromptBlock['position'][] }> = [
+                    { key: 'main', label: '主流程（世界、行动、最终）', positions: ['before_world', 'after_world', 'before_actions', 'after_actions', 'final'] },
+                    { key: 'rewrite', label: '输出与重写（公开剧情重写器）', positions: ['output_contract', 'rewrite_task', 'rewrite_style', 'rewrite_anti_cliche', 'rewrite_cot', 'post_resolution_prompt'] },
+                    { key: 'opening', label: '开局（房间创建时使用）', positions: ['opening_prompt', 'opening_fallback'] }
+                  ];
+                  const knownPositions = new Set(groups.flatMap((g) => g.positions));
+                  const otherBlocks = blocksWithIndex.filter(({ block }) => !knownPositions.has(block.position));
+                  const renderBlock = (block: PromptBlock, index: number) => {
+                    const blockKey = presetBlockKey(block, index);
+                    const expanded = expandedPresetBlockKey === blockKey;
+                    return (
+                      <div className="subcard collapsible-card" key={blockKey}>
+                        <button className="collapsible-header" type="button" onClick={() => togglePresetBlock(block, index)}>
+                          <span>{expanded ? '收起' : '展开'} · {block.name || '未命名提示词块'}</span>
+                          <span className="meta-row">
+                            {promptBlockPositionLabel(block.position)} · {promptRoleLabel(block.role)} · {block.enabled ? '启用' : '停用'} · 排序 {block.orderIndex}
+                            {block.category ? ` · ${moduleCategoryLabel(block.category)}` : ''}
+                            {block.sceneType ? ` · 场景：${sceneTypeLabel(block.sceneType)}` : ''}
+                          </span>
+                        </button>
+                        {expanded ? (
+                          <div className="collapsible-body">
+                            <label>块名称<input value={block.name} onChange={(event) => updatePresetBlock(index, { name: event.target.value })} /></label>
+                            <label>注入位置
+                              <select value={block.position} onChange={(event) => updatePresetBlock(index, { position: event.target.value as PromptBlock['position'] })}>
+                                <optgroup label="主流程">
+                                  <option value="before_world">世界信息前</option>
+                                  <option value="after_world">世界信息后</option>
+                                  <option value="before_actions">行动前</option>
+                                  <option value="after_actions">行动后</option>
+                                  <option value="final">最终输出前</option>
+                                </optgroup>
+                                <optgroup label="输出与重写">
+                                  <option value="output_contract">输出契约</option>
+                                  <option value="rewrite_task">重写任务</option>
+                                  <option value="rewrite_style">文风</option>
+                                  <option value="rewrite_anti_cliche">反套路</option>
+                                  <option value="rewrite_cot">隐藏思维链</option>
+                                  <option value="post_resolution_prompt">骰后改写</option>
+                                </optgroup>
+                                <optgroup label="开局">
+                                  <option value="opening_prompt">开局生成</option>
+                                  <option value="opening_fallback">开局备用</option>
+                                </optgroup>
+                              </select>
+                            </label>
+                            <label>排序<input type="number" value={block.orderIndex} onChange={(event) => updatePresetBlock(index, { orderIndex: Number(event.target.value) })} /></label>
+                            <label className="check-row"><input type="checkbox" checked={block.enabled} onChange={(event) => updatePresetBlock(index, { enabled: event.target.checked })} /> 启用此块</label>
+                            <textarea value={block.content} onChange={(event) => updatePresetBlock(index, { content: event.target.value })} />
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  };
+                  return (
+                    <>
+                      {groups.map((group) => {
+                        const items = blocksWithIndex.filter(({ block }) => group.positions.includes(block.position));
+                        return (
+                          <details className="preset-editor-group" key={group.key} open={group.key === 'main'}>
+                            <summary><strong>{group.label}</strong>（{items.length} 块）</summary>
+                            {items.length === 0 ? <p className="muted">该组暂无提示词块。点击下方"新增提示词块"后将注入位置改为该组任一项。</p> : null}
+                            {items.map(({ block, index }) => renderBlock(block, index))}
+                          </details>
+                        );
+                      })}
+                      {otherBlocks.length > 0 ? (
+                        <details className="preset-editor-group">
+                          <summary><strong>其他</strong>（{otherBlocks.length} 块）</summary>
+                          {otherBlocks.map(({ block, index }) => renderBlock(block, index))}
+                        </details>
+                      ) : null}
+                    </>
+                  );
+                })()}
+                <div className="button-row">
+                  <button onClick={addPresetBlock}>新增提示词块</button>
+                  <button onClick={persistPresetDraft}>保存预设</button>
+                </div>
+              </div>
+            ) : null}
+          </>
+        ) : null}
+
+        {aiHostSubTab === 'currentPreset' ? (
+          <div className="subcard" style={{ marginTop: '16px' }}>
+            <h3>当前生效主持预设</h3>
+            {activePresetPackage ? (
+              <>
+                <p><strong>{activePresetPackage.name}</strong></p>
+                <p className="muted">启用块：{enabledPresetPackageBlocks.length} · 禁用块：{disabledPresetPackageBlocks.length}</p>
+                <details open>
+                  <summary>启用并进入最终 prompt 的块</summary>
+                  {enabledPresetPackageBlocks.length ? enabledPresetPackageBlocks.map((block, index) => (
+                    <div className="subcard" key={`${block.identifier}-enabled-${index}`}>
+                      <strong>{block.name}</strong>
+                      <p className="muted">{promptRoleLabel(block.role)} · ID: {block.identifier}</p>
+                      <pre>{promptPackageBlockContent(block)}</pre>
+                    </div>
+                  )) : <p className="muted">没有启用块。</p>}
+                </details>
+                <details>
+                  <summary>已导入但禁用的原始块</summary>
+                  {disabledPresetPackageBlocks.length ? disabledPresetPackageBlocks.map((block, index) => (
+                    <div className="subcard" key={`${block.identifier}-disabled-${index}`}>
+                      <strong>{block.name}</strong>
+                      <p className="muted">{promptRoleLabel(block.role)} · ID: {block.identifier}</p>
+                      <pre>{promptPackageBlockContent(block)}</pre>
+                    </div>
+                  )) : <p className="muted">没有禁用块。</p>}
+                </details>
+              </>
+            ) : (
+              <p className="muted">当前没有绑定资源预设包，最终请求会回退到旧原生预设。</p>
             )}
           </div>
-          {presetTemplates.length === 0 ? (
-            <div className="button-row" style={{ marginTop: '8px' }}>
-              <button onClick={loadPresetTemplatesData}>加载模板</button>
-            </div>
-          ) : null}
-        </div>
-
-        {state.presets.map((preset) => (
-          <div className="subcard" key={preset.id}>
-            <h3>{preset.name}{preset.isActive ? '（当前启用）' : ''}</h3>
-            <p className="muted">{preset.description || '暂无描述。'}</p>
-            <p>提示词块：{preset.blocks.length}{preset.presetType ? ` · 类型：${presetTypeLabel(preset.presetType)}` : ''}{preset.isTemplate ? '（模板）' : ''}</p>
-            <div className="button-row">
-              <button onClick={() => startEditingPreset(preset)}>编辑预设</button>
-              {!preset.isActive ? <button onClick={() => usePreset(preset.id)}>启用预设</button> : null}
-            </div>
-          </div>
-        ))}
-        {!presetDraft && activePreset() ? (
-          <div className="button-row">
-            <button onClick={() => startEditingPreset(activePreset()!)}>编辑当前预设</button>
-          </div>
         ) : null}
-        {presetDraft ? (
-          <div className="preset-editor">
-            <label>预设名称<input value={presetDraft.name} onChange={(event) => setPresetDraft({ ...presetDraft, name: event.target.value })} /></label>
-            <label>预设描述<textarea value={presetDraft.description} onChange={(event) => setPresetDraft({ ...presetDraft, description: event.target.value })} /></label>
-            <label className="check-row"><input type="checkbox" checked={presetDraft.isActive} onChange={(event) => setPresetDraft({ ...presetDraft, isActive: event.target.checked })} /> 设为启用预设</label>
-            {(() => {
-              const blocksWithIndex = presetDraft.blocks.map((block, index) => ({ block, index }));
-              const groups: Array<{ key: string; label: string; positions: PromptBlock['position'][] }> = [
-                { key: 'main', label: '主流程（世界、行动、最终）', positions: ['before_world', 'after_world', 'before_actions', 'after_actions', 'final'] },
-                { key: 'rewrite', label: '输出与重写（公开剧情重写器）', positions: ['output_contract', 'rewrite_task', 'rewrite_style', 'rewrite_anti_cliche', 'rewrite_cot', 'post_resolution_prompt'] },
-                { key: 'opening', label: '开局（房间创建时使用）', positions: ['opening_prompt', 'opening_fallback'] }
-              ];
-              const knownPositions = new Set(groups.flatMap((g) => g.positions));
-              const otherBlocks = blocksWithIndex.filter(({ block }) => !knownPositions.has(block.position));
-              const renderBlock = (block: PromptBlock, index: number) => {
-                const blockKey = presetBlockKey(block, index);
-                const expanded = expandedPresetBlockKey === blockKey;
-                return (
-                  <div className="subcard collapsible-card" key={blockKey}>
-                    <button className="collapsible-header" type="button" onClick={() => togglePresetBlock(block, index)}>
-                      <span>{expanded ? '收起' : '展开'} · {block.name || '未命名提示词块'}</span>
-                      <span className="meta-row">
-                        {promptBlockPositionLabel(block.position)} · {promptRoleLabel(block.role)} · {block.enabled ? '启用' : '停用'} · 排序 {block.orderIndex}
-                        {block.category ? ` · ${moduleCategoryLabel(block.category)}` : ''}
-                        {block.sceneType ? ` · 场景：${sceneTypeLabel(block.sceneType)}` : ''}
-                      </span>
-                    </button>
-                    {expanded ? (
-                      <div className="collapsible-body">
-                        <label>块名称<input value={block.name} onChange={(event) => updatePresetBlock(index, { name: event.target.value })} /></label>
-                        <label>注入位置
-                          <select value={block.position} onChange={(event) => updatePresetBlock(index, { position: event.target.value as PromptBlock['position'] })}>
-                            <optgroup label="主流程">
-                              <option value="before_world">世界信息前</option>
-                              <option value="after_world">世界信息后</option>
-                              <option value="before_actions">行动前</option>
-                              <option value="after_actions">行动后</option>
-                              <option value="final">最终输出前</option>
-                            </optgroup>
-                            <optgroup label="输出与重写">
-                              <option value="output_contract">输出契约</option>
-                              <option value="rewrite_task">重写任务</option>
-                              <option value="rewrite_style">文风</option>
-                              <option value="rewrite_anti_cliche">反套路</option>
-                              <option value="rewrite_cot">隐藏思维链</option>
-                              <option value="post_resolution_prompt">骰后改写</option>
-                            </optgroup>
-                            <optgroup label="开局">
-                              <option value="opening_prompt">开局生成</option>
-                              <option value="opening_fallback">开局备用</option>
-                            </optgroup>
-                          </select>
-                        </label>
-                        <label>排序<input type="number" value={block.orderIndex} onChange={(event) => updatePresetBlock(index, { orderIndex: Number(event.target.value) })} /></label>
-                        <label className="check-row"><input type="checkbox" checked={block.enabled} onChange={(event) => updatePresetBlock(index, { enabled: event.target.checked })} /> 启用此块</label>
-                        <textarea value={block.content} onChange={(event) => updatePresetBlock(index, { content: event.target.value })} />
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              };
-              return (
-                <>
-                  {groups.map((group) => {
-                    const items = blocksWithIndex.filter(({ block }) => group.positions.includes(block.position));
-                    return (
-                      <details className="preset-editor-group" key={group.key} open={group.key === 'main'}>
-                        <summary><strong>{group.label}</strong>（{items.length} 块）</summary>
-                        {items.length === 0 ? <p className="muted">该组暂无提示词块。点击下方"新增提示词块"后将注入位置改为该组任一项。</p> : null}
-                        {items.map(({ block, index }) => renderBlock(block, index))}
-                      </details>
-                    );
-                  })}
-                  {otherBlocks.length > 0 ? (
-                    <details className="preset-editor-group">
-                      <summary><strong>其他</strong>（{otherBlocks.length} 块）</summary>
-                      {otherBlocks.map(({ block, index }) => renderBlock(block, index))}
-                    </details>
-                  ) : null}
-                </>
-              );
-            })()}
-            <div className="button-row">
-              <button onClick={addPresetBlock}>新增提示词块</button>
-              <button onClick={persistPresetDraft}>保存预设</button>
+
+        {aiHostSubTab === 'debug' ? (
+          <>
+            <div className="button-row" style={{ marginTop: '16px' }}>
+              <button onClick={loadPromptPreview}>预览 AI 请求</button>
             </div>
-          </div>
+            <PromptPreviewPanel preview={promptPreview} />
+
+            <div className="subcard" style={{ marginTop: '16px' }}>
+              <h3>高级：旧原生 Prompt 模板</h3>
+              <p className="muted">这部分是旧 prompt 系统。存在资源预设包时，它不是最终 AI 请求的主要来源。</p>
+              {activePresetType ? (
+                <p>当前激活模板类型：<strong>{presetTypeLabel(activePresetType)}</strong></p>
+              ) : (
+                <p className="muted">未使用预设模板（使用默认预设）。</p>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px', marginTop: '12px' }}>
+                {presetTemplates.length === 0 ? (
+                  <p className="muted">点击"加载模板"按钮查看可用预设模板。</p>
+                ) : (
+                  presetTemplates.map((template) => (
+                    <div
+                      className={`subcard${activePresetType === template.type ? '' : ''}`}
+                      key={template.type}
+                      style={activePresetType === template.type ? { border: '2px solid #ffd700' } : undefined}
+                    >
+                      <h4>{template.name}{activePresetType === template.type ? ' (当前激活)' : ''}</h4>
+                      <p className="muted">{template.description}</p>
+                      <p>模块数量：{template.blockCount}</p>
+                      <div className="button-row">
+                        <button
+                          onClick={() => applyTemplate(template.type)}
+                          disabled={templateApplying === template.type}
+                        >
+                          {templateApplying === template.type ? '应用中...' : '应用此模板'}
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              {presetTemplates.length === 0 ? (
+                <div className="button-row" style={{ marginTop: '8px' }}>
+                  <button onClick={loadPresetTemplatesData}>加载模板</button>
+                </div>
+              ) : null}
+            </div>
+          </>
         ) : null}
       </section>
 

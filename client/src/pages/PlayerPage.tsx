@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { generatePlayerTurnSuggestions, getPlayerState, respondToInteraction, submitAction, subscribeRoom } from '../api';
+import { marked } from 'marked';
+import { generatePlayerTurnSuggestions, getPlayerState, loadDmChatHistory, respondToInteraction, sendDmChatMessage, submitAction, subscribeRoom } from '../api';
 import { CharacterBuilder } from '../components/CharacterBuilder';
 import { CharacterCard } from '../components/CharacterCard';
 import { LogList } from '../components/LogList';
@@ -10,7 +11,7 @@ import type { PlayerRuleAvailableAction, PlayerRuleStat, PlayerRulesSummary, Pla
 type PlayerActionType = 'in_character_action' | 'player_question' | 'meta_question' | 'observe' | 'wait' | 'skip' | 'ready' | 'follow' | 'combat_action' | 'narrative' | 'exploration' | 'social' | 'combat' | 'ooc';
 type ExplorationAction = 'stealth' | 'perception' | 'investigation' | 'lockpick' | 'disarmTrap' | 'track' | 'solvePuzzle';
 type SocialAction = 'persuade' | 'deceive' | 'intimidate' | 'haggle' | 'negotiate';
-type PlayerTab = 'story' | 'character' | 'backpack' | 'status';
+type PlayerTab = 'story' | 'character' | 'backpack' | 'status' | 'dm';
 type LogTab = 'public' | 'private';
 type ActionTiming = '动作' | '附赠动作' | '反应' | '按法术' | '特殊';
 type AvailableAction = PlayerRuleAvailableAction;
@@ -50,7 +51,8 @@ const playerTabs: Array<{ id: PlayerTab; label: string }> = [
   { id: 'story', label: '剧情' },
   { id: 'character', label: '人物卡' },
   { id: 'backpack', label: '背包' },
-  { id: 'status', label: '状态' }
+  { id: 'status', label: '状态' },
+  { id: 'dm', label: 'DM助手' }
 ];
 
 const itemInfo: Record<string, { type: string; detail: string }> = {
@@ -1310,8 +1312,93 @@ export function PlayerPage({ token }: { token: string }) {
           </div>
         </div>
       ) : null}
+
+      {activeTab === 'dm' ? (
+        <DmChatPanel token={token!} characterName={state.character?.confirmed ? state.character.sheet.name : undefined} />
+      ) : null}
         </div>
       </div>
     </main>
+  );
+}
+
+type DmChatMessage = { role: 'user' | 'assistant'; content: string };
+
+function DmChatPanel({ token, characterName }: { token: string; characterName?: string }) {
+  const [messages, setMessages] = useState<DmChatMessage[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    loadDmChatHistory(token)
+      .then(result => { setMessages(result.messages); setHistoryLoaded(true); })
+      .catch(() => setHistoryLoaded(true));
+  }, [token]);
+
+  useEffect(() => {
+    if (historyLoaded) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+  }, [messages, historyLoaded]);
+
+  async function handleSend() {
+    const text = input.trim();
+    if (!text || loading) return;
+
+    const userMsg: DmChatMessage = { role: 'user', content: text };
+    const nextMessages = [...messages, userMsg];
+    setMessages(nextMessages);
+    setInput('');
+    setLoading(true);
+
+    try {
+      const history = nextMessages.slice(-10);
+      const result = await sendDmChatMessage(token, text, history.slice(0, -1));
+      setMessages([...nextMessages, { role: 'assistant', content: result.reply }]);
+    } catch (err: any) {
+      setMessages([...nextMessages, { role: 'assistant', content: `（请求失败：${err.message ?? '未知错误'}）` }]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="dm-chat-panel">
+      <div className="dm-chat-header">
+        <h2>DM 助手</h2>
+        <p className="muted">可以问我角色创建、规则解析、装备选择等问题{characterName ? `，${characterName}` : ''}</p>
+      </div>
+      <div className="dm-chat-messages" ref={scrollRef}>
+        {messages.length === 0 ? (
+          <div className="dm-chat-empty">
+            <p>有什么想问 DM 助手的？</p>
+            <div className="dm-chat-suggestions">
+              {['帮我创建一个角色', '战士和圣武士有什么区别？', '潜行检定怎么算？', '我该选什么背景？'].map((q) => (
+                <button key={q} className="dm-chat-suggestion-btn" onClick={() => { setInput(q); }} type="button">{q}</button>
+              ))}
+            </div>
+          </div>
+        ) : messages.map((msg, i) => (
+          <div key={i} className={`dm-chat-bubble ${msg.role}`}>
+            {msg.role === 'assistant'
+              ? <div className="dm-chat-md" dangerouslySetInnerHTML={{ __html: marked(msg.content) }} />
+              : msg.content}
+          </div>
+        ))}
+        {loading ? <div className="dm-chat-bubble assistant loading">思考中…</div> : null}
+      </div>
+      <div className="dm-chat-input-row">
+        <textarea
+          className="dm-chat-input"
+          disabled={loading}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSend(); } }}
+          placeholder="输入问题…"
+          rows={2}
+          value={input}
+        />
+        <button className="dm-chat-send-btn" disabled={loading || !input.trim()} onClick={() => { void handleSend(); }} type="button">发送</button>
+      </div>
+    </div>
   );
 }
