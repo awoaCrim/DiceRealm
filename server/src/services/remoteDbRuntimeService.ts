@@ -382,10 +382,13 @@ function isVirtualNarrativeStateTarget(targetId: string): boolean {
 }
 
 function pluginDatabaseAutoApplyWhitelist(): Set<string> {
-  return new Set((process.env.PLUGIN_DB_AUTO_APPLY_WHITELIST ?? '')
+  const envList = (process.env.PLUGIN_DB_AUTO_APPLY_WHITELIST ?? '')
     .split(',')
     .map((item) => item.trim())
-    .filter(Boolean));
+    .filter(Boolean);
+  // Default DND tables are always auto-apply whitelisted
+  const defaultTableIds = DND_DEFAULT_SHEETS.flatMap((sheet) => [sheet.uid, sheet.tableName]);
+  return new Set([...envList, ...defaultTableIds]);
 }
 
 function hasKnownSheetSchema(db: AppDatabase, sheetId: string): boolean {

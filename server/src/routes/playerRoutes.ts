@@ -514,6 +514,11 @@ export function createPlayerRouter(db: AppDatabase): Router {
       '- 角色确认后（游戏已开始），update_character 将被禁止，你只能读取角色信息、解答规则问题',
       '- 如果玩家在游戏开始后要求修改角色，告诉他们需要联系 DM 在管理端操作',
       '',
+      '调用工具时严格遵守：',
+      '- update_character 的参数必须完全匹配玩家的请求。如果玩家说"精灵游荡者"，species 必须设为"精灵"，className 必须设为"游荡者"，绝不能设成其他种族或职业。',
+      '- 如果不确定某个字段的正确值，先调用 list_builder_options 或 get_character 查看可用选项或当前值，再调用 update_character。',
+      '- 一次请求中，优先把所有要修改的字段放在一个 update_character 调用中，而不是分多次调用。',
+      '',
       '---',
       '规则参考：',
       rulesReference
