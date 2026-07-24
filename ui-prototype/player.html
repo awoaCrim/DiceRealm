@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>玩家端 · UI 壳</title>
+  <style>
+    pre { white-space: pre-wrap; }
+    [hidden] { display: none !important; }
+    .shell { width: 100%; }
+    .shell td { vertical-align: top; }
+    .sidebar { width: 12rem; }
+    .aside { width: 16rem; }
+  </style>
+</head>
+<body>
+  <p><a href="index.html">← 回首页</a></p>
+  <header id="player-topbar">
+    <h1>玩家端</h1>
+    <p id="player-topbar-meta"></p>
+  </header>
+  <p id="player-message" hidden></p>
+
+  <table class="shell">
+    <tr>
+      <td class="sidebar">
+        <nav aria-label="玩家分区">
+          <p><button type="button" id="tab-story" aria-selected="true">剧情</button></p>
+          <p><button type="button" id="tab-character">人物卡</button></p>
+          <p><button type="button" id="tab-backpack">背包</button></p>
+          <p><button type="button" id="tab-dm">DM 助手</button></p>
+        </nav>
+      </td>
+      <td class="main">
+        <section id="panel-story">
+          <h2>剧情</h2>
+          <p>
+            <button type="button" id="log-tab-public">公开日志</button>
+            <button type="button" id="log-tab-private">私密日志</button>
+          </p>
+          <div id="story-log-list"></div>
+          <hr />
+          <h3>待回应互动</h3>
+          <div id="interaction-list"></div>
+          <hr />
+          <h3>提交行动</h3>
+          <p id="action-disabled-reason"></p>
+          <p>
+            <label for="action-type">行动类型</label>
+            <select id="action-type">
+              <option value="in_character_action">角色行动</option>
+              <option value="player_question">提问</option>
+              <option value="observe">观察</option>
+              <option value="wait">等待</option>
+              <option value="combat_action">战斗</option>
+              <option value="skip">跳过</option>
+            </select>
+          </p>
+          <p>
+            <label for="action-text">行动内容</label><br />
+            <textarea id="action-text" rows="4" cols="60"></textarea>
+          </p>
+          <p><button type="button" id="action-submit">提交行动</button></p>
+        </section>
+
+        <section id="panel-character" hidden>
+          <h2>人物卡</h2>
+          <div id="character-panel-body"></div>
+        </section>
+
+        <section id="panel-backpack" hidden>
+          <h2>背包</h2>
+          <p id="backpack-currency"></p>
+          <div id="backpack-items"></div>
+          <h3>添加物品</h3>
+          <form id="backpack-add-form">
+            <p><label>名称 <input id="item-name" required /></label></p>
+            <p><label>数量 <input id="item-qty" type="number" min="1" value="1" /></label></p>
+            <p><label>备注 <input id="item-note" /></label></p>
+            <p><button type="submit">添加</button></p>
+          </form>
+        </section>
+
+        <section id="panel-dm" hidden>
+          <h2>DM 助手</h2>
+          <div id="dm-messages"></div>
+          <form id="dm-form">
+            <p><textarea id="dm-input" rows="3" cols="60" required placeholder="向 DM 助手提问"></textarea></p>
+            <p><button type="submit">发送</button></p>
+          </form>
+        </section>
+      </td>
+      <td class="aside">
+        <h2>侧栏</h2>
+        <section>
+          <h3>角色快览</h3>
+          <div id="aside-character"></div>
+        </section>
+        <section>
+          <h3>本回合行动</h3>
+          <div id="aside-action"></div>
+        </section>
+        <section>
+          <h3>房间状态</h3>
+          <div id="aside-room"></div>
+        </section>
+        <section>
+          <h3>战斗态势</h3>
+          <div id="aside-combat"></div>
+        </section>
+        <section>
+          <h3>最近骰点</h3>
+          <div id="aside-dice"></div>
+        </section>
+      </td>
+    </tr>
+  </table>
+
+  <script src="js/mock.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/player.js"></script>
+</body>
+</html>
