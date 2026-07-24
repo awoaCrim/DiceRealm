@@ -10,7 +10,7 @@
         name: '迷雾港试玩',
         currentTurn: 3,
         status: 'waiting_for_actions',
-        playerCount: 2,
+        playerCount: 3,
         expectedPlayerCount: 4,
         createdAt: '2026-07-20T10:00:00.000Z',
         adminTokenHint: 'demo'

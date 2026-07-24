@@ -92,7 +92,7 @@
     var parts = [room.name];
     parts.push('第 ' + room.currentTurn + ' 回合');
     parts.push(C.roomStatusLabel(room.status));
-    parts.push('玩家 ' + room.playerCount + '/' + (room.expectedPlayerCount || '?'));
+    parts.push('玩家 ' + roomPlayers().length + '/' + (room.expectedPlayerCount || '?'));
     C.setText('admin-topbar-meta', parts.join(' · '));
   }
 
@@ -101,7 +101,7 @@
     var html = '';
     html += '<p><strong>' + C.escapeHtml(room.name) + '</strong></p>';
     html += '<p>第 ' + room.currentTurn + ' 回合 · ' + C.escapeHtml(C.roomStatusLabel(room.status)) + '</p>';
-    html += '<p>玩家 ' + room.playerCount + '/' + (room.expectedPlayerCount || '未设置') + '</p>';
+    html += '<p>玩家 ' + roomPlayers().length + '/' + (room.expectedPlayerCount || '未设置') + '</p>';
     if (waiting.length) {
       html += '<p>等待行动：' + C.escapeHtml(waiting.join('、')) + '</p>';
     } else {
