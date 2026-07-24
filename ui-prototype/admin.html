@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>管理端 · UI 壳</title>
+  <style>
+    pre { white-space: pre-wrap; }
+    [hidden] { display: none !important; }
+    .shell { width: 100%; }
+    .shell td { vertical-align: top; }
+    .sidebar { width: 12rem; }
+    .aside { width: 16rem; }
+  </style>
+</head>
+<body>
+  <p><a href="index.html">← 回首页</a></p>
+  <header>
+    <h1>管理端</h1>
+    <p id="admin-topbar-meta"></p>
+  </header>
+  <p id="admin-message" hidden></p>
+
+  <table class="shell">
+    <tr>
+      <td class="sidebar">
+        <nav aria-label="管理分区">
+          <p><button type="button" id="tab-play" aria-selected="true">跑团</button></p>
+          <p><button type="button" id="tab-campaign">战役数据库</button></p>
+          <p><button type="button" id="tab-aihost">AI 主持</button></p>
+          <p><button type="button" id="tab-ailog">日志</button></p>
+          <p><button type="button" id="tab-settings">设置</button></p>
+        </nav>
+      </td>
+      <td class="main">
+        <!-- PLAY -->
+        <section id="panel-play">
+          <h2>跑团</h2>
+          <div id="play-status"></div>
+          <hr />
+          <h3>玩家管理</h3>
+          <div id="play-players"></div>
+          <p>
+            <label>新玩家名 <input id="new-player-name" value="新英雄" /></label>
+            <button type="button" id="btn-add-player">添加玩家</button>
+          </p>
+          <p>
+            <label>期望人数 <input id="expected-count" type="number" min="1" max="12" /></label>
+            <button type="button" id="btn-save-expected">保存期望人数</button>
+          </p>
+          <hr />
+          <h3>角色审核</h3>
+          <div id="play-reviews"></div>
+          <hr />
+          <h3>日志</h3>
+          <p>
+            <button type="button" id="play-log-objective">客观</button>
+            <button type="button" id="play-log-public">公开</button>
+            <button type="button" id="play-log-player">按玩家</button>
+          </p>
+          <div id="play-log-list"></div>
+          <hr />
+          <h3>AI 回合</h3>
+          <p id="ai-message"></p>
+          <p><label>Prompt 草稿<br /><textarea id="ai-prompt-draft" rows="4" cols="70"></textarea></label></p>
+          <p>
+            <button type="button" id="ai-generate">生成预览</button>
+            <button type="button" id="ai-send">发送</button>
+            <button type="button" id="ai-apply">应用</button>
+          </p>
+          <div id="ai-result"></div>
+          <details id="ai-prompt-details">
+            <summary>展开 Prompt 详情</summary>
+            <pre id="ai-prompt-pre"></pre>
+          </details>
+          <p>
+            <label>回档到回合
+              <select id="rollback-select"></select>
+            </label>
+            <button type="button" id="rollback-btn">回档</button>
+          </p>
+        </section>
+
+        <!-- CAMPAIGN -->
+        <section id="panel-campaign" hidden>
+          <h2>战役数据库</h2>
+          <p>
+            <button type="button" id="subtab-records">记录</button>
+            <button type="button" id="subtab-sources">数据源</button>
+            <button type="button" id="subtab-worldbook">世界书</button>
+          </p>
+          <div id="campaign-sub-records">
+            <p>
+              <label>搜索 <input id="campaign-search" /></label>
+              <label>分类
+                <select id="campaign-category">
+                  <option value="all">全部</option>
+                  <option value="world">世界设定</option>
+                  <option value="npc">NPC</option>
+                  <option value="location">地点</option>
+                  <option value="quest">任务</option>
+                  <option value="summary">纪要</option>
+                  <option value="source">数据源</option>
+                </select>
+              </label>
+            </p>
+            <div id="campaign-list"></div>
+            <div id="campaign-detail"></div>
+            <h3>新建记录</h3>
+            <form id="campaign-create-form">
+              <p><label>标题 <input id="cr-title" required /></label></p>
+              <p><label>分类
+                <select id="cr-category">
+                  <option value="world">世界设定</option>
+                  <option value="npc">NPC</option>
+                  <option value="location">地点</option>
+                  <option value="quest">任务</option>
+                </select>
+              </label></p>
+              <p><label>摘要 <textarea id="cr-summary" rows="2" cols="50"></textarea></label></p>
+              <p><button type="submit">创建</button></p>
+            </form>
+          </div>
+          <div id="campaign-sub-sources" hidden>
+            <div id="data-sources-list"></div>
+          </div>
+          <div id="campaign-sub-worldbook" hidden>
+            <div id="worldbook-list"></div>
+          </div>
+        </section>
+
+        <!-- AI HOST -->
+        <section id="panel-aihost" hidden>
+          <h2>AI 主持</h2>
+          <p>
+            <button type="button" id="aihost-sub-style">风格</button>
+            <button type="button" id="aihost-sub-debug">调试</button>
+            <button type="button" id="aihost-sub-assistant">助手</button>
+          </p>
+          <div id="aihost-panel-style">
+            <p><label>风格说明<br /><textarea id="style-notes" rows="4" cols="60"></textarea></label></p>
+            <p>
+              <label>temperature <input id="rt-temperature" type="number" step="0.1" /></label>
+              <label>maxTokens <input id="rt-max-tokens" type="number" /></label>
+              <label>sceneType <input id="rt-scene-type" /></label>
+            </p>
+            <p><button type="button" id="btn-save-style">保存风格/参数（模拟）</button></p>
+            <p id="aihost-style-msg"></p>
+          </div>
+          <div id="aihost-panel-debug" hidden>
+            <h3>预设块</h3>
+            <div id="preset-blocks"></div>
+            <h3>Prompt 预览</h3>
+            <pre id="prompt-preview"></pre>
+          </div>
+          <div id="aihost-panel-assistant" hidden>
+            <p><label>Base URL <input id="asst-base" size="40" /></label></p>
+            <p><label>API Key <input id="asst-key" size="40" /></label></p>
+            <p><label>Model <input id="asst-model" /></label></p>
+            <p>
+              <button type="button" id="btn-asst-save">保存（模拟）</button>
+              <button type="button" id="btn-asst-test">测试（模拟）</button>
+            </p>
+            <p id="aihost-asst-msg"></p>
+          </div>
+        </section>
+
+        <!-- AI LOG -->
+        <section id="panel-ailog" hidden>
+          <h2>日志</h2>
+          <div id="ai-log-table"></div>
+          <h3>流水线</h3>
+          <div id="pipeline-list"></div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section id="panel-settings" hidden>
+          <h2>设置</h2>
+          <h3>主 AI Provider</h3>
+          <p><label>Base URL <input id="set-ai-base" size="40" /></label></p>
+          <p><label>API Key <input id="set-ai-key" size="40" /></label></p>
+          <p><label>Model <input id="set-ai-model" /></label></p>
+          <p><label><input id="set-ai-enabled" type="checkbox" /> 启用</label></p>
+          <h3>Embedding Provider</h3>
+          <p><label>Base URL <input id="set-emb-base" size="40" /></label></p>
+          <p><label>API Key <input id="set-emb-key" size="40" /></label></p>
+          <p><label>Model <input id="set-emb-model" /></label></p>
+          <p><label><input id="set-emb-enabled" type="checkbox" /> 启用</label></p>
+          <p>
+            <button type="button" id="btn-settings-save">保存（模拟）</button>
+            <button type="button" id="btn-settings-test">测试（模拟）</button>
+          </p>
+          <p id="settings-message"></p>
+        </section>
+      </td>
+      <td class="aside">
+        <h2>侧栏</h2>
+        <p>
+          <button type="button" id="aside-tab-players">玩家</button>
+          <button type="button" id="aside-tab-characters">角色</button>
+          <button type="button" id="aside-tab-combat">战斗</button>
+          <button type="button" id="aside-tab-dice">骰点</button>
+        </p>
+        <div id="aside-panel-players"></div>
+        <div id="aside-panel-characters" hidden></div>
+        <div id="aside-panel-combat" hidden></div>
+        <div id="aside-panel-dice" hidden></div>
+      </td>
+    </tr>
+  </table>
+
+  <script src="js/mock.js"></script>
+  <script src="js/common.js"></script>
+  <script src="js/admin.js"></script>
+</body>
+</html>
