@@ -10,6 +10,7 @@
     "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace client"
   },
   "workspaces": [
+    "packages/*",
     "server",
     "client"
   ],
