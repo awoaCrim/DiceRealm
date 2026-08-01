@@ -16,6 +16,8 @@ server/dnd.sqlite-*
 output/
 playwright-browsers/
 .superpowers/
+logs/dnd_mcp_server.log
+vendor/dnd-mcp/
 SillyTavern/
 task_plan.md
 progress.md
