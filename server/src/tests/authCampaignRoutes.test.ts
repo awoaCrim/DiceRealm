@@ -1,82 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import type { AddressInfo } from 'node:net';
-import { createApp } from '../app.js';
-import { createSqliteDatabase } from '../platform/database/SqliteDatabaseAdapter.js';
-import { createMemoryDb } from '../db/connection.js';
-import { migrate } from '../db/schema.js';
-
-interface StartedApp {
-  baseUrl: string;
-  close: () => Promise<void>;
-}
-
-/** 启动一个带平台路由的完整 HTTP 服务器（真实 SQLite 内存库）。 */
-async function startPlatformServer(): Promise<StartedApp> {
-  const raw = createMemoryDb();
-  migrate(raw);
-  const platformDb = createSqliteDatabase(undefined, { reuseRaw: raw });
-  await platformDb.migrate();
-  const app = createApp(raw, { platformDb });
-  const server = app.listen(0);
-  await new Promise<void>((resolve) => server.once('listening', () => resolve()));
-  const address = server.address() as AddressInfo;
-  return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
-    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
-  };
-}
-
-interface AuthResult {
-  user: { userId: string; login: string };
-  sessionId: string;
-  cookies: Record<string, string>;
-}
-
-async function registerAndLogin(baseUrl: string, login: string, password = 'correct-password'): Promise<AuthResult> {
-  const registerRes = await fetch(`${baseUrl}/api/auth/register`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ login, password }),
-  });
-  expect(registerRes.status).toBe(201);
-  const registerBody = (await registerRes.json()) as { user: { userId: string; login: string } };
-
-  const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ login, password }),
-  });
-  expect(loginRes.status).toBe(200);
-  const loginBody = (await loginRes.json()) as { session: { sessionId: string } };
-  const setCookie = loginRes.headers.get('set-cookie') ?? '';
-  expect(setCookie).toContain('dnd_session=');
-
-  return {
-    user: registerBody.user,
-    sessionId: loginBody.session.sessionId,
-    cookies: parseSetCookie(setCookie),
-  };
-}
-
-function parseSetCookie(header: string): Record<string, string> {
-  const cookies: Record<string, string> = {};
-  for (const part of header.split(',')) {
-    const match = part.match(/^([^=]+)=([^;]*)/);
-    if (match) {
-      cookies[match[1].trim()] = match[2].trim();
-    }
-  }
-  return cookies;
-}
+import { jsonHeaders, registerAndLogin, startPlatformServer } from './httpTestHarness.js';
 
 describe('auth routes over HTTP', () => {
   it('registers, logs in, reads me, and logs out', async () => {
     const server = await startPlatformServer();
     try {
-      const { cookies, sessionId } = await registerAndLogin(server.baseUrl, 'alice@example.test');
+      const { cookieHeader, sessionId } = await registerAndLogin(server.baseUrl, 'alice@example.test');
 
       const meRes = await fetch(`${server.baseUrl}/api/auth/me`, {
-        headers: { cookie: `dnd_session=${cookies.dnd_session}` },
+        headers: { cookie: cookieHeader },
       });
       expect(meRes.status).toBe(200);
       const meBody = (await meRes.json()) as { user: { login: string } };
@@ -84,7 +16,7 @@ describe('auth routes over HTTP', () => {
 
       const logoutRes = await fetch(`${server.baseUrl}/api/auth/logout`, {
         method: 'POST',
-        headers: { cookie: `dnd_session=${cookies.dnd_session}` },
+        headers: { cookie: cookieHeader },
       });
       expect(logoutRes.status).toBe(200);
       expect(logoutRes.headers.get('set-cookie')).toContain('dnd_session=');
@@ -102,7 +34,7 @@ describe('auth routes over HTTP', () => {
   it('rejects login with a wrong password as AUTH_REQUIRED', async () => {
     const server = await startPlatformServer();
     try {
-      await registerAndLogin(baseUrlOf(server), 'bob@example.test', 'correct-password');
+      await registerAndLogin(server.baseUrl, 'bob@example.test', 'correct-password');
       const res = await fetch(`${server.baseUrl}/api/auth/login`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -170,7 +102,7 @@ describe('auth routes over HTTP', () => {
   it('supports Bearer-token authenticated /api/auth/me', async () => {
     const server = await startPlatformServer();
     try {
-      const { sessionId } = await registerAndLogin(baseUrlOf(server), 'carol@example.test');
+      const { sessionId } = await registerAndLogin(server.baseUrl, 'carol@example.test');
       const res = await fetch(`${server.baseUrl}/api/auth/me`, {
         headers: { authorization: `Bearer ${sessionId}` },
       });
@@ -192,8 +124,8 @@ describe('campaign routes over HTTP', () => {
       const player = await registerAndLogin(baseUrl, 'player@example.test');
       const newcomer = await registerAndLogin(baseUrl, 'newcomer@example.test');
 
-      const ownerCookie = `dnd_session=${owner.cookies.dnd_session}`;
-      const playerCookie = `dnd_session=${player.cookies.dnd_session}`;
+      const ownerCookie = owner.cookieHeader;
+      const playerCookie = player.cookieHeader;
 
       const createRes = await fetch(`${baseUrl}/api/campaigns`, {
         method: 'POST',
@@ -249,7 +181,7 @@ describe('campaign routes over HTTP', () => {
       // 错误邀请码 → CAMPAIGN_NOT_FOUND（用一个尚未加入的新用户）。
       const badInvite = await fetch(`${baseUrl}/api/campaigns/${createBody.campaign.id}/join`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json', cookie: `dnd_session=${newcomer.cookies.dnd_session}` },
+        headers: { 'content-type': 'application/json', cookie: newcomer.cookieHeader },
         body: JSON.stringify({ inviteCode: 'wrong' }),
       });
       expect(badInvite.status).toBe(404);
@@ -261,8 +193,8 @@ describe('campaign routes over HTTP', () => {
   it('does not leak the invite code inside the campaign view', async () => {
     const server = await startPlatformServer();
     try {
-      const owner = await registerAndLogin(baseUrlOf(server), 'owner2@example.test');
-      const ownerCookie = `dnd_session=${owner.cookies.dnd_session}`;
+      const owner = await registerAndLogin(server.baseUrl, 'owner2@example.test');
+      const ownerCookie = owner.cookieHeader;
       const createRes = await fetch(`${server.baseUrl}/api/campaigns`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', cookie: ownerCookie },
@@ -298,7 +230,3 @@ describe('campaign routes over HTTP', () => {
     }
   });
 });
-
-function baseUrlOf(server: StartedApp): string {
-  return server.baseUrl;
-}
