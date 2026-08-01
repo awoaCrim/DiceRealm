@@ -1,6 +1,6 @@
 # DND AI-DM 平台重构设计
 
-> 状态：已完成设计确认，等待进入实施计划阶段
+> 状态：设计已确认；基础平台 Task 1-3 已完成，后续实施以 [`2026-08-02-dnd-ai-dm-rearchitecture-revised.md`](../plans/2026-08-02-dnd-ai-dm-rearchitecture-revised.md) 为唯一执行计划
 >
 > 设计确认范围：产品目标、核心玩法、领域边界、数据流、前端工作区、部署和安全边界均已与用户确认。
 

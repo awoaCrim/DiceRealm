@@ -1,5 +1,7 @@
 # DND AI-DM 平台重构实施计划
 
+> **已被修订版取代：** Task 1-3 的历史基线仍然有效；自 Task 4 起不再按本文执行。后续唯一执行来源为 [`2026-08-02-dnd-ai-dm-rearchitecture-revised.md`](./2026-08-02-dnd-ai-dm-rearchitecture-revised.md)。复审依据见 [`2026-08-02-plan-and-baseline-review.md`](../reviews/2026-08-02-plan-and-baseline-review.md)。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 在干净的 `main` 基线上，以模块化单体方式重建账号、战役、角色、回合、战斗、AI、可见性、存档和前端工作区，交付一条可恢复的多人 AI-DM 垂直流程。
