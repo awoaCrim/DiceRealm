@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { visibilitySchema, type Visibility } from './turn';
+import { visibilitySchema, type Visibility } from './turn.js';
 
 /** 结构化战斗 contract。 */
 

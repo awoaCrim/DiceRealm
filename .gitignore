@@ -1,6 +1,7 @@
 node_modules/
 server/dist/
 client/dist/
+packages/contracts/dist/
 server/dnd.sqlite
 server/dnd.sqlite-*
 *.sqlite

@@ -12,6 +12,9 @@ export const appErrorCodes = [
   'AI_OUTPUT_INVALID',
   'STATE_CONFLICT',
   'REALTIME_DISCONNECTED',
+  'VALIDATION_ERROR',
+  'INTERNAL_ERROR',
+  'NOT_FOUND',
 ] as const;
 
 export type AppErrorCode = (typeof appErrorCodes)[number];

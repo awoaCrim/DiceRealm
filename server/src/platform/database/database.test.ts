@@ -189,7 +189,7 @@ describe('legacy schema initialisation', () => {
     );
     expect(rows).toEqual([{ id: 'legacy-schema-init-v1', version: 0 }]);
     const platform = await adapter.query<{ count: number }>('SELECT COUNT(*) AS count FROM platform_migrations');
-    expect(platform[0].count).toBe(1);
+    expect(platform[0].count).toBe(2);
     await adapter.close();
   });
 });

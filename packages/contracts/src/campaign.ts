@@ -47,6 +47,17 @@ export const createCampaignInputSchema = z.object({
 
 export type CreateCampaignInput = z.infer<typeof createCampaignInputSchema>;
 
+/**
+ * 创建战役的响应：战役本身 + 仅在创建时向创建者返回的一次性邀请码。
+ * 邀请码不落库（库中只存哈希），也不出现在后续任何列表/详情 DTO 中。
+ */
+export const createCampaignResultSchema = z.object({
+  campaign: campaignSchema,
+  inviteCode: z.string().min(1),
+});
+
+export type CreateCampaignResult = z.infer<typeof createCampaignResultSchema>;
+
 export const campaignSettingsPatchSchema = z.object({
   name: z.string().min(1).optional(),
 });

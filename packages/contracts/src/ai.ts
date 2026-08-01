@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { visibilitySchema } from './turn';
+import { visibilitySchema } from './turn.js';
 
 /** AI Provider 与结构化结算 contract。 */
 

@@ -2,10 +2,12 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": "..",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "types": ["node", "vitest/globals"]
   },
-  "include": ["src/**/*.ts", "src/**/*.sql"]
+  "include": ["src/**/*.ts", "src/**/*.sql", "../packages/contracts/src/**/*.ts"],
+  "exclude": ["../packages/contracts/src/**/*.test.ts"]
 }
+
