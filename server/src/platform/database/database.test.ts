@@ -7,68 +7,16 @@ import { rewritePlaceholders } from './PostgresDatabaseAdapter.js';
 import { MigrationRunner } from './migrations/MigrationRunner.js';
 import { createMemoryDb } from '../../db/connection.js';
 import { migrate } from '../../db/schema.js';
+import { defineDatabaseContractSuite } from './databaseContractSuite.js';
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations/', import.meta.url));
 
+defineDatabaseContractSuite({
+  label: 'sqlite',
+  create: async () => createSqliteDatabase(':memory:'),
+});
+
 describe('database adapter', () => {
-  it('runs a transaction and rolls back on error', async () => {
-    const db = createSqliteDatabase(':memory:');
-    await db.migrate();
-    await expect(db.transaction(async (tx) => {
-      await tx.execute('INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)', ['u1', 'a', 'hash']);
-      throw new Error('abort');
-    })).rejects.toThrow('abort');
-
-    const rows = await db.query<{ count: number }>('SELECT COUNT(*) AS count FROM users');
-    expect(rows[0].count).toBe(0);
-    await db.close();
-  });
-
-  it('commits a transaction when the callback succeeds', async () => {
-    const db = createSqliteDatabase(':memory:');
-    await db.migrate();
-    await db.transaction(async (tx) => {
-      await tx.execute('INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)', ['u2', 'b', 'hash']);
-    });
-
-    const rows = await db.query<{ count: number }>('SELECT COUNT(*) AS count FROM users');
-    expect(rows[0].count).toBe(1);
-    await db.close();
-  });
-
-  it('supports parameterised query and execute with correct changes', async () => {
-    const db = createSqliteDatabase(':memory:');
-    await db.migrate();
-    const insert = await db.execute(
-      'INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)',
-      ['u3', 'c', 'hash'],
-    );
-    expect(insert.changes).toBe(1);
-
-    const rows = await db.query<{ id: string; login: string }>(
-      'SELECT id, login FROM users WHERE login = ?',
-      ['c'],
-    );
-    expect(rows).toEqual([{ id: 'u3', login: 'c' }]);
-    await db.close();
-  });
-
-  it('runs migrations only once', async () => {
-    const db = createSqliteDatabase(':memory:');
-    await db.migrate();
-    await db.migrate();
-
-    const rows = await db.query<{ count: number }>('SELECT COUNT(*) AS count FROM platform_migrations');
-    expect(rows[0].count).toBeGreaterThanOrEqual(1);
-    const versionRows = await db.query<{ version: string }>('SELECT version FROM platform_migrations');
-    const versions = versionRows.map((row) => row.version);
-    expect(versions).toEqual([...new Set(versions)]);
-
-    const users = await db.query<{ count: number }>('SELECT COUNT(*) AS count FROM users');
-    expect(users[0].count).toBe(0);
-    await db.close();
-  });
-
   it('creates the initial platform tables after migrate', async () => {
     const db = createSqliteDatabase(':memory:');
     await db.migrate();
@@ -188,8 +136,13 @@ describe('legacy schema initialisation', () => {
       "SELECT id, version FROM schema_migrations WHERE id = 'legacy-schema-init-v1'",
     );
     expect(rows).toEqual([{ id: 'legacy-schema-init-v1', version: 0 }]);
-    const platform = await adapter.query<{ count: number }>('SELECT COUNT(*) AS count FROM platform_migrations');
-    expect(platform[0].count).toBe(2);
+    const platform = await adapter.query<{ version: string }>(
+      'SELECT version FROM platform_migrations ORDER BY version',
+    );
+    expect(platform.map((row) => row.version)).toEqual(
+      expect.arrayContaining(['001', '002']),
+    );
+    expect(new Set(platform.map((row) => row.version)).size).toBe(platform.length);
     await adapter.close();
   });
 });
