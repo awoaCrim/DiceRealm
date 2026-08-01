@@ -14,6 +14,8 @@ import { createAuthRouter } from './routes/authRoutes.js';
 import { createCampaignRouter } from './routes/campaignRoutes.js';
 import { createCharacterRouter } from './routes/characterRoutes.js';
 import { CharacterService } from './modules/characters/CharacterService.js';
+import { WorldFactService } from './modules/world/WorldFactService.js';
+import { createWorldRouter } from './routes/worldRoutes.js';
 
 export interface CreateAppOptions {
   /** 可选：平台数据库适配器。提供时挂载身份/战役路由与会话中间件。 */
@@ -30,11 +32,14 @@ export function createApp(db: AppDatabase, options: CreateAppOptions = {}) {
     const identity = new IdentityService(options.platformDb);
     const campaigns = new CampaignService(options.platformDb);
     const characters = new CharacterService(options.platformDb);
+    const worldFacts = new WorldFactService(options.platformDb);
     app.use(createSessionMiddleware(identity));
     app.use('/api/auth', createAuthRouter(identity));
     app.use('/api/campaigns', createCampaignRouter(campaigns));
     // 角色路由挂在 campaign-scoped 前缀下，与现有 /api/campaigns list/create/join 互不影响。
     app.use('/api/campaigns/:campaignId/characters', createCharacterRouter(options.platformDb, characters));
+    // 世界事实路由同样挂在 campaign-scoped 前缀下。
+    app.use('/api/campaigns/:campaignId/world', createWorldRouter(options.platformDb, worldFacts));
     // 平台路由的错误统一由新错误中间件处理；必须先于旧错误中间件注册，
     // 否则会被下面 legacy 的错误兜底吞掉并泄漏原始 message。
     app.use(errorMiddleware);
