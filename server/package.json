@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-migrations.mjs",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -14,12 +14,14 @@
     "dotenv": "latest",
     "express": "latest",
     "nanoid": "latest",
+    "pg": "latest",
     "zod": "latest"
   },
   "devDependencies": {
     "@types/better-sqlite3": "latest",
     "@types/cors": "latest",
     "@types/express": "latest",
+    "@types/pg": "latest",
     "tsx": "latest"
   }
 }

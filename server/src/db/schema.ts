@@ -1,6 +1,31 @@
 import type { AppDatabase } from './connection.js';
+import { MigrationRunner } from '../platform/database/migrations/MigrationRunner.js';
 
 export function migrate(db: AppDatabase): void {
+  // The legacy schema initialisation predates the platform MigrationRunner,
+  // so it records a "legacy schema" checkpoint. It is tracked in the legacy
+  // `schema_migrations` table (used by the old extraction pipeline) rather
+  // than the platform `platform_migrations` table; the two tables are never
+  // read by each other.
+  //
+  // The DDL mirrors the contract of the existing `schema_migrations` table
+  // in production databases so `INSERT OR IGNORE` never duplicates the
+  // checkpoint across restarts (id is the PRIMARY KEY).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      id TEXT PRIMARY KEY,
+      version INTEGER NOT NULL,
+      summary_json TEXT NOT NULL,
+      completed_at TEXT NOT NULL
+    )
+  `);
+  db.prepare('INSERT OR IGNORE INTO schema_migrations (id, version, summary_json, completed_at) VALUES (?, ?, ?, ?)').run(
+    'legacy-schema-init-v1',
+    0,
+    JSON.stringify({ migrationId: 'legacy-schema-init-v1', migratedBlocks: 0, skippedBlocks: 0, conflicts: 0 }),
+    new Date().toISOString(),
+  );
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS rooms (
       id TEXT PRIMARY KEY,
@@ -1075,4 +1100,38 @@ function createResourceCatalogTriggers(db: AppDatabase): void {
       );
     END;
   `);
+}
+
+/**
+ * Run the platform SQL migrations on a legacy `better-sqlite3` connection
+ * synchronously. The legacy startup path (`server/src/index.ts`) cannot await,
+ * so this wraps the synchronous migration path of the platform
+ * MigrationRunner.
+ *
+ * The platform migrations are tracked in the dedicated `platform_migrations`
+ * table, so calling this after `migrate()` on the same database applies the
+ * platform tables exactly once and never touches the legacy tables.
+ */
+export function migratePlatform(db: AppDatabase): void {
+  MigrationRunner.runSync(createLegacySyncAdapter(db));
+}
+
+function createLegacySyncAdapter(db: AppDatabase): SyncMigrationExecutorAdapter {
+  return {
+    query<T>(sql: string, params: unknown[] = []): T[] {
+      return db.prepare(sql).all(...params) as T[];
+    },
+    execute(sql: string, params: unknown[] = []): { changes: number } {
+      return { changes: db.prepare(sql).run(...params).changes };
+    },
+    exec(sql: string): void {
+      db.exec(sql);
+    },
+  };
+}
+
+interface SyncMigrationExecutorAdapter {
+  query<T>(sql: string, params?: unknown[]): T[];
+  execute(sql: string, params?: unknown[]): { changes: number };
+  exec(sql: string): void;
 }
