@@ -1,5 +1,6 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
 import type { AuthContext } from '@dnd/contracts';
+import type { CampaignAuthContext } from '../../modules/campaigns/CampaignAccess.js';
 import { AppError } from './AppError.js';
 
 export const SESSION_COOKIE_NAME = 'dnd_session';
@@ -44,6 +45,8 @@ export function requireAuth(req: Request, _res: Response, next: NextFunction): v
 export interface AuthenticatedRequest extends Request {
   authContext?: AuthContext;
   sessionUser?: { userId: string; login: string };
+  /** 由 campaignMiddleware 写入：当前请求已解析的战役级认证上下文。 */
+  campaignContext?: CampaignAuthContext;
 }
 
 export function getAuthContext(req: Request): AuthContext {
