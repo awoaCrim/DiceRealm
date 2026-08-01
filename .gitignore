@@ -15,6 +15,7 @@ server/dnd.sqlite-*
 .playwright-cli/
 output/
 playwright-browsers/
+.superpowers/
 SillyTavern/
 task_plan.md
 progress.md
