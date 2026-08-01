@@ -4,6 +4,16 @@
 >
 > 本文是 `2026-08-02-dnd-ai-dm-rearchitecture-revised.md`（权威总路线图）中 **Phase 1** 的唯一可执行详细计划，覆盖该阶段全部 4 个小任务。后续阶段详细计划只有在各自前一阶段通过验收与两级 review 后才编写。
 
+## 状态：✅ 已完成
+
+- **commit 范围：** `62c40df` → `6e11c7a`，共 4 个 commit：
+  - `62c40df`（Task 1：Node 引擎约束 + better-sqlite3 12.10.0 + jsdom 28.1.0 + DatabasePort contract suite）
+  - `ddf149f`（Task 2：campaign-scoped access / visibility）
+  - `aa8bf8b`（Task 3：角色后端 + `003_characters.sql` + SQLite 异步事务串行队列）
+  - `6e11c7a`（Task 4：HTTP 垂直验收）
+- **最终审查结论：** READY_FOR_PHASE_2，见 [`docs/superpowers/reviews/2026-08-02-phase-1-access-characters-review.md`](../reviews/2026-08-02-phase-1-access-characters-review.md)。
+- 历史任务代码片段不再改动；计划偏差与最终基线记录见上述复审文档。
+
 **Goal:** 在 Task 1-3 已完成基线上，产出（1）可复现的 Node/Postgres 测试基线，（2）campaign-scoped 访问控制与统一可见性策略，（3）角色创建/审核后端与 `003_characters.sql` 迁移，（4）一条真实的 HTTP 垂直验收流程（owner + player + playerB），为后续 world/turn/AI/前端阶段奠定权限与投影基础。
 
 **Architecture:** 通过 `DatabasePort`/`QueryExecutor` 端口访问平台表；新增 `CampaignAuthContext` 作为唯一战役级认证上下文（不 `extends` 可选字段的 `AuthContext`），由 `resolveCampaignContext` 从会话 ctx 解析，经 `campaignMiddleware` 注入请求；`VisibilityPolicy` 是唯一可见性规则（owner 全量、player 只见 public + 自己 knownBy 的 player_private、owner_only 永不越权）。角色服务/仓储全部接收 `QueryExecutor`，多写操作走 `DatabasePort.transaction`。HTTP 垂直用 `app.listen(0)` + `fetch` + 独立 cookie jar 验证权限与投影。
@@ -1616,20 +1626,20 @@ rtk git commit -m "test: verify character HTTP vertical flow with three actors" 
 
 ---
 
-## 本阶段验收门检查清单
+## 本阶段验收门检查清单（全部通过）
 
-- [ ] `.nvmrc` 固定 22.12.0；根 `package.json` engines `>=22.12.0 <23`；`node-engine.test.ts` 静态一致性测试通过
-- [ ] `better-sqlite3` 固定 12.10.0，`package-lock.json` 同步
-- [ ] SQLite/Postgres `DatabasePort` contract suite 抽取完成（资源 `randomUUID()` 唯一、`try/finally` 清理）；无 `POSTGRES_TEST_URL` 时 Postgres 套件跳过
-- [ ] `resolveCampaignContext`/`requireOwner`/`campaignMiddleware` 实现并有测试；非成员隐藏存在性；probe router 证明父级 `:campaignId` 可解析
-- [ ] `VisibilityPolicy`：owner 全量、player 只见 public + 自己 knownBy 的 player_private、owner_only 不越权
-- [ ] `003_characters.sql`（platform_characters + platform_character_audits）经迁移创建；build 复制进 dist
-- [ ] 角色服务（create/update/submit/approve/reject/audit/投影）实现并有测试；派生值写入 `derived_json`；条件更新未命中抛 `STATE_CONFLICT`
-- [ ] 角色投影含 `myDrafts`/`myPending`/`myRejected`/`myApproved`/owner-only `reviews`/party `approvedSummaries`
-- [ ] 角色路由挂 `/api/campaigns/:campaignId/characters`（`Router({ mergeParams: true })` + campaign middleware）；`stringParam` 坏 id 抛 `NOT_FOUND`；审核动作用 `characterReviewActionSchema.parse`
-- [ ] HTTP 垂直验收（owner/player/playerB 三 cookie jar）通过；playerA 整个投影不含 playerB 数据；DTO 无 `password_hash`/`invite_code_hash`/audit 内部 JSON；server 与 platformDb 资源正确关闭
-- [ ] 既有 authCampaignRoutes/database/contracts 测试不回归；typecheck/build 通过
-- [ ] 两级 review（本计划 review + 实现 review）通过；通过后按总路线图编写 Phase 2 详细计划
+- [x] `.nvmrc` 固定 22.12.0；根 `package.json` engines `>=22.12.0 <23`；`node-engine.test.ts` 静态一致性测试通过
+- [x] `better-sqlite3` 固定 12.10.0，`package-lock.json` 同步
+- [x] SQLite/Postgres `DatabasePort` contract suite 抽取完成（资源 `randomUUID()` 唯一、`try/finally` 清理）；无 `POSTGRES_TEST_URL` 时 Postgres 套件跳过
+- [x] `resolveCampaignContext`/`requireOwner`/`campaignMiddleware` 实现并有测试；非成员隐藏存在性；probe router 证明父级 `:campaignId` 可解析
+- [x] `VisibilityPolicy`：owner 全量、player 只见 public + 自己 knownBy 的 player_private、owner_only 不越权
+- [x] `003_characters.sql`（platform_characters + platform_character_audits）经迁移创建；build 复制进 dist
+- [x] 角色服务（create/update/submit/approve/reject/audit/投影）实现并有测试；派生值写入 `derived_json`；条件更新未命中抛 `STATE_CONFLICT`
+- [x] 角色投影含 `myDrafts`/`myPending`/`myRejected`/`myApproved`/owner-only `reviews`/party `approvedSummaries`
+- [x] 角色路由挂 `/api/campaigns/:campaignId/characters`（`Router({ mergeParams: true })` + campaign middleware）；`stringParam` 坏 id 抛 `NOT_FOUND`；审核动作用 `characterReviewActionSchema.parse`
+- [x] HTTP 垂直验收（owner/player/playerB 三 cookie jar）通过；playerA 整个投影不含 playerB 数据；DTO 无 `password_hash`/`invite_code_hash`/audit 内部 JSON；server 与 platformDb 资源正确关闭
+- [x] 既有 authCampaignRoutes/database/contracts 测试不回归；typecheck/build 通过
+- [x] 两级 review（本计划 review + 实现 review）通过；通过后按总路线图编写 Phase 2 详细计划
 
 ## 已知错误形态（本阶段不得出现）
 

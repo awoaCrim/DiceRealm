@@ -6,7 +6,7 @@
 
 **Architecture:** 本总路线图取代 `docs/superpowers/plans/2026-08-01-dnd-ai-dm-rearchitecture.md` 自 Task 4 起的全部执行内容；Task 1-3 视为已完成基线，不重做、不回滚。实现顺序遵循“先服务端可运行垂直切片，再实时与战斗，最后前端”的铁律：每个阶段结束时都有一条可运行的垂直流程作为验收门。所有新平台表统一 `platform_` 前缀，迁移编号连续；AI 只消费经可见性投影的上下文，SSE 只发布经投影的领域事件；前端在服务端 AI 垂直流程通过后才开始。
 
-**Tech Stack:** Node.js 22.12.0（阶段一写入 `.nvmrc` 并约束 `engines.node >=22.12.0 <23`）、TypeScript、Express、React、Vite、SQLite（`better-sqlite3`，阶段一固定 12.10.0）、PostgreSQL（`pg`）、Zod、React Query、SSE、Vitest、Testing Library、Playwright。
+**Tech Stack:** Node.js 22.12.0（阶段一已写入 `.nvmrc` 并约束 `engines.node >=22.12.0 <23`）、TypeScript、Express、React、Vite、SQLite（`better-sqlite3`，阶段一已固定 12.10.0）、PostgreSQL（`pg`）、Zod、React Query、SSE、Vitest、Testing Library、Playwright、jsdom（阶段一已固定 28.1.0）。
 
 ---
 
@@ -30,23 +30,29 @@
 - 每个任务完成后运行该任务列出的测试并提交一个只包含该任务文件的 commit；commit trailer 一律为 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`。
 - 为任务临时创建的验证脚本/测试数据不得提交；确需保留的写入 `.gitignore`（窄范围条目）。
 
-## 基线（2026-08-02 实测，所有阶段的起点）
+## 基线（2026-08-02 实测；Phase 1 完成后，所有后续阶段的起点）
 
 ### 版本与提交基线
 
-- 当前 HEAD：`ef2c1e3`（`feat: add account and campaign boundaries`）；分支 `main` 相对 `origin/codex/upload-initial-code` 领先 25 个提交。
-- 工作树在基线记录时干净；除本路线图、阶段一计划与复审文档外无其它改动。
+- 当前 HEAD：`6e11c7a`（`test: verify character HTTP vertical flow with three actors`）；分支 `main` 相对 `origin/codex/upload-initial-code` 领先 30 个提交。
+- 工作树干净；阶段一已由最终审查判定 READY_FOR_PHASE_2（见 [`2026-08-02-phase-1-access-characters-review.md`](../reviews/2026-08-02-phase-1-access-characters-review.md)）。
+- 阶段一提交范围：`62c40df`（Node/better-sqlite3/jsdom 28.1/DB contract）→ `ddf149f`（campaign access/visibility）→ `aa8bf8b`（character + 003 + SQLite async transaction queue）→ `6e11c7a`（HTTP vertical）。
 
 ### 测试与构建基线
 
-- 全量测试：`rtk npm test` → **430 passed / 38 files**。
+- 全量测试：`rtk npm test` → **43 files passed / 1 skipped，453 tests passed / 4 skipped**（457 总；Postgres contract 套件因 `POSTGRES_TEST_URL` 未配置被 `describe.skipIf` 门控跳过）。
 - 类型检查：`rtk npm run typecheck`（server + client）通过。
-- 构建：`rtk npm run build` 通过；`@dnd/contracts` 产出 `dist`（含 `.d.ts`）；server 经 `tsc -p tsconfig.build.json` 后由 `server/scripts/copy-migrations.mjs` 把迁移 SQL 复制进 `dist`；client `vite build` 通过。
+- 构建：`rtk npm run build` 通过；`@dnd/contracts` 产出 `dist`（含 `.d.ts`）；server 经 `tsc -p tsconfig.build.json` 后由 `server/scripts/copy-migrations.mjs` 把迁移 SQL 复制进 `dist`（已含 `001/002/003` 三份）；client `vite build` 通过。
+
+### 版本固定
+
+- Node `22.12.0`（`.nvmrc` + 根 `engines.node >=22.12.0 <23`）；`jsdom` `28.1.0`（根 devDependency）；`better-sqlite3` `12.10.0`（`server/package.json` + `package-lock.json` 同步）。
 
 ### 迁移基线
 
 - `001_initial_platform.sql`：`users`、`sessions`、`campaigns`、`campaign_members`。
 - `002_campaign_invites.sql`：`campaigns.invite_code_hash`（可空，仅存 SHA-256 摘要，不存邀请码明文）。
+- `003_characters.sql`：`platform_characters` + `platform_character_audits`（Phase 1 已完成）。
 - `MigrationRunner` 使用独立跟踪表 `platform_migrations`（与旧 `schema_migrations` 隔离）；迁移按文件名排序、幂等执行、整批失败回滚。
 
 ### 错误码基线（13 个）
@@ -61,12 +67,12 @@
 
 ### 全局命名约定（后续所有详细计划必须一致引用）
 
-- 迁移文件：`001/002`（基线）→ `003_characters.sql`（Phase 1）→ `004_world_state.sql`、`005_turns_actions.sql`、`006_events_outbox.sql`、`007_archives.sql`、`008_ai_runtime.sql`（Phase 2）→ `009_combat.sql`（Phase 3）→ `010_rules_providers.sql`（Phase 5）。
+- 迁移文件：`001/002`（基线）→ `003_characters.sql`（Phase 1）→ `004_world_state.sql`、`005_events_outbox.sql`、`006_turns_actions.sql`（Phase 2A）→ `007_archives.sql`、`008_ai_runtime.sql`（Phase 2B）→ `009_combat.sql`（Phase 3）→ `010_rules_providers.sql`（Phase 5）。
 - 新平台表统一 `platform_` 前缀；沿用 001/002 的 `users`、`sessions`、`campaigns`、`campaign_members` 不重命名。
 - 新平台路由统一挂在 `/api/campaigns/:campaignId/*`，均经 campaign middleware（`Router({ mergeParams: true })`）。
 - 错误码：Phase 5 新增 `INVALID_RULE_SOURCE`、`PROVIDER_NOT_CONFIGURED` 并同步 `appErrorCodes`；其余阶段只使用既有码。
 - 端口名：`DatabasePort`/`QueryExecutor`（已存在）、`EventPublisherPort`、`AiProviderPort`（后续阶段定义）。
-- 领域事件：`campaignEventSchema` 每个 variant 带 `campaignId`；outbox 层为每战役自增 `sequence`（并发安全）。
+- 领域事件：`campaignEventSchema` 每个 variant 带 `campaignId`；outbox 层为每战役自增 `sequence`（并发安全）；事件受众 `public`/`owner_only`/`player_private`（`eventDefaultAudience` + `canReadEvent`），`ai.preview.*` 与 `ai.preview.failed` 对 player 可见。
 - 任务排序铁律：前端任务在服务端 AI 垂直流程通过前不开始；结构化战斗固定放在 AI runtime 之后。
 
 ## 计划拆分决定
@@ -74,15 +80,16 @@
 整体系统跨账号、战役、角色、世界、回合、AI、实时、战斗与前端多个子系统，单一巨型计划无法同时保证正确性与可执行性。因此：
 
 - `2026-08-02-dnd-ai-dm-rearchitecture-revised.md`（本文件）只保留权威总路线图。
-- **阶段一详细计划** [`2026-08-02-dnd-ai-dm-phase-1-access-characters.md`](./2026-08-02-dnd-ai-dm-phase-1-access-characters.md) 是当前唯一立即可执行的实施计划。
+- **阶段一详细计划** [`2026-08-02-dnd-ai-dm-phase-1-access-characters.md`](./2026-08-02-dnd-ai-dm-phase-1-access-characters.md) 已执行完毕并通过最终审查（READY_FOR_PHASE_2，见 [`2026-08-02-phase-1-access-characters-review.md`](../reviews/2026-08-02-phase-1-access-characters-review.md)），不再作为待执行计划。
 - 后续阶段在前一阶段通过验收与两级 review 后再写详细计划，避免过早生成未经实现验证的伪代码漂移。
+- **Phase 2 按两个可执行计划推进**：**Phase 2A**（world facts + 事务性 outbox + turn/actions，迁移 `004_world_state` → `005_events_outbox` → `006_turns_actions`，详细计划 [`2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md`](./2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md) 已编写）与 **Phase 2B**（archives + AI runtime + 服务端 AI 垂直流程，迁移 `007_archives` → `008_ai_runtime`，在 2A 完成并通过复审后编写）。
 
 ## 阶段总览（依赖关系）
 
-| 阶段 | 内容 | 迁移 | 依赖 | 详细计划 |
+| 阶段 | 内容 | 迁移 | 依赖 | 状态 / 详细计划 |
 | --- | --- | --- | --- | --- |
-| Phase 1 | 基线硬化、campaign-scoped access/visibility、角色后端、HTTP 垂直验收 | `003_characters.sql` | 无（基于 Task 1-3） | [立即可执行](./2026-08-02-dnd-ai-dm-phase-1-access-characters.md) |
-| Phase 2 | world facts、turn/actions、transactional outbox、archives、AI runtime、服务端 AI 垂直流程 | `004`–`008` | Phase 1 | Phase 1 通过复审后编写 |
+| Phase 1 | 基线硬化、campaign-scoped access/visibility、角色后端、HTTP 垂直验收 | `003_characters.sql` | 无（基于 Task 1-3） | ✅ 已完成（提交 `62c40df`–`6e11c7a`）；复审 [READY_FOR_PHASE_2](../reviews/2026-08-02-phase-1-access-characters-review.md) |
+| Phase 2 | world facts、事务性 outbox、turn/actions、archives、AI runtime、服务端 AI 垂直流程 | `004`–`008` | Phase 1 | ⏭ 拆分为 **Phase 2A（world + outbox + turn，`004`–`006`）** 与 **Phase 2B（archive + AI，`007`–`008`）**；Phase 2A 详细计划已编写（[2A 计划](./2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md)），2B 在 2A 完成并通过复审后编写 |
 | Phase 3 | SSE 实时投递与结构化战斗 | `009_combat.sql` | Phase 2 | Phase 2 通过复审后编写 |
 | Phase 4 | 前端 App Shell、认证、战役列表、owner/player 工作区 | 无 | Phase 2/3 | Phase 3 通过复审后编写 |
 | Phase 5 | 规则/Provider、真实加密、legacy adapter、多上下文 E2E、cutover | `010_rules_providers.sql` | Phase 1-4 | Phase 4 通过复审后编写 |
@@ -91,9 +98,11 @@
 
 ---
 
-## Phase 1：基线硬化、战役访问控制、角色后端与 HTTP 垂直验收
+## Phase 1：基线硬化、战役访问控制、角色后端与 HTTP 垂直验收 — ✅ 已完成
 
-**定位：** 唯一立即可执行的阶段，产出可复现的开发基线、campaign-scoped 权限体系、可见性策略与角色审核后端，并用一条真实 HTTP 垂直流程锁定正确性。
+**状态：** 已完成。commit 范围 `62c40df` → `6e11c7a`（4 个 commit）；最终审查结论 READY_FOR_PHASE_2，见 [`2026-08-02-phase-1-access-characters-review.md`](../reviews/2026-08-02-phase-1-access-characters-review.md)。
+
+**定位：** 产出可复现的开发基线、campaign-scoped 权限体系、可见性策略与角色审核后端，并用一条真实 HTTP 垂直流程锁定正确性。以下范围全部落地（验收门已全绿）。
 
 ### 范围
 
@@ -128,19 +137,19 @@
 
 ### 详细计划
 
-[`2026-08-02-dnd-ai-dm-phase-1-access-characters.md`](./2026-08-02-dnd-ai-dm-phase-1-access-characters.md)，共 4 个小任务，均已含 TDD 步骤、真实可编译测试代码、运行命令与指定路径 commit。
+[`2026-08-02-dnd-ai-dm-phase-1-access-characters.md`](./2026-08-02-dnd-ai-dm-phase-1-access-characters.md)，共 4 个小任务，均已含 TDD 步骤、真实可编译测试代码、运行命令与指定路径 commit。**已执行完毕**，历史代码片段不再改动。
 
-### 验收门
+### 验收门（均已通过）
 
-- 既有相关测试（`authCampaignRoutes`、`database`、`contracts`）不回归，新增角色测试全绿。
-- server typecheck 通过；server build 通过（`003_characters.sql` 被复制进 `dist`）。
-- HTTP 垂直流程通过；两级 review（详细计划 review + 实现 review）通过。
+- [x] 既有相关测试（`authCampaignRoutes`、`database`、`contracts`）不回归，新增角色测试全绿。
+- [x] server typecheck 通过；server build 通过（`003_characters.sql` 被复制进 `dist`）。
+- [x] HTTP 垂直流程通过；两级 review（详细计划 review + 实现 review）通过（结论 READY_FOR_PHASE_2）。
 
 ---
 
-## Phase 2：world facts、turn/actions、outbox、存档、AI 运行时与服务端 AI 垂直流程
+## Phase 2：world facts、事务性 outbox、turn/actions、存档、AI 运行时与服务端 AI 垂直流程 — ⏭ Phase 2A 已编写详细计划
 
-**定位：** 构建核心跑团数据平面与 AI 结算，交付服务端 AI 垂直流程 `create → join → approve → submit → lock → resolve → archive → project`，这是后续前端与实时能力的服务端前提。
+**定位：** 构建核心跑团数据平面与 AI 结算，交付服务端 AI 垂直流程 `create → join → approve → submit → lock → resolve → archive → project`，这是后续前端与实时能力的服务端前提。Phase 1 已通过复审，本阶段按两个可执行计划推进：**Phase 2A（world + outbox + turn，迁移 `004`–`006`）** 与 **Phase 2B（archive + AI，迁移 `007`–`008`）**；Phase 2A 详细计划 [`2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md`](./2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md) 已编写，Phase 2B 在 2A 完成并通过复审后编写。
 
 ### 范围
 
@@ -148,15 +157,15 @@
    - `platform_world_facts`：kind/title/content/visibility/`known_by_json`/时间戳。
    - 只有 owner 可写；player 只读经 `VisibilityPolicy` 投影后的 facts。
    - 事实可存在于完整世界状态中，但只对 owner 或指定玩家可见（`knownBy`）；AI context 只消费投影结果。
-2. **回合与行动锁定（`005_turns_actions.sql`）**
-   - `platform_turns` + `platform_actions`；回合状态机 `waiting_for_actions → locked → resolving → completed`，失败进入 `needs_owner_attention`。
-   - 最后一名必需玩家提交后自动锁定；锁定后不可修改。
+2. **事务性事件与 outbox（`005_events_outbox.sql`）**
+   - `platform_outbox_sequences` + `platform_outbox_events`：`campaign_id`/`sequence`/`event_type`/`visibility`/`target_player_id`/`payload_json`/`published_at`（可空，新事件未发布）/`created_at`，`UNIQUE(campaign_id, sequence)`。
+   - 领域事务内写 outbox；每战役 sequence 通过每 campaign 原子 upsert 计数器 + `RETURNING` 在写事务内取得（SQLite 与 Postgres 通用），**绝不用“读取后 MAX+1”**；`UNIQUE(campaign_id, sequence)` 仅作不变量兜底，不作为分配机制。
+   - `campaignEventSchema` 每个 variant 带 `campaignId`；事件受众 `public`/`owner_only`/`player_private`；SSE 帧与重放共用同一 outbox 数据源与同一投影。
+3. **回合与行动锁定（`006_turns_actions.sql`）**
+   - `platform_turns` + `platform_actions` + `platform_turn_requirements`；回合状态机 `waiting_for_actions → locked → resolving → completed`，失败进入 `needs_owner_attention`。
+   - 最后一名必需玩家提交后自动锁定；锁定后不可修改；回合含 `locked_at`/`completed_at`。
    - 未批准角色不能提交行动（`CHARACTER_NOT_APPROVED`）。
-   - 每个行动可追溯提交/更新时间；每回合记录必需玩家与已提交玩家。
-3. **事务性事件与 outbox（`006_events_outbox.sql`）**
-   - `platform_outbox_events`：`campaign_id`/`sequence`/`event_type`/`payload_json`/`published_at`，`UNIQUE(campaign_id, sequence)`。
-   - 领域事务内写 outbox；每战役 sequence 通过每 campaign 原子分配（SQLite 与 Postgres 均支持的 `INSERT ... RETURNING` / upsert 计数器，二者取其一）在写事务内取得，`UNIQUE(campaign_id, sequence)` 仅作不变量兜底，不作为分配机制。
-   - `campaignEventSchema` 每个 variant 带 `campaignId`；SSE 帧与重放共用同一 outbox 数据源。
+   - 每个行动可追溯提交/更新时间；每回合通过 `platform_turn_requirements` 规范化记录必需玩家与已提交玩家。
 4. **存档（`007_archives.sql`）**
    - `platform_archives`：kind（automatic/manual）、turn_id、label、version、`state_json`、superseded、创建者。
    - 自动存档与手动命名存档；恢复后该版本成为当前状态，后续历史标记 `superseded`，不物理删除。
@@ -171,7 +180,7 @@
 
 ### 迁移连续性
 
-`004_world_state`、`005_turns_actions`、`006_events_outbox`、`007_archives`、`008_ai_runtime`（编号与任务一一对应、连续、无跳号）。
+`004_world_state`、`005_events_outbox`、`006_turns_actions`（Phase 2A）、`007_archives`、`008_ai_runtime`（Phase 2B），编号连续、无跳号。
 
 ### 关键不可变约束（Phase 2 详细计划必须满足）
 
@@ -187,7 +196,7 @@
 
 ### 详细计划编写时机
 
-**只有在 Phase 1 完成并通过复审后才编写 Phase 2 详细计划。**
+**Phase 1 已完成并通过复审（READY_FOR_PHASE_2）**。本阶段按 **Phase 2A（world + outbox + turn）** 与 **Phase 2B（archive + AI）** 两个可执行计划先后推进：**Phase 2A 详细计划已编写**（[`2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md`](./2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md)，迁移 `004_world_state` → `005_events_outbox` → `006_turns_actions`，含共享 HTTP harness 重构与三 actor HTTP 垂直验收），先执行 2A 并完成其验收与 review；**Phase 2B 详细计划（迁移 `007_archives` → `008_ai_runtime`）在 2A 完成并通过复审后编写**。
 
 ### 验收门
 
@@ -362,30 +371,30 @@
 
 实施者以阶段为单位推进；每个阶段通过下方全部勾选后，才进入下一阶段编写详细计划。
 
-### Phase 1（角色后端与 HTTP 垂直）
+### Phase 1（角色后端与 HTTP 垂直）— ✅ 已完成（commit `62c40df`–`6e11c7a`；复审 READY_FOR_PHASE_2）
 
-- [ ] 根 `.nvmrc` 固定 `22.12.0`；根 `package.json` engines `>=22.12.0 <23`；配置一致性测试通过
-- [ ] `better-sqlite3` 固定为 12.10.0，`package-lock.json` 同步
-- [ ] SQLite/Postgres `DatabasePort` contract suite 抽取完成；无 `POSTGRES_TEST_URL` 时 Postgres 套件跳过
-- [ ] `resolveCampaignContext`/`requireOwner`/`campaignMiddleware` 实现并有测试；非成员隐藏存在性
-- [ ] `VisibilityPolicy`：owner 全量、player 只见 public + 自己 knownBy 的 player_private、owner_only 不越权
-- [ ] `003_characters.sql`（platform_characters + platform_character_audits）经迁移创建；server build 复制进 dist
-- [ ] 角色服务（create/update/submit/approve/reject/audit/投影）实现并有测试
-- [ ] 角色路由挂 `/api/campaigns/:campaignId/characters`（mergeParams + campaign middleware）
-- [ ] HTTP 垂直流程（owner/player/playerB 三 cookie jar）通过，DTO 无敏感字段
-- [ ] 既有 authCampaignRoutes/database/contracts 测试不回归；typecheck/build 通过
-- [ ] 两级 review（计划 review + 实现 review）通过
+- [x] 根 `.nvmrc` 固定 `22.12.0`；根 `package.json` engines `>=22.12.0 <23`；配置一致性测试通过
+- [x] `better-sqlite3` 固定为 12.10.0，`package-lock.json` 同步
+- [x] SQLite/Postgres `DatabasePort` contract suite 抽取完成；无 `POSTGRES_TEST_URL` 时 Postgres 套件跳过
+- [x] `resolveCampaignContext`/`requireOwner`/`campaignMiddleware` 实现并有测试；非成员隐藏存在性
+- [x] `VisibilityPolicy`：owner 全量、player 只见 public + 自己 knownBy 的 player_private、owner_only 不越权
+- [x] `003_characters.sql`（platform_characters + platform_character_audits）经迁移创建；server build 复制进 dist
+- [x] 角色服务（create/update/submit/approve/reject/audit/投影）实现并有测试
+- [x] 角色路由挂 `/api/campaigns/:campaignId/characters`（mergeParams + campaign middleware）
+- [x] HTTP 垂直流程（owner/player/playerB 三 cookie jar）通过，DTO 无敏感字段
+- [x] 既有 authCampaignRoutes/database/contracts 测试不回归；typecheck/build 通过
+- [x] 两级 review（计划 review + 实现 review）通过
 
-### Phase 2（核心跑团与 AI 垂直）
+### Phase 2（核心跑团与 AI 垂直）— 拆分为 Phase 2A（迁移 `004`–`006`）与 Phase 2B（迁移 `007`–`008`）
 
-- [ ] `004`–`008` 五份迁移连续创建；world/turn/outbox/archive/ai_runtime 测试通过
-- [ ] 最后一名玩家提交后自动锁定；锁定后不可修改；未批准角色不能提交
-- [ ] outbox 每战役 sequence 并发安全（每 campaign 原子分配：`INSERT ... RETURNING` / upsert 计数器，二者取其一）
-- [ ] 存档保存真实快照并支持真实恢复；恢复后后续历史标记 superseded
-- [ ] AI 状态机 locked→resolving→completed / needs_owner_attention；失败不写半截日志、不重复应用
-- [ ] 服务端 AI 垂直流程（create→join→approve→submit→lock→resolve→archive→project）通过
-- [ ] `combat` stateChange 在此阶段以 `STATE_CONFLICT` 门禁拒绝
-- [ ] typecheck/build 通过；两级 review 通过
+- [ ] **Phase 2A**：共享 HTTP harness 抽取（纯 refactor）；`004_world_state.sql` 创建；world fact contract/service/route 测试通过（owner 写、player 只读投影、knownBy 收敛 `[]`/自己）
+- [ ] **Phase 2A**：`005_events_outbox.sql` 创建；`campaignEventSchema` 每 variant 带 `campaignId`、`owner.debug` 定义未 emit、`eventDefaultAudience`/`canReadEvent` 就绪；outbox 每战役 sequence 并发安全（原子 upsert + `RETURNING`）、回滚无残留、`published_at` 可空
+- [ ] **Phase 2A**：`006_turns_actions.sql` 创建；最后一名玩家提交后自动锁定；锁定后不可修改；未批准角色不能提交；A 编辑不重复发事件；并发 A/B 只发一次 `turn.locked`；`sequence=[1,2,3]`
+- [ ] **Phase 2A**：HTTP 垂直验收（world + outbox + turns，owner/playerA/playerB）通过；world 投影隔离、outbox 顺序/内容/未发布、turn 视图隐私、DTO 无 `*_json`/内部字段；typecheck/build 通过；两级 review 通过
+- [ ] **Phase 2B**：`007_archives.sql` 创建；存档保存真实快照并支持真实恢复；恢复后后续历史标记 superseded
+- [ ] **Phase 2B**：`008_ai_runtime.sql` 创建；AI 状态机 locked→resolving→completed / needs_owner_attention；失败不写半截日志、不重复应用
+- [ ] **Phase 2B**：服务端 AI 垂直流程（create→join→approve→submit→lock→resolve→archive→project）通过；`combat` stateChange 以 `STATE_CONFLICT` 门禁拒绝
+- [ ] **Phase 2B**：typecheck/build 通过；两级 review 通过
 
 ### Phase 3（SSE 与结构化战斗）
 
@@ -418,12 +427,12 @@
 | --- | --- | --- |
 | 001_initial_platform.sql | 基线（已完成） | users/sessions/campaigns/campaign_members |
 | 002_campaign_invites.sql | 基线（已完成） | campaigns.invite_code_hash |
-| 003_characters.sql | Phase 1 | platform_characters + platform_character_audits |
-| 004_world_state.sql | Phase 2 | platform_world_facts |
-| 005_turns_actions.sql | Phase 2 | platform_turns + platform_actions |
-| 006_events_outbox.sql | Phase 2 | platform_outbox_events |
-| 007_archives.sql | Phase 2 | platform_archives |
-| 008_ai_runtime.sql | Phase 2 | platform_ai_runs + platform_turn_entries |
+| 003_characters.sql | Phase 1（已完成） | platform_characters + platform_character_audits |
+| 004_world_state.sql | Phase 2A | platform_world_facts |
+| 005_events_outbox.sql | Phase 2A | platform_outbox_sequences + platform_outbox_events |
+| 006_turns_actions.sql | Phase 2A | platform_turns + platform_actions + platform_turn_requirements |
+| 007_archives.sql | Phase 2B | platform_archives |
+| 008_ai_runtime.sql | Phase 2B | platform_ai_runs + platform_turn_entries |
 | 009_combat.sql | Phase 3 | platform_encounters + platform_combatants |
 | 010_rules_providers.sql | Phase 5 | platform_rule_sources + platform_provider_credentials |
 
@@ -437,8 +446,8 @@
 
 以下风险在复审文档 `docs/superpowers/reviews/2026-08-02-plan-and-baseline-review.md` 中记录，各阶段实施时必须持续关注：
 
-1. **PostgreSQL 契约测试需真实运行**：当前 `database.test.ts` 只真实运行 SQLite；Postgres 仅测试占位符重写。Phase 1 用 `POSTGRES_TEST_URL` 门控补上同一组契约测试，建议在部署 Postgres 环境后实际跑一次。
-2. **Node / better-sqlite3 ABI**：`better-sqlite3` 是原生模块，Node 主版本升级可能导致 ABI 不匹配。Phase 1 固定 `.nvmrc`/`engines` 并固定 `better-sqlite3` 版本。
+1. **PostgreSQL 契约测试需真实运行**：当前 `database.test.ts` 只真实运行 SQLite；Postgres 仅测试占位符重写。Phase 1 已用 `POSTGRES_TEST_URL` 门控补上同一组契约测试（4 个用例在未配置 URL 时跳过），**仍建议在部署 Postgres 环境后实际跑一次**。
+2. **Node / better-sqlite3 ABI**：`better-sqlite3` 是原生模块，Node 主版本升级可能导致 ABI 不匹配。Phase 1 已固定 `.nvmrc`（22.12.0）/engines（`>=22.12.0 <23`）、固定 `better-sqlite3` 12.10.0，并额外固定 `jsdom` 28.1.0 以消除 EBADENGINE；后续阶段禁止随意升级这些版本。
 3. **表名冲突**：平台迁移与旧 schema 共用同一 `dnd.sqlite`；新表统一 `platform_` 前缀规避 `CREATE TABLE IF NOT EXISTS` 静默跳过的风险。
 4. **AI 预览与正式提交分离**：公开预览失败时丢弃，不得把半截结果写入正式日志（Phase 2 硬约束）。
 
@@ -452,15 +461,15 @@
 | 创建长期战役 | 基线（Task 3，已完成） |
 | 配置用户自己的 AI Provider | Phase 5 |
 | 邀请玩家加入 | 基线（Task 3，已完成） |
-| 玩家创建角色 | Phase 1 |
-| 拥有者审核角色 | Phase 1 |
+| 玩家创建角色 | Phase 1（已完成） |
+| 拥有者审核角色 | Phase 1（已完成） |
 | 多名玩家提交本轮行动 | Phase 2 |
 | 最后一名玩家提交后自动锁定 | Phase 2 |
 | AI 流式生成公开叙事 | Phase 2（预览）+ Phase 3（SSE 投递） |
 | 校验结构化 AI 结果 | Phase 2 |
 | 应用角色、世界和战斗状态 | Phase 2（角色/世界）+ Phase 3（战斗） |
 | 创建自动存档 | Phase 2 |
-| 向不同玩家发布不同可见内容 | Phase 1（角色投影）+ Phase 2（turn entries）+ Phase 3（SSE 投影） |
+| 向不同玩家发布不同可见内容 | Phase 1（已完成，角色投影）+ Phase 2（turn entries）+ Phase 3（SSE 投影） |
 | AI 失败时停在拥有者处理状态 | Phase 2 |
 | 从存档恢复并继续战役 | Phase 2 |
 | 在单个面板出错时保持整个工作区可用 | Phase 4（前端错误边界） |

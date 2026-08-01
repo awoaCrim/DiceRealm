@@ -67,5 +67,12 @@
 
 - **总路线图**：`docs/superpowers/plans/2026-08-02-dnd-ai-dm-rearchitecture-revised.md` 重写为权威总路线图与计划索引，只保留阶段边界、依赖、迁移连续性、验收门与硬约束，不再承载逐任务伪代码。原 Task A-P 的范围被重新划分到 Phase 1-5（Task A/B/C 对应 Phase 1；D-H 对应 Phase 2；I/J 对应 Phase 3；K-M 对应 Phase 4；N-P 对应 Phase 5）。
 - **阶段一详细计划**：[`docs/superpowers/plans/2026-08-02-dnd-ai-dm-phase-1-access-characters.md`](../plans/2026-08-02-dnd-ai-dm-phase-1-access-characters.md) 是唯一立即可执行的详细 implementation plan，覆盖基线硬化、campaign-scoped access/visibility、角色后端与 HTTP 垂直验收，共 4 个小任务，均含 TDD 步骤、真实可编译测试、运行命令与指定路径 commit。
-- **后续阶段详细计划按门编写**：Phase 2-5 的详细计划只能在各自前一阶段通过验收与两级 review 后再编写，避免过早生成未经实现验证的伪代码漂移。阶段边界、依赖、迁移编号（`004_world_state`、`005_turns_actions`、`006_events_outbox`、`007_archives`、`008_ai_runtime`、`009_combat`、`010_rules_providers`）与关键不可变约束（事务、visibility、idempotency、preview）已固化在总路线图中。
+- **后续阶段详细计划按门编写**：Phase 2-5 的详细计划只能在各自前一阶段通过验收与两级 review 后再编写，避免过早生成未经实现验证的伪代码漂移。阶段边界、依赖、迁移编号（`004_world_state`、`005_events_outbox`、`006_turns_actions`、`007_archives`、`008_ai_runtime`、`009_combat`、`010_rules_providers`）与关键不可变约束（事务、visibility、idempotency、preview）已固化在总路线图中。
 - **后续详细计划的硬约束**（已写入总路线图）：所有 repository 写操作可接收同一 tx；不硬编码 campaignId/owner ctx；outbox sequence 并发安全；archive 保存真实快照与真实恢复；AI locked→resolving→completed/needs_owner_attention；public preview 与 player-private 投影分离；Provider 禁止 base64/默认密钥；E2E 真实 owner + 2 玩家；每个新错误码同步 contracts + AppError map；commit trailer 精确为 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`。
+
+## 七、阶段一完成状态（2026-08-02 追加）
+
+- **Phase 1 已完成并通过最终审查**，审查结论 **READY_FOR_PHASE_2**，详见：[`2026-08-02-phase-1-access-characters-review.md`](./2026-08-02-phase-1-access-characters-review.md)。
+- 阶段一提交范围：`62c40df` → `ddf149f` → `aa8bf8b` → `6e11c7a`（4 个 commit，覆盖基线硬化、campaign-scoped access/visibility、角色后端与 HTTP 垂直验收）。
+- 最终基线：Node 22.12.0 / jsdom 28.1.0 / better-sqlite3 12.10.0；全量 `rtk npm test` 43 files passed / 1 skipped、453 tests passed / 4 skipped（Postgres contract 因 `POSTGRES_TEST_URL` 未配置跳过）；root typecheck/build 通过；工作树干净；`main` 相对 `origin/codex/upload-initial-code` 领先 30 个提交（记录时）。
+- 下一步：按总路线图编写 Phase 2 详细计划（拆分 Phase 2A（world + outbox + turn，迁移 `004_world_state` → `005_events_outbox` → `006_turns_actions`）与 Phase 2B（archive + AI，迁移 `007_archives` → `008_ai_runtime`））。**Phase 2A 详细计划已编写**：`2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md`；Phase 2B 在 2A 完成并通过复审后编写。
