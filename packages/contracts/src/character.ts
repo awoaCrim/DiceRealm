@@ -67,3 +67,45 @@ export const characterDerivedValuesSchema = z.record(
 ).default({});
 
 export type CharacterDerivedValues = z.infer<typeof characterDerivedValuesSchema>;
+
+/** 玩家创建/更新角色的输入：名称去空格后非空，sheet 默认空对象。 */
+export const characterDraftInputSchema = z.object({
+  name: z.string().trim().min(1),
+  sheet: z.record(z.string(), z.unknown()).default({}),
+});
+
+export type CharacterDraftInput = z.infer<typeof characterDraftInputSchema>;
+
+/** 拥有者审核动作：approve 通过 / reject 退回。 */
+export const characterReviewActionSchema = z.enum(['approve', 'reject']);
+
+export type CharacterReviewAction = z.infer<typeof characterReviewActionSchema>;
+
+/** 拥有者退回后的角色：可再次编辑并重新提交。 */
+export const characterRejectedSchema = characterBaseSchema.extend({
+  status: z.literal('rejected'),
+  sheet: z.record(z.string(), z.unknown()).default({}),
+});
+
+export type CharacterRejected = z.infer<typeof characterRejectedSchema>;
+
+/** 玩家可见的其它已批准角色安全摘要（不含他人 sheet/derived 内部结构）。 */
+export const approvedCharacterSummarySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  playerId: z.string().min(1),
+});
+
+export type ApprovedCharacterSummary = z.infer<typeof approvedCharacterSummarySchema>;
+
+/** 角色投影：我的草稿/我的待审/我的已退回/我的已批准（完整角色）+ owner 待审队列 + party 已批准安全摘要。 */
+export const characterProjectionSchema = z.object({
+  myDrafts: z.array(characterDraftSchema),
+  myPending: z.array(characterReviewSchema),
+  myRejected: z.array(characterRejectedSchema),
+  myApproved: z.array(approvedCharacterSchema),
+  reviews: z.array(characterReviewSchema),
+  approvedSummaries: z.array(approvedCharacterSummarySchema),
+});
+
+export type CharacterProjection = z.infer<typeof characterProjectionSchema>;

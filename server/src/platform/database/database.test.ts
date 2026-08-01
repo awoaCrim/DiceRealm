@@ -49,6 +49,82 @@ describe('database adapter', () => {
   });
 });
 
+describe('transaction serialization', () => {
+  it('serializes two overlapping async transactions without a nested BEGIN error', async () => {
+    const db = createSqliteDatabase(':memory:');
+    await db.migrate();
+    const order: string[] = [];
+    // 两个 transaction 同时发起：互斥队列必须串行执行，第二个不得因 BEGIN 冲突报裸 SQLITE_ERROR。
+    const first = db.transaction(async (tx) => {
+      order.push('first-start');
+      await tx.execute(
+        'INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)',
+        ['t-1', 'serialized-1', 'hash'],
+      );
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      order.push('first-end');
+    });
+    const second = db.transaction(async (tx) => {
+      order.push('second-start');
+      await tx.execute(
+        'INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)',
+        ['t-2', 'serialized-2', 'hash'],
+      );
+      order.push('second-end');
+    });
+    await Promise.all([first, second]);
+    expect(order).toEqual(['first-start', 'first-end', 'second-start', 'second-end']);
+    const rows = await db.query<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM users WHERE login IN (?, ?)',
+      ['serialized-1', 'serialized-2'],
+    );
+    expect(Number(rows[0].count)).toBe(2);
+    await db.close();
+  });
+
+  it('continues serving the queue after a transaction rejects', async () => {
+    const db = createSqliteDatabase(':memory:');
+    await db.migrate();
+    const failing = db.transaction(async () => {
+      throw new Error('abort');
+    });
+    const succeeding = db.transaction(async (tx) => {
+      await tx.execute(
+        'INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)',
+        ['after-fail', 'after-fail-login', 'hash'],
+      );
+    });
+    await expect(failing).rejects.toThrow('abort');
+    // 前一事务失败后队列必须继续工作，不得因上一 reject 阻塞。
+    await expect(succeeding).resolves.toBeUndefined();
+    const rows = await db.query<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM users WHERE login = ?',
+      ['after-fail-login'],
+    );
+    expect(Number(rows[0].count)).toBe(1);
+    await db.close();
+  });
+
+  it('rejects a nested transaction with a clear error instead of deadlocking', async () => {
+    const db = createSqliteDatabase(':memory:');
+    await db.migrate();
+    await expect(
+      db.transaction(async (tx) => {
+        await db.transaction(async (innerTx) => {
+          await innerTx.query<{ v: number }>('SELECT 1 AS v');
+        });
+      }),
+    ).rejects.toThrow(/不支持嵌套/);
+    // 嵌套错误不会破坏队列：后续普通事务仍可执行。
+    const result = await db.transaction(async (tx) => {
+      const rows = await tx.query<{ v: number }>('SELECT 1 AS v');
+      return rows[0].v;
+    });
+    expect(result).toBe(1);
+    await db.close();
+  });
+});
+
 describe('postgres placeholder rewrite', () => {
   it('rewrites ? placeholders to $1, $2 in order', () => {
     expect(rewritePlaceholders('SELECT * FROM t WHERE a = ? AND b = ?', 2)).toBe(
