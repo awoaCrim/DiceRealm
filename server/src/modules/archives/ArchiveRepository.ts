@@ -51,6 +51,14 @@ export class ArchiveRepository {
     );
   }
 
+  /** 恢复：选中 archive 自身解除 superseded 标记，重新成为当前 active checkpoint
+   *  （version > target 的更新存档仍保持 superseded；version counter 不回退）。 */
+  async clearSuperseded(archiveId: string): Promise<void> {
+    await this.executor.execute(
+      'UPDATE platform_archives SET superseded_at = NULL, superseded_by_archive_id = NULL WHERE id = ?', [archiveId],
+    );
+  }
+
   async maxOutboxSequence(campaignId: string): Promise<number> {
     const rows = await this.executor.query<{ max: number | null }>(
       'SELECT MAX(sequence) AS max FROM platform_outbox_events WHERE campaign_id = ?', [campaignId],

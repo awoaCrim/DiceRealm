@@ -102,11 +102,16 @@ export class ArchiveService {
       await this.supersedeHistory(tx, ctx.campaignId, archive.id, archive.version, snapshot, now);
       // 5) 恢复快照状态。
       const restoredTurnId = await this.restoreSnapshotState(tx, ctx.campaignId, snapshot, ctx.userId, now);
+      // 5b) 选中 archive 自身解除 superseded，成为当前 active checkpoint；version > target 仍 superseded。
+      //     使恢复后的 DTO superseded=false 且 listForCampaign 可见（产品语义：选中的存档成为当前状态）。
+      await repo.clearSuperseded(archive.id);
       // 6) 最后 publish archive.restored（public；其 sequence > watermark，不被本次 supersede）。
       await this.outbox.publishIn(tx, {
         type: 'archive.restored', campaignId: ctx.campaignId, archiveId: archive.id, version: archive.version,
       });
-      return { archive: mapArchive(archive), restoredTurnId };
+      // 返回 DTO 前重读：确保 archive.superseded=false（选中 checkpoint 已重新激活）。
+      const restoredArchive = (await repo.findById(archive.id)) as ArchiveRow;
+      return { archive: mapArchive(restoredArchive), restoredTurnId };
     });
   }
 

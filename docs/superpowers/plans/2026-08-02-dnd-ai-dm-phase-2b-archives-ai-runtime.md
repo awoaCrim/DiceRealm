@@ -1943,11 +1943,16 @@ export class ArchiveService {
       await this.supersedeHistory(tx, ctx.campaignId, archive.id, archive.version, snapshot, now);
       // 5) 恢复快照状态。
       const restoredTurnId = await this.restoreSnapshotState(tx, ctx.campaignId, snapshot, ctx.userId, now);
+      // 5b) 选中 archive 自身解除 superseded，成为当前 active checkpoint（产品语义：选中的存档成为当前状态）。
+      //      version > target 的更新存档仍保持 superseded；version counter 不回退。
+      await repo.clearSuperseded(archive.id);
       // 6) 最后 publish archive.restored（public；其 sequence > watermark，不被本次 supersede）。
       await this.outbox.publishIn(tx, {
         type: 'archive.restored', campaignId: ctx.campaignId, archiveId: archive.id, version: archive.version,
       });
-      return { archive: mapArchive(archive), restoredTurnId };
+      // 返回 DTO 前重读：确保 archive.superseded=false（选中 checkpoint 已重新激活）。
+      const restoredArchive = (await repo.findById(archive.id)) as ArchiveRow;
+      return { archive: mapArchive(restoredArchive), restoredTurnId };
     });
   }
 
@@ -2070,6 +2075,9 @@ export class ArchiveService {
     const turns = new TurnRepository(tx);
     await turns.supersedeTurnsAfterNumber(campaignId, snapshot.watermarks.turnNumber, archiveId, now);
     // 比被恢复存档更新的 archives（version 更大）一律 supersede；version counter 永不回退。
+    // 注意：选中 archive 自身的 reactivation 不在本方法内——restore 主流程在第 5b 步调用
+    // ArchiveRepository.clearSuperseded(archive.id)，使「选中的存档成为当前 active checkpoint」，
+    // 而 version > target 的存档保持 superseded。本 UPDATE 的 `version > ?` 条件天然排除 target 自身。
     await tx.execute(
       'UPDATE platform_archives SET superseded_at = ?, superseded_by_archive_id = ? WHERE campaign_id = ? AND superseded_at IS NULL AND version > ?',
       [now, archiveId, campaignId, restoredVersion],

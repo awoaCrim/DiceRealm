@@ -521,6 +521,51 @@ describe('archives', () => {
     await db.close();
   });
 
+  it('reactivates a superseded archive checkpoint when restored and restores its snapshot state', async () => {
+    const { db, archives, ownerCtx } = await makeFixture();
+    const facts = new WorldFactRepository(db);
+    const now = new Date().toISOString();
+    await facts.insert({
+      id: 'fact-1', campaign_id: ownerCtx.campaignId, title: '酒馆', kind: 'location',
+      content: '热闹。', visibility: 'public', known_by_json: '[]', created_at: now, updated_at: now,
+    });
+    // v1 快照：fact-1 = '热闹。'
+    const v1 = await archives.createManual(ownerCtx, 'v1');
+    await db.execute("UPDATE platform_world_facts SET content = '冷清。', updated_at = ? WHERE id = ?", [now, 'fact-1']);
+    // v2 快照：fact-1 = '冷清。'
+    const v2 = await archives.createManual(ownerCtx, 'v2');
+    // 先 restore v1：v2 被 supersede，fact-1 恢复为 v1 快照值。
+    await archives.restore(ownerCtx, v1.id);
+    // 再 restore v2：v2 自身解除 superseded（选中存档成为当前状态），fact-1 恢复为 v2 快照值；
+    // v1（version < 2）保持 active，不被本次恢复 supersede。
+    const restored = await archives.restore(ownerCtx, v2.id);
+    expect(restored.archive.id).toBe(v2.id);
+    expect(restored.archive.superseded).toBe(false); // DTO 反映选中 checkpoint 已激活
+    const f1 = await db.query<{ content: string; superseded_at: string | null }>(
+      'SELECT content, superseded_at FROM platform_world_facts WHERE id = ?', ['fact-1'],
+    );
+    expect(f1[0].content).toBe('冷清。'); // state 恢复为 v2 快照值
+    expect(f1[0].superseded_at).toBeNull();
+    const rows = await db.query<{ version: number; superseded_at: string | null }>(
+      'SELECT version, superseded_at FROM platform_archives WHERE campaign_id = ? ORDER BY version', [ownerCtx.campaignId],
+    );
+    expect(rows.map((r) => r.version)).toEqual([1, 2]);
+    expect(rows[0].superseded_at).toBeNull(); // v1 保持 active
+    expect(rows[1].superseded_at).toBeNull(); // v2 自身清除 superseded
+    const list = await archives.listForCampaign(ownerCtx);
+    expect(list.map((a) => a.version)).toEqual([1, 2]); // active list 同时包含 v1/v2
+    expect(list.every((a) => a.superseded === false)).toBe(true);
+    // version counter 不回退。
+    const v3 = await archives.createManual(ownerCtx, 'v3');
+    expect(v3.version).toBe(3);
+    // 本次 restore v2 也发布独立 archive.restored 事件。
+    const events = await db.query<{ event_type: string; payload_json: string }>(
+      'SELECT event_type, payload_json FROM platform_outbox_events WHERE campaign_id = ?', [ownerCtx.campaignId],
+    );
+    expect(events.filter((e) => e.event_type === 'archive.restored' && JSON.parse(e.payload_json).archiveId === v2.id)).toHaveLength(1);
+    await db.close();
+  });
+
   it('restores world facts exactly and supersedes facts created after the snapshot', async () => {
     const { db, archives, ownerCtx } = await makeFixture();
     const facts = new WorldFactRepository(db);
