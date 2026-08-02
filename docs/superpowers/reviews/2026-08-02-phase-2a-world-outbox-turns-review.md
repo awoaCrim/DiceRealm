@@ -12,7 +12,7 @@
 | Task 2 世界事实 | `f297f65` | `feat: add campaign world facts with visibility projection`——`packages/contracts/src/world.ts` + `world.test.ts`；`004_world_state.sql`（`platform_world_facts`）；`WorldFactRepository`/`WorldFactService`/`worldRoutes`；`app.ts` 挂 `/api/campaigns/:campaignId/world` |
 | Task 3 事件契约 + outbox | `53fe438` | `feat: add campaign event contract and transactional outbox`——`packages/contracts/src/events.ts` 收敛（每 variant 带 `campaignId`、`interaction.requested` 补 `targetPlayerId`、新增 `owner.debug`、`eventDefaultAudience`/`canReadEvent`）；`005_events_outbox.sql`（`platform_outbox_sequences` + `platform_outbox_events`，`published_at` 可空）；`EventPublisherPort` 端口 + `OutboxRepository` 具体实现（原子 upsert 计数器 + `RETURNING`，绝不用“读取后 MAX+1”） |
 | Task 4 回合与行动 | `6b9e9ed` | `feat: add turn and action lifecycle with atomic outbox events`——`006_turns_actions.sql`（`platform_turns` + `platform_actions` + `platform_turn_requirements`）；`TurnRepository`/`TurnService`/`turnRoutes`；`packages/contracts/src/turn.ts` 追加 action/summary/player/owner view contract；`CharacterRepository` 只读新增 `countApproved`/`listApprovedPlayerIds`；`app.ts` 追加 turn 路由 |
-| 状态机修复 | `f6d5eb2` | `fix: prevent overlapping active turns`——实现复审发现 `locked` 回合可被新回合覆盖（原 `findActiveTurn` 只挡 `waiting_for_actions`）；改为 `findUnfinishedTurn`（`waiting_for_actions | locked | resolving | needs_owner_attention` 均视为进行中，只有 `completed` 才允许下一回合），并同步 Phase 2A 计划的进行中回合定义与验收门、补 2 个测试用例 |
+| 状态机修复 | `f6d5eb2` | `fix: prevent overlapping active turns`——实现复审发现 `locked` 回合可被新回合覆盖（原 `findActiveTurn` 只挡 `waiting_for_actions`）；改为 `findUnfinishedTurn`（`waiting_for_actions | locked | resolving | needs_owner_attention` 均视为进行中，只有 `completed` 才允许下一回合），并同步 Phase 2A 计划的进行中回合定义与验收门、补 4 个测试用例 |
 | Task 5 HTTP 垂直验收 | `4d57bd7` | `test: verify world/outbox/turn HTTP vertical flow with three actors`——`server/src/tests/vertical-world-outbox-turns-http.test.ts`（owner/playerA/playerB 三 cookie jar 完整流程：建战役→加入→建/审角色→四类 world fact→投影隔离→开回合→A 提交/编辑→B 提交→锁定→锁后 409 `TURN_LOCKED`→outbox 直查 sequence/types/payload/published_at） |
 
 阶段二 A 提交范围：`b12059c` → `4d57bd7`，共 6 个 commit（5 个小任务 + 1 个复审修复），每个任务一个只含该任务文件的 commit，trailer 均为 `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`。
@@ -48,7 +48,12 @@
 
 ## 四、计划偏差记录（全部判定合理，纳入后续阶段基线）
 
-1. **状态机审查发现 locked 后可开新回合，`f6d5eb2` 修复并同步计划**：Task 4 落地时回合状态机只把 `waiting_for_actions` 视为进行中（`findActiveTurn`），导致 `locked`/`resolving`/`needs_owner_attention` 状态下 owner 仍可再开新回合，产生重叠的进行中回合。最终复审发现该缺陷，修复为 `findUnfinishedTurn`——四态均视为进行中，只有 `completed` 才允许开启下一回合；锁定后回合只能经 AI 结算或 owner 处理前进（与产品规格一致）。同一 commit 同步更新 Phase 2A 计划的进行中/未终结回合定义与验收门，新增 2 个测试用例（locked 阻挡、resolving/needs_owner_attention 阻挡）。判定合理。
+1. **状态机审查发现 locked 后可开新回合，`f6d5eb2` 修复并同步计划**：Task 4 落地时回合状态机只把 `waiting_for_actions` 视为进行中（`findActiveTurn`），导致 `locked`/`resolving`/`needs_owner_attention` 状态下 owner 仍可再开新回合，产生重叠的进行中回合。最终复审发现该缺陷，修复为 `findUnfinishedTurn`——四态均视为进行中，只有 `completed` 才允许开启下一回合；锁定后回合只能经 AI 结算或 owner 处理前进（与产品规格一致）。同一 commit 同步更新 Phase 2A 计划的进行中/未终结回合定义与验收门，并补 4 个测试用例完整锁定该语义：
+   - **locked 阻挡**：A、B 均提交后回合锁定，再 `startTurn` → `STATE_CONFLICT`；
+   - **resolving/needs_owner_attention 阻挡**：手动置 `resolving` 或 `needs_owner_attention` 后 `startTurn` → `STATE_CONFLICT`；
+   - **completed 后允许下一回合**：置 `completed`（含 `completed_at`）后 `startTurn` 成功且 `number = 2`；
+   - **并发 startTurn 恰一成功**：两个并发 `startTurn` 恰一个 fulfilled，失败方 `STATE_CONFLICT`，库内仅一条 `platform_turns` 且 status 为 `waiting_for_actions`。
+   判定合理。
 2. **`countApproved` 只读方法预留**：`CharacterRepository` 按计划新增 `countApproved` 与 `listApprovedPlayerIds`；`listApprovedPlayerIds` 被 `TurnService.startTurn` 消费，`countApproved` 本阶段未消费（预留，供后续阶段统计用途）。属于计划内声明的只读新增，未改既有方法，判定合理。
 
 ## 五、非阻断观察（不阻塞进入 Phase 2B，后续阶段与测试需留意）
