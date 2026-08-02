@@ -71,5 +71,5 @@
 
 ## 七、下一步
 
-- 按总路线图，**只有 Phase 2A 完成并通过复审后才编写 Phase 2B 详细计划**；现满足该条件。
-- **Phase 2B 详细计划**（archives + AI runtime + 服务端 AI 垂直流程，迁移 `007_archives.sql` → `008_ai_runtime.sql`）在本复审后编写，尚未完成；实现范围含 `007_archives.sql`（真实快照 + 真实恢复 + `archive.restored` 系统事件）、`008_ai_runtime.sql`（AI 状态机 `locked → resolving → completed` / `needs_owner_attention`，失败不写半截日志、不重复应用）与 mock provider 的服务端 AI 垂直流程 `create → join → approve → submit → lock → resolve → archive → project`。
+- 按总路线图，**只有 Phase 2A 完成并通过复审后才编写 Phase 2B 详细计划**；现满足该条件，**Phase 2B 详细计划已编写（[`2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md`](../plans/2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md)，⏭ 待执行，尚未实现）**。
+- **Phase 2B 实现范围**（archives + AI runtime + 服务端 AI 垂直流程，迁移 `007_archives.sql` → `008_ai_runtime.sql`）：`007_archives.sql`（真实快照 + 真实恢复 + `archive.restored` 系统事件）、`008_ai_runtime.sql`（AI 状态机 `locked → resolving → completed` / `needs_owner_attention`，失败不写半截日志、不重复应用，短事务 lifecycle + idempotency）与 `ScriptedAiProvider` 注入的服务端 AI 垂直流程 `create → join → approve → submit → lock → resolve → archive → project`；实现完成后需通过本阶段两级 review，Phase 2 总体验收方告完成。
