@@ -178,18 +178,12 @@ describe('atomic migration application', () => {
   it('rolls back the migration schema when the tracking INSERT fails', async () => {
     const db = createSqliteDatabase(':memory:');
     try {
-      // Tracking table bootstrap is a separate concern (CREATE IF NOT EXISTS)
-      // and is intentionally done by hand here, mirroring MigrationRunner.
-      await db.exec(`
-        CREATE TABLE IF NOT EXISTS platform_migrations (
-          version TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          applied_at TEXT NOT NULL
-        )
-      `);
-      // 预置失败注入：故意让 tracking INSERT 违反约束（重复主键），从而在
-      // SQL 已执行之后、COMMIT 之前抛错。若 schema 与 tracking 在同一个
-      // 事务中提交/回滚，则下方的表也必须不存在。
+      // 先建立真实平台表（users 等），确保 migration 的 CREATE TABLE 与
+      // ALTER TABLE users 都能执行；唯一失败源只能是 tracking INSERT 违反
+      // PRIMARY KEY/UNIQUE，而不是 "no such table: users"。
+      await db.migrate();
+      // 预置与待应用 migration 同版本的行，让 tracking INSERT 在 SQL 全部
+      // 执行之后、COMMIT 之前违反 UNIQUE(version)。
       await db.execute('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)', ['009', 'dummy', 'now']);
 
       const migration: MigrationToApply = {
@@ -200,7 +194,10 @@ describe('atomic migration application', () => {
           ALTER TABLE users ADD COLUMN atomic_rollback_probe_col TEXT;
         `,
       };
-      await expect(db.applyMigration(migration, new Date().toISOString())).rejects.toThrow();
+      // 断言失败来自 tracking 的唯一约束，而不是迁移 SQL 本身。
+      await expect(db.applyMigration(migration, new Date().toISOString())).rejects.toThrow(
+        /UNIQUE constraint failed: platform_migrations\.version/,
+      );
       const tableRows = await db.query<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
         ['atomic_rollback_probe'],
@@ -211,9 +208,12 @@ describe('atomic migration application', () => {
         ['atomic_rollback_probe_col'],
       );
       expect(colRows).toEqual([]);
-      // tracking 行仍只有预置的那条，失败的 INSERT 没有留下半提交。
-      const tracking = await db.query<{ version: string }>('SELECT version FROM platform_migrations');
-      expect(tracking.map((row) => row.version)).toEqual(['009']);
+      // tracking 只有 001..007（migrate 应用）与预置的 seed 009，失败的
+      // INSERT 没有留下半提交。
+      const tracking = await db.query<{ version: string }>(
+        'SELECT version FROM platform_migrations ORDER BY version',
+      );
+      expect(tracking.map((row) => row.version)).toEqual(['001', '002', '003', '004', '005', '006', '007', '009']);
     } finally {
       await db.close();
     }
