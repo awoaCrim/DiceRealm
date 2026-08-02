@@ -16,6 +16,9 @@ import { createCharacterRouter } from './routes/characterRoutes.js';
 import { CharacterService } from './modules/characters/CharacterService.js';
 import { WorldFactService } from './modules/world/WorldFactService.js';
 import { createWorldRouter } from './routes/worldRoutes.js';
+import { TurnService } from './modules/turns/TurnService.js';
+import { OutboxRepository } from './platform/events/OutboxRepository.js';
+import { createTurnRouter } from './routes/turnRoutes.js';
 
 export interface CreateAppOptions {
   /** 可选：平台数据库适配器。提供时挂载身份/战役路由与会话中间件。 */
@@ -33,6 +36,8 @@ export function createApp(db: AppDatabase, options: CreateAppOptions = {}) {
     const campaigns = new CampaignService(options.platformDb);
     const characters = new CharacterService(options.platformDb);
     const worldFacts = new WorldFactService(options.platformDb);
+    // TurnService 依赖 EventPublisherPort 端口；composition root 注入 concrete OutboxRepository（与业务同 tx 写 outbox）。
+    const turns = new TurnService(options.platformDb, new OutboxRepository(options.platformDb));
     app.use(createSessionMiddleware(identity));
     app.use('/api/auth', createAuthRouter(identity));
     app.use('/api/campaigns', createCampaignRouter(campaigns));
@@ -40,6 +45,8 @@ export function createApp(db: AppDatabase, options: CreateAppOptions = {}) {
     app.use('/api/campaigns/:campaignId/characters', createCharacterRouter(options.platformDb, characters));
     // 世界事实路由同样挂在 campaign-scoped 前缀下。
     app.use('/api/campaigns/:campaignId/world', createWorldRouter(options.platformDb, worldFacts));
+    // 回合路由挂在 campaign-scoped 前缀下；owner/player 权限由 service 在事务内 enforce。
+    app.use('/api/campaigns/:campaignId/turns', createTurnRouter(options.platformDb, turns));
     // 平台路由的错误统一由新错误中间件处理；必须先于旧错误中间件注册，
     // 否则会被下面 legacy 的错误兜底吞掉并泄漏原始 message。
     app.use(errorMiddleware);

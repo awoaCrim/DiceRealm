@@ -50,6 +50,24 @@ export class CharacterRepository {
     );
   }
 
+  /** 只读：该 campaign 已批准角色数量。 */
+  async countApproved(campaignId: string): Promise<number> {
+    const rows = await this.executor.query<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM platform_characters WHERE campaign_id = ? AND status = ?',
+      [campaignId, 'approved'],
+    );
+    return Number(rows[0].count);
+  }
+
+  /** 只读：该 campaign 已批准角色的 DISTINCT player_id（决定回合必需玩家）。 */
+  async listApprovedPlayerIds(campaignId: string): Promise<string[]> {
+    const rows = await this.executor.query<{ player_id: string }>(
+      'SELECT DISTINCT player_id FROM platform_characters WHERE campaign_id = ? AND status = ? ORDER BY player_id',
+      [campaignId, 'approved'],
+    );
+    return rows.map((row) => row.player_id);
+  }
+
   async insert(row: CharacterRow): Promise<void> {
     await this.executor.execute(
       `INSERT INTO platform_characters

@@ -63,3 +63,61 @@ export const turnResolutionSchema = z.object({
 });
 
 export type TurnResolution = z.infer<typeof turnResolutionSchema>;
+
+export const turnActionInputSchema = z.object({
+  body: z.string().trim().min(1),
+});
+export type TurnActionInput = z.infer<typeof turnActionInputSchema>;
+
+export const turnSummarySchema = z.object({
+  id: z.string().min(1),
+  campaignId: z.string().min(1),
+  number: z.number().int(),
+  status: turnStatusSchema,
+  lockedAt: z.string().nullable(),
+  completedAt: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type TurnSummary = z.infer<typeof turnSummarySchema>;
+
+export const turnActionSchema = z.object({
+  id: z.string().min(1),
+  turnId: z.string().min(1),
+  campaignId: z.string().min(1),
+  playerId: z.string().min(1),
+  body: z.string(),
+  submittedAt: z.string(),
+  updatedAt: z.string(),
+});
+export type TurnAction = z.infer<typeof turnActionSchema>;
+
+export const turnProgressSchema = z.object({
+  requiredPlayerIds: z.array(z.string().min(1)),
+  submittedPlayerIds: z.array(z.string().min(1)),
+  locked: z.boolean(),
+});
+export type TurnProgress = z.infer<typeof turnProgressSchema>;
+
+/** 回合列表项：不含任何 action 正文。 */
+export const turnListEntrySchema = z.object({
+  turn: turnSummarySchema,
+  progress: turnProgressSchema,
+});
+export type TurnListEntry = z.infer<typeof turnListEntrySchema>;
+
+/** 玩家视角：只能看到自己的 action 正文。 */
+export const turnPlayerViewSchema = z.object({
+  turn: turnSummarySchema,
+  myAction: turnActionSchema.nullable(),
+  progress: turnProgressSchema,
+});
+export type TurnPlayerView = z.infer<typeof turnPlayerViewSchema>;
+
+/** owner 视角：看到全部 action 正文。 */
+export const turnOwnerViewSchema = z.object({
+  turn: turnSummarySchema,
+  actions: z.array(turnActionSchema),
+  progress: turnProgressSchema,
+});
+export type TurnOwnerView = z.infer<typeof turnOwnerViewSchema>;
