@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { AppDatabase } from '../../db/connection.js';
 import type { DatabasePort, MigrationExecutor, MigrationToApply, QueryExecutor } from './DatabasePort.js';
-import { MigrationRunner } from './migrations/MigrationRunner.js';
+import { MigrationRunner, PLATFORM_MIGRATION_INSERT_SQL } from './migrations/MigrationRunner.js';
 
 /**
  * SQLite adapter over an existing `better-sqlite3` connection.
@@ -38,13 +38,20 @@ export class SqliteDatabaseAdapter implements DatabasePort, MigrationExecutor {
 
   async exec(sql: string): Promise<void> {
     // Wrap multi-statement scripts (migrations) in an explicit transaction so
-    // a mid-batch failure rolls back everything that ran before it.
+    // a mid-batch failure rolls back everything that ran before it. This is
+    // only ever invoked synchronously by the startup path (all driver calls
+    // below are sync and cannot interleave on this single connection), so the
+    // BEGIN/COMMIT/ROLLBACK sequence cannot race a concurrent transaction.
     this.raw.exec('BEGIN');
     try {
       this.raw.exec(sql);
       this.raw.exec('COMMIT');
     } catch (error) {
-      this.raw.exec('ROLLBACK');
+      try {
+        this.raw.exec('ROLLBACK');
+      } catch {
+        // 回滚失败（连接已不可用等极端情况）时保留原始错误，不叠加掩盖。
+      }
       throw error;
     }
   }
@@ -55,23 +62,28 @@ export class SqliteDatabaseAdapter implements DatabasePort, MigrationExecutor {
    * schema applied but untracked, and the next restart would re-run
    * non-idempotent DDL (007's `ALTER TABLE ADD COLUMN`) and fail.
    *
-   * Deliberately does NOT go through the async `transaction()` helper: this
-   * path must execute the multi-statement migration script directly on the
-   * connection (the async queue would wrap it in a second BEGIN), and the
-   * script plus a parameterised prepared INSERT must share one transaction.
+   * Startup-only and single-threaded: better-sqlite3 executes synchronously on
+   * this one connection, and the migration runner never runs this concurrently
+   * with the business `transaction()` queue (migrations complete before the
+   * server starts accepting requests). Callers must never call this from
+   * inside a `transaction()` callback — the BEGIN would nest. It deliberately
+   * does NOT go through the async `transaction()` helper: this path must
+   * execute the multi-statement migration script directly on the connection
+   * (the async queue would wrap it in a second BEGIN), and the script plus a
+   * parameterised prepared INSERT must share one transaction.
    */
   async applyMigration(migration: MigrationToApply, appliedAt: string): Promise<void> {
     this.raw.exec('BEGIN');
     try {
       this.raw.exec(migration.sql);
-      this.raw.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)').run(
-        migration.version,
-        migration.name,
-        appliedAt,
-      );
+      this.raw.prepare(PLATFORM_MIGRATION_INSERT_SQL).run(migration.version, migration.name, appliedAt);
       this.raw.exec('COMMIT');
     } catch (error) {
-      this.raw.exec('ROLLBACK');
+      try {
+        this.raw.exec('ROLLBACK');
+      } catch {
+        // 回滚失败（连接已不可用等极端情况）时保留原始错误，不叠加掩盖。
+      }
       throw error;
     }
   }

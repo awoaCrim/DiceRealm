@@ -32,6 +32,19 @@ const TRACKING_TABLE_DDL = `
 `;
 
 /**
+ * Parameterised INSERT that records an applied migration version.
+ *
+ * Shared by every applyMigration implementation so the tracking statement
+ * cannot drift between the SQLite async adapter, the legacy sync adapter and
+ * the PostgreSQL adapter (the latter rewrites the `?` placeholders to `$1..$n`
+ * through `rewritePlaceholders`). The `?` placeholders are intentional: both
+ * SQLite paths use the statement as-is, and the Postgres adapter already
+ * rewrites `?` placeholders on its port methods.
+ */
+export const PLATFORM_MIGRATION_INSERT_SQL =
+  'INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)';
+
+/**
  * Runs versioned SQL migrations from the migrations directory and records
  * applied versions in `platform_migrations` so migrations never run twice.
  *

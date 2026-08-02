@@ -1,11 +1,12 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createSqliteDatabase } from './SqliteDatabaseAdapter.js';
 import { rewritePlaceholders } from './PostgresDatabaseAdapter.js';
-import { MigrationRunner } from './migrations/MigrationRunner.js';
+import { MigrationRunner, PLATFORM_MIGRATION_INSERT_SQL } from './migrations/MigrationRunner.js';
 import type { MigrationToApply } from './DatabasePort.js';
 import { createMemoryDb } from '../../db/connection.js';
 import { createLegacySyncAdapter, migrate, migratePlatform } from '../../db/schema.js';
@@ -182,13 +183,15 @@ describe('atomic migration application', () => {
       // ALTER TABLE users 都能执行；唯一失败源只能是 tracking INSERT 违反
       // PRIMARY KEY/UNIQUE，而不是 "no such table: users"。
       await db.migrate();
-      // 预置与待应用 migration 同版本的行，让 tracking INSERT 在 SQL 全部
-      // 执行之后、COMMIT 之前违反 UNIQUE(version)。
-      await db.execute('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)', ['009', 'dummy', 'now']);
+      // 以随机值 seed，避免与未来版本号（如 008）冲突；同时记录 baseline，
+      // 不把迁移版本硬编码进断言。
+      const seedVersion = `seed-${randomUUID()}`;
+      const baseline = (await db.query<{ version: string }>('SELECT version FROM platform_migrations')).map((r) => r.version).sort();
+      await db.execute(PLATFORM_MIGRATION_INSERT_SQL, [seedVersion, 'dummy', 'now']);
 
       const migration: MigrationToApply = {
-        version: '009',
-        name: '009_atomic_test.sql',
+        version: seedVersion,
+        name: `${seedVersion}_atomic_test.sql`,
         sql: `
           CREATE TABLE atomic_rollback_probe (id TEXT PRIMARY KEY);
           ALTER TABLE users ADD COLUMN atomic_rollback_probe_col TEXT;
@@ -208,12 +211,15 @@ describe('atomic migration application', () => {
         ['atomic_rollback_probe_col'],
       );
       expect(colRows).toEqual([]);
-      // tracking 只有 001..007（migrate 应用）与预置的 seed 009，失败的
-      // INSERT 没有留下半提交。
-      const tracking = await db.query<{ version: string }>(
-        'SELECT version FROM platform_migrations ORDER BY version',
+      // tracking = baseline + seed；seed 行仍是唯一的（name='dummy'），
+      // 失败的 migration 没有留下自己的 tracking 行。
+      const tracking = (await db.query<{ version: string }>('SELECT version FROM platform_migrations')).map((r) => r.version).sort();
+      expect(tracking).toEqual([...baseline, seedVersion].sort());
+      const seedRow = await db.query<{ name: string }>(
+        'SELECT name FROM platform_migrations WHERE version = ?',
+        [seedVersion],
       );
-      expect(tracking.map((row) => row.version)).toEqual(['001', '002', '003', '004', '005', '006', '007', '009']);
+      expect(seedRow).toEqual([{ name: 'dummy' }]);
     } finally {
       await db.close();
     }
@@ -231,9 +237,12 @@ describe('atomic migration application', () => {
           applied_at TEXT NOT NULL
         )
       `);
+      // 随机版本号，避免与真实迁移版本（001..008+）冲突。
+      const version = `atomic-commit-${randomUUID()}`;
+      const name = `${version}.sql`;
       const migration: MigrationToApply = {
-        version: '010',
-        name: '010_atomic_commit_test.sql',
+        version,
+        name,
         sql: 'CREATE TABLE atomic_commit_probe (id TEXT PRIMARY KEY);',
       };
       const appliedAt = new Date().toISOString();
@@ -245,9 +254,9 @@ describe('atomic migration application', () => {
       expect(tableRows.map((row) => row.name)).toEqual(['atomic_commit_probe']);
       const tracking = await db.query<{ version: string; name: string; applied_at: string }>(
         'SELECT version, name, applied_at FROM platform_migrations WHERE version = ?',
-        ['010'],
+        [version],
       );
-      expect(tracking).toEqual([{ version: '010', name: '010_atomic_commit_test.sql', applied_at: appliedAt }]);
+      expect(tracking).toEqual([{ version, name, applied_at: appliedAt }]);
     } finally {
       await db.close();
     }

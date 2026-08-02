@@ -1,6 +1,6 @@
 import type { AppDatabase } from './connection.js';
 import type { MigrationToApply, SyncMigrationExecutor } from '../platform/database/DatabasePort.js';
-import { MigrationRunner } from '../platform/database/migrations/MigrationRunner.js';
+import { MigrationRunner, PLATFORM_MIGRATION_INSERT_SQL } from '../platform/database/migrations/MigrationRunner.js';
 
 export function migrate(db: AppDatabase): void {
   // The legacy schema initialisation predates the platform MigrationRunner,
@@ -1135,17 +1135,19 @@ export function createLegacySyncAdapter(db: AppDatabase): SyncMigrationExecutor 
     applyMigration(migration: MigrationToApply, appliedAt: string): void {
       // Schema script + tracking INSERT share one explicit transaction so a
       // mid-apply failure rolls back the schema changes as well as the row.
+      // Synchronous and startup-only on this single connection, so the
+      // BEGIN/COMMIT/ROLLBACK sequence cannot race a concurrent transaction.
       db.exec('BEGIN');
       try {
         db.exec(migration.sql);
-        db.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)').run(
-          migration.version,
-          migration.name,
-          appliedAt,
-        );
+        db.prepare(PLATFORM_MIGRATION_INSERT_SQL).run(migration.version, migration.name, appliedAt);
         db.exec('COMMIT');
       } catch (error) {
-        db.exec('ROLLBACK');
+        try {
+          db.exec('ROLLBACK');
+        } catch {
+          // 回滚失败（连接已不可用等极端情况）时保留原始错误，不叠加掩盖。
+        }
         throw error;
       }
     },

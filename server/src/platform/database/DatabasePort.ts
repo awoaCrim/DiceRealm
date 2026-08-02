@@ -35,6 +35,11 @@ export interface MigrationExecutor extends QueryExecutor {
    * statement and the tracking INSERT would leave the schema applied but
    * untracked, so the next restart re-runs non-idempotent DDL (e.g. 007's
    * `ALTER TABLE ADD COLUMN`) and fails with a duplicate column.
+   *
+   * Startup-only: the migration runner invokes this before the server accepts
+   * requests, so implementations may assume single-threaded use on a dedicated
+   * connection and must never be called from inside a business `transaction()`
+   * callback (the nested BEGIN would fail).
    */
   applyMigration(migration: MigrationToApply, appliedAt: string): Promise<void>;
 }

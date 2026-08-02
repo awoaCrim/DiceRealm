@@ -1,6 +1,6 @@
 import pg from 'pg';
 import type { DatabasePort, MigrationExecutor, MigrationToApply, QueryExecutor } from './DatabasePort.js';
-import { MigrationRunner } from './migrations/MigrationRunner.js';
+import { MigrationRunner, PLATFORM_MIGRATION_INSERT_SQL } from './migrations/MigrationRunner.js';
 
 /**
  * PostgreSQL adapter over `pg.Pool`.
@@ -37,9 +37,10 @@ export class PostgresDatabaseAdapter implements DatabasePort, MigrationExecutor 
    * single pooled client inside ONE transaction. The migration script itself
    * can contain multiple statements (Postgres drivers only allow that on a
    * dedicated client, not through the generic pool `query`), and the tracking
-   * INSERT is parameterised (the migration name never appears in SQL text).
-   * The client is always released via `finally`, whether or not the
-   * transaction committed.
+   * INSERT is parameterised via the shared `PLATFORM_MIGRATION_INSERT_SQL`
+   * (`?` placeholders rewritten to `$1..$n`), so the migration name never
+   * appears in SQL text. The client is always released via `finally`, whether
+   * or not the transaction committed.
    */
   async applyMigration(migration: MigrationToApply, appliedAt: string): Promise<void> {
     const client = await this.pool.connect();
@@ -48,12 +49,16 @@ export class PostgresDatabaseAdapter implements DatabasePort, MigrationExecutor 
       try {
         await client.query(migration.sql);
         await client.query(
-          'INSERT INTO platform_migrations (version, name, applied_at) VALUES ($1, $2, $3)',
+          rewritePlaceholders(PLATFORM_MIGRATION_INSERT_SQL, 3),
           [migration.version, migration.name, appliedAt],
         );
         await client.query('COMMIT');
       } catch (error) {
-        await client.query('ROLLBACK');
+        try {
+          await client.query('ROLLBACK');
+        } catch {
+          // 回滚失败（连接已不可用等极端情况）时保留原始错误，不叠加掩盖。
+        }
         throw error;
       }
     } finally {
