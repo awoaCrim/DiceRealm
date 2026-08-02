@@ -80,12 +80,23 @@ export class ArchiveService {
       if (await aiRuns.findRunningRun(ctx.campaignId)) {
         throw new AppError('STATE_CONFLICT', '存在运行中的 AI 结算，无法恢复存档。');
       }
-      // 3) 解析快照。
-      const parsed = archiveSnapshotSchema.safeParse(JSON.parse(archive.state_json));
+      // 3) 解析快照：malformed JSON 与 schema 校验失败统一归一为 INTERNAL_ERROR（不泄漏 SyntaxError）。
+      let raw: unknown;
+      try {
+        raw = JSON.parse(archive.state_json);
+      } catch {
+        throw new AppError('INTERNAL_ERROR', '存档快照无效。');
+      }
+      const parsed = archiveSnapshotSchema.safeParse(raw);
       if (!parsed.success) {
         throw new AppError('INTERNAL_ERROR', '存档快照无效。');
       }
       const snapshot = parsed.data;
+      // 3b) 快照自身 currentTurn 为 resolving 的快照不可恢复：即使 live DB 无 resolving turn / running run
+      //     （如外部构造或人工改库产生的异常快照），也绝不允许把回合恢复进 resolving 状态。
+      if (snapshot.currentTurn?.turn.status === 'resolving') {
+        throw new AppError('STATE_CONFLICT', '结算中的回合快照无法恢复。');
+      }
       const now = new Date().toISOString();
       // 4) 先 supersede 旧历史（被恢复 archive 的 version 作为 archives 超水位）。
       await this.supersedeHistory(tx, ctx.campaignId, archive.id, archive.version, snapshot, now);
@@ -301,6 +312,11 @@ export class ArchiveService {
       await turns.replaceRequirements(current.turn.id, campaignId, current.requirements.map((r) => fromSnapshotRequirement(current.turn.id, campaignId, r)));
     }
 
+    // restoredTurnId 必须是实际落库的 turn id：同 number 已有 replacement id（快照 turn id 已删除、
+    // 新 id 占位同号）时返回 existing.id，而非快照里的 current.turn.id；insert 新行时返回快照 id。
+    // completed 快照下方单独返回新 waiting turn id。
+    const restoredTurnId = existing ? existing.id : current.turn.id;
+
     if (current.turn.status === 'completed') {
       // completed 快照：同 tx 创建新 waiting turn，number = 全局 MAX+1（含 superseded，不复用）。
       const number = (await turns.maxTurnNumber(campaignId)) + 1;
@@ -320,7 +336,8 @@ export class ArchiveService {
       return newTurnId;
     }
     // waiting/locked/needs_owner_attention 快照：恢复该状态，不自动开新回合。
-    return current.turn.id;
+    // 返回实际落库的 turn id（existing-by-number 路径返回 existing.id）。
+    return restoredTurnId;
   }
 }
 

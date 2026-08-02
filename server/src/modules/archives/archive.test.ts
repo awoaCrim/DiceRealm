@@ -281,19 +281,96 @@ describe('archives', () => {
     await db.close();
   });
 
-  it('rolls back restore on failure without partial superseding', async () => {
+  it('normalizes malformed snapshot JSON into a controlled INTERNAL_ERROR and rolls back', async () => {
     const { db, turns, archives, ownerCtx, aCtx, bCtx } = await makeFixture();
     const t1 = await turns.startTurn(ownerCtx);
     await turns.submitAction(aCtx, t1.id, { body: 'A' });
     await turns.submitAction(bCtx, t1.id, { body: 'B' });
     const manual = await archives.createManual(ownerCtx, 'rollback');
-    // 人为破坏存档 state_json → restore 的 snapshot parse 失败 → 整体回滚。
+    // 存档后产生一个 later turn：restore 若进行会 supersede 它；malformed JSON 必须先于任何写入失败。
+    await db.execute("UPDATE platform_turns SET status = 'completed', completed_at = ? WHERE id = ?", [new Date().toISOString(), t1.id]);
+    const t2 = await turns.startTurn(ownerCtx);
+    // 人为破坏存档 state_json → 精确断言受控错误（不泄漏 SyntaxError）且整体回滚。
     await db.execute('UPDATE platform_archives SET state_json = ? WHERE id = ?', ['{bad json', manual.id]);
-    await expect(archives.restore(ownerCtx, manual.id)).rejects.toBeTruthy();
+    await expect(archives.restore(ownerCtx, manual.id)).rejects.toMatchObject({ code: 'INTERNAL_ERROR', message: '存档快照无效。' });
     const active = await db.query<{ id: string }>(
       'SELECT id FROM platform_turns WHERE campaign_id = ? AND superseded_at IS NULL', [t1.campaignId],
     );
-    expect(active.map((r) => r.id)).toEqual([t1.id]); // 没有任何回合被 supersede
+    expect(active.map((r) => r.id)).toEqual([t1.id, t2.id]); // 没有任何回合被 supersede
+    const events = await db.query<{ event_type: string }>('SELECT event_type FROM platform_outbox_events WHERE campaign_id = ?', [t1.campaignId]);
+    expect(events.filter((e) => e.event_type === 'archive.restored')).toHaveLength(0); // 未发布 restore 事件
+    await db.close();
+  });
+
+  it('rejects a snapshot that fails schema validation with a controlled INTERNAL_ERROR', async () => {
+    const { db, turns, archives, ownerCtx, aCtx, bCtx } = await makeFixture();
+    const t1 = await turns.startTurn(ownerCtx);
+    await turns.submitAction(aCtx, t1.id, { body: 'A' });
+    await turns.submitAction(bCtx, t1.id, { body: 'B' });
+    const manual = await archives.createManual(ownerCtx, 'bad-schema');
+    // 合法 JSON 但不符合 archiveSnapshotSchema（缺 watermarks）：同样归一为 INTERNAL_ERROR 并回滚。
+    await db.execute('UPDATE platform_archives SET state_json = ? WHERE id = ?', ['{"not":"a snapshot"}', manual.id]);
+    await expect(archives.restore(ownerCtx, manual.id)).rejects.toMatchObject({ code: 'INTERNAL_ERROR', message: '存档快照无效。' });
+    const turnRow = await db.query<{ status: string; superseded_at: string | null }>('SELECT status, superseded_at FROM platform_turns WHERE id = ?', [t1.id]);
+    expect(turnRow[0].status).toBe('locked'); // 回合状态未被改变
+    expect(turnRow[0].superseded_at).toBeNull();
+    await db.close();
+  });
+
+  it('rejects restoring a snapshot whose own turn is resolving even when live DB is clean', async () => {
+    const { db, turns, archives, ownerCtx, aCtx, bCtx } = await makeFixture();
+    const t1 = await turns.startTurn(ownerCtx);
+    await turns.submitAction(aCtx, t1.id, { body: 'A' });
+    await turns.submitAction(bCtx, t1.id, { body: 'B' });
+    const manual = await archives.createManual(ownerCtx, 'resolving-snap'); // snapshot currentTurn = t1 locked
+    // 人为把快照 currentTurn.turn.status 改为 resolving：live DB 无 resolving turn、无 running run，
+    // 只能命中「快照自身 resolving」守卫（live 守卫测不出这种异常快照）。
+    const state = JSON.parse((await db.query<{ state_json: string }>('SELECT state_json FROM platform_archives WHERE id = ?', [manual.id]))[0].state_json) as { currentTurn: { turn: { status: string } } };
+    state.currentTurn.turn.status = 'resolving';
+    await db.execute('UPDATE platform_archives SET state_json = ? WHERE id = ?', [JSON.stringify(state), manual.id]);
+    await expect(archives.restore(ownerCtx, manual.id)).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    // 拒绝后：任何 superseded / archive.restored / 角色归档都没有发生。
+    const turnsRows = await db.query<{ superseded_at: string | null }>('SELECT superseded_at FROM platform_turns WHERE campaign_id = ?', [ownerCtx.campaignId]);
+    for (const row of turnsRows) expect(row.superseded_at).toBeNull();
+    const events = await db.query<{ event_type: string }>('SELECT event_type FROM platform_outbox_events WHERE campaign_id = ?', [ownerCtx.campaignId]);
+    expect(events.filter((e) => e.event_type === 'archive.restored')).toHaveLength(0);
+    const charRows = await db.query<{ status: string }>('SELECT status FROM platform_characters WHERE campaign_id = ?', [ownerCtx.campaignId]);
+    expect(charRows.every((r) => r.status !== 'archived')).toBe(true); // 快照外角色也不会被归档
+    await db.close();
+  });
+
+  it('returns the replacement turn id and remaps children when the snapshot turn id no longer exists', async () => {
+    const { db, turns, archives, ownerCtx, aCtx, bCtx } = await makeFixture();
+    const t1 = await turns.startTurn(ownerCtx);
+    await turns.submitAction(aCtx, t1.id, { body: 'A 原行动' });
+    await turns.submitAction(bCtx, t1.id, { body: 'B 原行动' });
+    const manual = await archives.createManual(ownerCtx, 'replacement'); // snapshot currentTurn = t1 locked, number=1
+    const now = new Date().toISOString();
+    // 快照 turn 被物理删除（历史清理/回填），同 number 换新 id 占位：先按 FK 安全顺序删 t1 的子行与引用。
+    await db.execute('DELETE FROM platform_actions WHERE turn_id = ?', [t1.id]);
+    await db.execute('DELETE FROM platform_turn_requirements WHERE turn_id = ?', [t1.id]);
+    await db.execute('UPDATE platform_archives SET turn_id = NULL WHERE turn_id = ?', [t1.id]);
+    await db.execute('DELETE FROM platform_turns WHERE id = ?', [t1.id]);
+    const replacementId = nanoid(24);
+    await db.execute(
+      "INSERT INTO platform_turns (id, campaign_id, number, status, locked_at, completed_at, created_at, updated_at) VALUES (?, ?, 1, 'waiting_for_actions', NULL, NULL, ?, ?)",
+      [replacementId, ownerCtx.campaignId, now, now],
+    );
+    await db.execute(
+      'INSERT INTO platform_turn_requirements (turn_id, campaign_id, player_id, submitted) VALUES (?, ?, ?, 0)',
+      [replacementId, ownerCtx.campaignId, aCtx.playerId as string],
+    );
+    const restored = await archives.restore(ownerCtx, manual.id);
+    // restoredTurnId 必须返回实际落库的 existing.id（replacementId），而非已删除的快照 turn id。
+    expect(restored.restoredTurnId).toBe(replacementId);
+    // actions/requirements 全部 remap 到 replacementId。
+    const actions = await db.query<{ body: string }>('SELECT body FROM platform_actions WHERE turn_id = ? ORDER BY body', [replacementId]);
+    expect(actions.map((a) => a.body)).toEqual(['A 原行动', 'B 原行动']);
+    const reqs = await db.query<{ player_id: string }>('SELECT player_id FROM platform_turn_requirements WHERE turn_id = ? ORDER BY player_id', [replacementId]);
+    expect(reqs.map((r) => r.player_id).sort()).toEqual([aCtx.playerId as string, bCtx.playerId as string].sort());
+    const turnRow = await db.query<{ status: string; superseded_at: string | null }>('SELECT status, superseded_at FROM platform_turns WHERE id = ?', [replacementId]);
+    expect(turnRow[0].status).toBe('locked'); // 快照 locked 状态恢复到 replacement 行
+    expect(turnRow[0].superseded_at).toBeNull();
     await db.close();
   });
 
