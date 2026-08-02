@@ -4,7 +4,9 @@
 >
 > 本文是 `2026-08-02-dnd-ai-dm-rearchitecture-revised.md`（权威总路线图）中 **Phase 2A** 的唯一可执行详细计划，覆盖 5 个小任务：共享 HTTP harness、世界事实（`004_world_state.sql`）、事件契约与事务性 outbox（`005_events_outbox.sql`）、回合与行动（`006_turns_actions.sql`）、HTTP 垂直验收。Phase 2B（存档 + AI runtime，`007`–`008`）在 2A 完成并通过复审后编写。
 
-## 状态：⏭ 待执行
+## 状态：✅ 已完成
+
+**状态：** 已完成。commit 范围 `b12059c` → `4d57bd7`（6 个 commit：5 个小任务 + 复审修复 `f6d5eb2`）；最终审查结论 **READY_FOR_PHASE_2B**，见 [`2026-08-02-phase-2a-world-outbox-turns-review.md`](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)。本文件是**已执行完毕的历史计划**，以下全部任务步骤均为实现记录，不再作为待执行事项；**Phase 2B 已满足编写前置条件**。
 
 **Goal:** 在 Phase 1（`62c40df`–`6e11c7a`）已建成 campaign-scoped 权限、`VisibilityPolicy`、角色后端与 HTTP 垂直基线上，产出（1）共享 HTTP test harness（纯 refactor，前后测试绿），（2）世界事实数据面（owner 写、player 只读投影、knownBy 不泄漏），（3）事件契约与事务性 outbox（每战役 sequence 并发安全、回滚不留残迹、事件受众可投影），（4）回合与行动生命周期（最后一名提交自动锁定、`turn.action_submitted`/`turn.locked` 与业务写同事务），（5）owner + playerA + playerB 三 actor 的 HTTP 垂直验收，锁定 world/outbox/turn 三条链路的正确性与隐私隔离。
 
@@ -2285,12 +2287,12 @@ rtk git commit -m "test: verify world/outbox/turn HTTP vertical flow with three 
 
 ## 本阶段验收门检查清单（全部完成后勾选）
 
-- [ ] 共享 HTTP harness 抽取完成：`startPlatformServer` 返回 `platformDb`；`close()` 先关 server 再关 platformDb；既有 `authCampaignRoutes`/`vertical-characters-http` 断言行为不变、全绿
-- [ ] `004_world_state.sql` 创建；world contract + service + route 测试通过；owner 写、player 只读投影、knownBy 收敛 `[]`/自己、owner_only 不外泄、非成员 knownBy 拒绝；update 保留原 `created_at`（仅 `updated_at` 前进）
-- [ ] `005_events_outbox.sql` 创建；`campaignEventSchema` 每 variant 带 `campaignId`；`owner.debug` 已定义未 emit；`eventDefaultAudience`/`canReadEvent` 就绪；outbox 并发安全、回滚无残留、`published_at` 可空
-- [ ] `006_turns_actions.sql` 创建；最后一名提交自动锁定；锁定后 `TURN_LOCKED`；未批准 `CHARACTER_NOT_APPROVED`；A 编辑不重复发事件；并发 A/B 只发一次 `turn.locked`；`sequence=[1,2,3]`
-- [ ] HTTP 垂直验收（owner + playerA + playerB）通过；world 投影隔离、outbox 顺序/内容/未发布、turn 视图隐私、DTO 无 `*_json`/内部字段
-- [ ] `rtk npm test`、`rtk npm run typecheck`、`rtk npm run build` 全绿；Phase 2A 两级 review（计划 review + 实现 review）通过后编写 Phase 2B 详细计划
+- [x] 共享 HTTP harness 抽取完成：`startPlatformServer` 返回 `platformDb`；`close()` 先关 server 再关 platformDb；既有 `authCampaignRoutes`/`vertical-characters-http` 断言行为不变、全绿
+- [x] `004_world_state.sql` 创建；world contract + service + route 测试通过；owner 写、player 只读投影、knownBy 收敛 `[]`/自己、owner_only 不外泄、非成员 knownBy 拒绝；update 保留原 `created_at`（仅 `updated_at` 前进）
+- [x] `005_events_outbox.sql` 创建；`campaignEventSchema` 每 variant 带 `campaignId`；`owner.debug` 已定义未 emit；`eventDefaultAudience`/`canReadEvent` 就绪；outbox 并发安全、回滚无残留、`published_at` 可空
+- [x] `006_turns_actions.sql` 创建；最后一名提交自动锁定；锁定后 `TURN_LOCKED`；未批准 `CHARACTER_NOT_APPROVED`；A 编辑不重复发事件；并发 A/B 只发一次 `turn.locked`；`sequence=[1,2,3]`；locked 也阻挡新回合（`f6d5eb2` 修复）
+- [x] HTTP 垂直验收（owner + playerA + playerB）通过；world 投影隔离、outbox 顺序/内容/未发布、turn 视图隐私、DTO 无 `*_json`/内部字段
+- [x] `rtk npm test`、`rtk npm run typecheck`、`rtk npm run build` 全绿；Phase 2A 两级 review（计划 review + 实现 review）通过（结论 READY_FOR_PHASE_2B）；Phase 2B 详细计划在 2A 通过复审后编写（下一步）
 
 ## 已知错误形态（本阶段不得出现）
 
