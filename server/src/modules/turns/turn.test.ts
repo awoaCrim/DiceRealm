@@ -57,6 +57,57 @@ describe('turns', () => {
     await db.close();
   });
 
+  it('rejects starting a new turn while a locked turn is unresolved', async () => {
+    const { db, service, ownerCtx, aCtx, bCtx } = await makeFixture();
+    const turn = await service.startTurn(ownerCtx);
+    await service.submitAction(aCtx, turn.id, { body: 'A 行动' });
+    await service.submitAction(bCtx, turn.id, { body: 'B 行动' });
+    // locked 也是进行中：只能经 AI 结算或 owner 处理前进，不能开新回合。
+    await expect(service.startTurn(ownerCtx)).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    await db.close();
+  });
+
+  it('rejects starting a new turn while a turn is resolving or needs owner attention', async () => {
+    const { db, service, ownerCtx } = await makeFixture();
+    const turn = await service.startTurn(ownerCtx);
+    await db.execute("UPDATE platform_turns SET status = 'resolving' WHERE id = ?", [turn.id]);
+    await expect(service.startTurn(ownerCtx)).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    await db.execute("UPDATE platform_turns SET status = 'needs_owner_attention' WHERE id = ?", [turn.id]);
+    await expect(service.startTurn(ownerCtx)).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    await db.close();
+  });
+
+  it('allows starting the next turn after the previous one is completed', async () => {
+    const { db, service, ownerCtx } = await makeFixture();
+    const first = await service.startTurn(ownerCtx);
+    await db.execute("UPDATE platform_turns SET status = 'completed', completed_at = ? WHERE id = ?", [
+      new Date().toISOString(), first.id,
+    ]);
+    const next = await service.startTurn(ownerCtx);
+    expect(next.number).toBe(2);
+    expect(next.status).toBe('waiting_for_actions');
+    await db.close();
+  });
+
+  it('serializes concurrent startTurn so exactly one wins and the other gets STATE_CONFLICT', async () => {
+    const { db, service, ownerCtx } = await makeFixture();
+    const results = await Promise.allSettled([
+      service.startTurn(ownerCtx),
+      service.startTurn(ownerCtx),
+    ]);
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0].reason as { code?: string }).code).toBe('STATE_CONFLICT');
+    const rows = await db.query<{ number: number; status: string }>(
+      'SELECT number, status FROM platform_turns ORDER BY number',
+    );
+    expect(rows.map((r) => r.number)).toEqual([1]);
+    expect(rows[0].status).toBe('waiting_for_actions');
+    await db.close();
+  });
+
   it('rejects startTurn without any approved character', async () => {
     const db = createSqliteDatabase(':memory:');
     await db.migrate();

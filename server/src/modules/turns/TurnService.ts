@@ -26,15 +26,16 @@ export class TurnService {
     this.repository = new TurnRepository(executor);
   }
 
-  /** owner 开始新回合：campaign 行锁 → 无 active → distinct approved → MAX+1（锁内安全）→ insert turn+requirements。 */
+  /** owner 开始新回合：campaign 行锁 → 无未终结回合 → distinct approved → MAX+1（锁内安全）→ insert turn+requirements。 */
   async startTurn(ctx: CampaignAuthContext): Promise<TurnSummary> {
     requireOwner(ctx);
     return this.executor.transaction(async (tx) => {
       // 1) campaign 行锁：no-op 写（Postgres 行锁；SQLite 写事务串行）。
       await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [ctx.campaignId]);
       const repo = new TurnRepository(tx);
-      // 2) 无 active 回合。
-      const active = await repo.findActiveTurn(ctx.campaignId);
+      // 2) 无未终结（进行中）回合：locked/resolving/needs_owner_attention 同样阻挡新回合，
+      //    只有 completed 才允许下一回合。
+      const active = await repo.findUnfinishedTurn(ctx.campaignId);
       if (active) {
         throw new AppError('STATE_CONFLICT', '已有进行中的回合。');
       }

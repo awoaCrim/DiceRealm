@@ -53,9 +53,14 @@ export class TurnRepository {
     return rows[0] ?? null;
   }
 
-  async findActiveTurn(campaignId: string): Promise<TurnRow | null> {
+  /**
+   * 查找战役内未终结（进行中）的回合：waiting_for_actions / locked / resolving /
+   * needs_owner_attention 都算进行中，只有 completed 才允许开启下一回合。
+   * 锁定后回合只能经 AI 结算或 owner 处理前进（产品规格），因此 locked 也阻挡新回合。
+   */
+  async findUnfinishedTurn(campaignId: string): Promise<TurnRow | null> {
     const rows = await this.executor.query<TurnRow>(
-      "SELECT * FROM platform_turns WHERE campaign_id = ? AND status = 'waiting_for_actions' ORDER BY number ASC LIMIT 1",
+      "SELECT * FROM platform_turns WHERE campaign_id = ? AND status IN ('waiting_for_actions','locked','resolving','needs_owner_attention') ORDER BY number ASC LIMIT 1",
       [campaignId],
     );
     return rows[0] ?? null;

@@ -1215,7 +1215,9 @@ rtk git commit -m "feat: add campaign event contract and transactional outbox" -
 
 **依赖：** Task 3 的 `EventPublisherPort`/`OutboxRepository`（`TurnService` 依赖 port，app 注入 concrete）；Phase 1 的 `CharacterRepository`（本任务只读新增）与 `CampaignAuthContext`/`requireOwner`。Task 2 已占用迁移 004，本任务 006。
 
-**目标：** `startTurn`（owner、campaign 行锁、无 active、distinct approved、无批准 → `CHARACTER_NOT_APPROVED`、`MAX(number)+1` 仅在锁内安全）与 `submitAction`/`edit`（player only、turn 行锁、状态区分 `NOT_FOUND`/`TURN_LOCKED`/`TURN_NOT_ACTIVE`、approved + 必须 requirements、upsert 自己的 action、首次提交才发 `turn.action_submitted`、最后一名提交才发 `turn.locked`，两事件与业务写同 tx）。player 视角只见自己的 action，owner 视角见全部 action；事件与 list 不含正文。
+**目标：** `startTurn`（owner、campaign 行锁、无未终结回合、distinct approved、无批准 → `CHARACTER_NOT_APPROVED`、`MAX(number)+1` 仅在锁内安全）与 `submitAction`/`edit`（player only、turn 行锁、状态区分 `NOT_FOUND`/`TURN_LOCKED`/`TURN_NOT_ACTIVE`、approved + 必须 requirements、upsert 自己的 action、首次提交才发 `turn.action_submitted`、最后一名提交才发 `turn.locked`，两事件与业务写同 tx）。player 视角只见自己的 action，owner 视角见全部 action；事件与 list 不含正文。
+
+> 进行中/未终结回合定义：`waiting_for_actions | locked | resolving | needs_owner_attention`。只有 `completed` 才允许开启下一回合。锁定后回合只能经 AI 结算或 owner 处理前进（产品规格 2026-08-01 rearchitecture 设计），因此 `locked` 同样阻挡新回合，避免重叠的进行中回合。
 
 ### Files
 
@@ -1351,6 +1353,57 @@ describe('turns', () => {
     const { db, service, ownerCtx } = await makeFixture();
     await service.startTurn(ownerCtx);
     await expect(service.startTurn(ownerCtx)).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    await db.close();
+  });
+
+  it('rejects starting a new turn while a locked turn is unresolved', async () => {
+    const { db, service, ownerCtx, aCtx, bCtx } = await makeFixture();
+    const turn = await service.startTurn(ownerCtx);
+    await service.submitAction(aCtx, turn.id, { body: 'A 行动' });
+    await service.submitAction(bCtx, turn.id, { body: 'B 行动' });
+    // locked 也是进行中：只能经 AI 结算或 owner 处理前进，不能开新回合。
+    await expect(service.startTurn(ownerCtx)).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    await db.close();
+  });
+
+  it('rejects starting a new turn while a turn is resolving or needs owner attention', async () => {
+    const { db, service, ownerCtx } = await makeFixture();
+    const turn = await service.startTurn(ownerCtx);
+    await db.execute("UPDATE platform_turns SET status = 'resolving' WHERE id = ?", [turn.id]);
+    await expect(service.startTurn(ownerCtx)).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    await db.execute("UPDATE platform_turns SET status = 'needs_owner_attention' WHERE id = ?", [turn.id]);
+    await expect(service.startTurn(ownerCtx)).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    await db.close();
+  });
+
+  it('allows starting the next turn after the previous one is completed', async () => {
+    const { db, service, ownerCtx } = await makeFixture();
+    const first = await service.startTurn(ownerCtx);
+    await db.execute("UPDATE platform_turns SET status = 'completed', completed_at = ? WHERE id = ?", [
+      new Date().toISOString(), first.id,
+    ]);
+    const next = await service.startTurn(ownerCtx);
+    expect(next.number).toBe(2);
+    expect(next.status).toBe('waiting_for_actions');
+    await db.close();
+  });
+
+  it('serializes concurrent startTurn so exactly one wins and the other gets STATE_CONFLICT', async () => {
+    const { db, service, ownerCtx } = await makeFixture();
+    const results = await Promise.allSettled([
+      service.startTurn(ownerCtx),
+      service.startTurn(ownerCtx),
+    ]);
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0].reason as { code?: string }).code).toBe('STATE_CONFLICT');
+    const rows = await db.query<{ number: number; status: string }>(
+      'SELECT number, status FROM platform_turns ORDER BY number',
+    );
+    expect(rows.map((r) => r.number)).toEqual([1]);
+    expect(rows[0].status).toBe('waiting_for_actions');
     await db.close();
   });
 
@@ -1588,9 +1641,16 @@ export class TurnRepository {
     return rows[0] ?? null;
   }
 
-  async findActiveTurn(campaignId: string): Promise<TurnRow | null> {
+  /**
+   * 查找战役内未终结（进行中）的回合：waiting_for_actions / locked / resolving /
+   * needs_owner_attention 都算进行中，只有 completed 才允许开启下一回合。
+   * 锁定后回合只能经 AI 结算或 owner 处理前进（产品规格 2026-08-01 rearchitecture
+   * 设计：锁定后“所有行动不可修改；回合只能通过 AI 结算或拥有者处理流程前进”），
+   * 因此 locked 也阻挡新回合，避免出现重叠的进行中回合。
+   */
+  async findUnfinishedTurn(campaignId: string): Promise<TurnRow | null> {
     const rows = await this.executor.query<TurnRow>(
-      "SELECT * FROM platform_turns WHERE campaign_id = ? AND status = 'waiting_for_actions' ORDER BY number ASC LIMIT 1",
+      "SELECT * FROM platform_turns WHERE campaign_id = ? AND status IN ('waiting_for_actions','locked','resolving','needs_owner_attention') ORDER BY number ASC LIMIT 1",
       [campaignId],
     );
     return rows[0] ?? null;
@@ -1732,15 +1792,16 @@ export class TurnService {
     this.repository = new TurnRepository(executor);
   }
 
-  /** owner 开始新回合：campaign 行锁 → 无 active → distinct approved → MAX+1（锁内安全）→ insert turn+requirements。 */
+  /** owner 开始新回合：campaign 行锁 → 无未终结回合 → distinct approved → MAX+1（锁内安全）→ insert turn+requirements。 */
   async startTurn(ctx: CampaignAuthContext): Promise<TurnSummary> {
     requireOwner(ctx);
     return this.executor.transaction(async (tx) => {
       // 1) campaign 行锁：no-op 写（Postgres 行锁；SQLite 写事务串行）。
       await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [ctx.campaignId]);
       const repo = new TurnRepository(tx);
-      // 2) 无 active 回合。
-      const active = await repo.findActiveTurn(ctx.campaignId);
+      // 2) 无未终结（进行中）回合：locked/resolving/needs_owner_attention 同样阻挡新回合，
+      //    只有 completed 才允许下一回合。
+      const active = await repo.findUnfinishedTurn(ctx.campaignId);
       if (active) {
         throw new AppError('STATE_CONFLICT', '已有进行中的回合。');
       }
