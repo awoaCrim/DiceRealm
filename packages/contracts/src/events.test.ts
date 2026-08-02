@@ -9,6 +9,7 @@ describe('campaign event contracts', () => {
     expect(campaignEventSchema.parse({ type: 'turn.locked', campaignId: 'c', turnId: 't' })).toBeTruthy();
     expect(campaignEventSchema.parse({ type: 'ai.preview.failed', campaignId: 'c', runId: 'r', code: 'AI_PROVIDER_FAILED' })).toBeTruthy();
     expect(campaignEventSchema.parse({ type: 'interaction.requested', campaignId: 'c', requestId: 'q', targetPlayerId: 'p2' })).toBeTruthy();
+    expect(campaignEventSchema.parse({ type: 'archive.restored', campaignId: 'c', archiveId: 'a1', version: 2 })).toBeTruthy();
     expect(campaignEventSchema.parse({ type: 'owner.debug', campaignId: 'c', runId: 'r', kind: 'ctx' })).toBeTruthy();
   });
 
@@ -27,6 +28,12 @@ describe('campaign event contracts', () => {
       .toEqual({ visibility: 'owner_only', targetPlayerId: null });
     expect(eventDefaultAudience({ type: 'interaction.requested', campaignId: 'c', requestId: 'q', targetPlayerId: 'p2' }))
       .toEqual({ visibility: 'player_private', targetPlayerId: 'p2' });
+  });
+
+  it('accepts archive.restored as a public event', () => {
+    const event = campaignEventSchema.parse({ type: 'archive.restored', campaignId: 'c', archiveId: 'a1', version: 2 });
+    expect(eventDefaultAudience(event)).toEqual({ visibility: 'public', targetPlayerId: null });
+    expect(canReadEvent({ role: 'player', playerId: 'p1' }, event)).toBe(true);
   });
 
   it('projects events per viewer', () => {

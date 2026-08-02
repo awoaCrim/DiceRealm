@@ -32,7 +32,16 @@ export class WorldFactRepository {
     );
   }
 
+  /** 默认 active 列表：只含未 superseded 的事实（存档恢复覆盖的历史事实默认不可见）。 */
   async listByCampaign(campaignId: string): Promise<WorldFactRow[]> {
+    return this.executor.query<WorldFactRow>(
+      'SELECT * FROM platform_world_facts WHERE campaign_id = ? AND superseded_at IS NULL ORDER BY created_at ASC',
+      [campaignId],
+    );
+  }
+
+  /** 审计全量列表：含被存档恢复 supersede 的历史事实（供恢复与审计）。 */
+  async listAllByCampaign(campaignId: string): Promise<WorldFactRow[]> {
     return this.executor.query<WorldFactRow>(
       'SELECT * FROM platform_world_facts WHERE campaign_id = ? ORDER BY created_at ASC',
       [campaignId],

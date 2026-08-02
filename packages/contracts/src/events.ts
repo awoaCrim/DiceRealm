@@ -12,6 +12,7 @@ export const campaignEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('turn.resolved'), campaignId: z.string().min(1), turnId: z.string().min(1), archiveId: z.string().min(1) }),
   z.object({ type: z.literal('combat.updated'), campaignId: z.string().min(1), encounterId: z.string().min(1) }),
   z.object({ type: z.literal('interaction.requested'), campaignId: z.string().min(1), requestId: z.string().min(1), targetPlayerId: z.string().min(1) }),
+  z.object({ type: z.literal('archive.restored'), campaignId: z.string().min(1), archiveId: z.string().min(1), version: z.number().int() }),
   // owner-only debug（AI 上下文、输入输出原始记录等）；Phase 2A 定义但不 emit，Phase 3 由 AI 结算写入。
   z.object({ type: z.literal('owner.debug'), campaignId: z.string().min(1), runId: z.string().min(1), kind: z.string().min(1) }),
 ]);
@@ -28,6 +29,7 @@ export const campaignEventTypeSchema = z.enum([
   'turn.resolved',
   'combat.updated',
   'interaction.requested',
+  'archive.restored',
   'owner.debug',
 ]);
 

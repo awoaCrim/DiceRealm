@@ -1,3 +1,4 @@
+export * from './archive.js';
 export * from './auth.js';
 export * from './campaign.js';
 export * from './character.js';

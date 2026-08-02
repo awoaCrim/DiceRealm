@@ -36,16 +36,25 @@ export class OutboxRepository implements EventPublisherPort {
     return sequence;
   }
 
+  /** 默认 active 列表：只含未 superseded 的事件（存档恢复覆盖的历史事件默认不可见）。 */
   async listByCampaign(campaignId: string): Promise<OutboxEventRow[]> {
     return this.executor.query<OutboxEventRow>(
-      'SELECT * FROM platform_outbox_events WHERE campaign_id = ? ORDER BY sequence ASC',
+      'SELECT * FROM platform_outbox_events WHERE campaign_id = ? AND superseded_at IS NULL ORDER BY sequence ASC',
       [campaignId],
     );
   }
 
   async listUnpublished(campaignId: string): Promise<OutboxEventRow[]> {
     return this.executor.query<OutboxEventRow>(
-      'SELECT * FROM platform_outbox_events WHERE campaign_id = ? AND published_at IS NULL ORDER BY sequence ASC',
+      'SELECT * FROM platform_outbox_events WHERE campaign_id = ? AND published_at IS NULL AND superseded_at IS NULL ORDER BY sequence ASC',
+      [campaignId],
+    );
+  }
+
+  /** 审计全量列表：含被存档恢复 supersede 的历史事件（供 SSE replayable 未来使用与恢复 supersede 依据）。 */
+  async listAllByCampaign(campaignId: string): Promise<OutboxEventRow[]> {
+    return this.executor.query<OutboxEventRow>(
+      'SELECT * FROM platform_outbox_events WHERE campaign_id = ? ORDER BY sequence ASC',
       [campaignId],
     );
   }

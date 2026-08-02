@@ -57,22 +57,36 @@ export class TurnRepository {
    * 查找战役内未终结（进行中）的回合：waiting_for_actions / locked / resolving /
    * needs_owner_attention 都算进行中，只有 completed 才允许开启下一回合。
    * 锁定后回合只能经 AI 结算或 owner 处理前进（产品规格），因此 locked 也阻挡新回合。
+   * 只返回未 superseded 的行：被存档恢复覆盖的历史回合不再算进行中。
    */
   async findUnfinishedTurn(campaignId: string): Promise<TurnRow | null> {
     const rows = await this.executor.query<TurnRow>(
-      "SELECT * FROM platform_turns WHERE campaign_id = ? AND status IN ('waiting_for_actions','locked','resolving','needs_owner_attention') ORDER BY number ASC LIMIT 1",
+      "SELECT * FROM platform_turns WHERE campaign_id = ? AND status IN ('waiting_for_actions','locked','resolving','needs_owner_attention') AND superseded_at IS NULL ORDER BY number ASC LIMIT 1",
       [campaignId],
     );
     return rows[0] ?? null;
   }
 
+  /** 默认 active 列表：只含未 superseded 的回合（存档恢复覆盖的历史回合默认不可见）。 */
   async listByCampaign(campaignId: string): Promise<TurnRow[]> {
+    return this.executor.query<TurnRow>(
+      'SELECT * FROM platform_turns WHERE campaign_id = ? AND superseded_at IS NULL ORDER BY number ASC',
+      [campaignId],
+    );
+  }
+
+  /** 审计全量列表：含被存档恢复 supersede 的历史回合（供恢复与审计）。 */
+  async listAllByCampaign(campaignId: string): Promise<TurnRow[]> {
     return this.executor.query<TurnRow>(
       'SELECT * FROM platform_turns WHERE campaign_id = ? ORDER BY number ASC',
       [campaignId],
     );
   }
 
+  /**
+   * 覆盖所有行的最大回合号（含 superseded）：恢复后新回合绝不复用历史号码。
+   * 这是有意为之——maxTurnNumber 供新回合分配号码使用，必须包含被恢复覆盖的回合。
+   */
   async maxTurnNumber(campaignId: string): Promise<number> {
     const rows = await this.executor.query<{ max: number | null }>(
       'SELECT MAX(number) AS max FROM platform_turns WHERE campaign_id = ?',
@@ -81,10 +95,11 @@ export class TurnRepository {
     return Number(rows[0].max ?? 0);
   }
 
-  /** 条件 no-op 更新：获得 turn 行锁（Postgres 行锁；SQLite 写事务串行），未命中表示不存在。 */
+  /** 条件 no-op 更新：获得 turn 行锁（Postgres 行锁；SQLite 写事务串行），未命中表示不存在。
+   *  superseded 回合不可再被提交/结算——返回 false → NOT_FOUND。 */
   async lockTurnRow(turnId: string, campaignId: string): Promise<boolean> {
     const result = await this.executor.execute(
-      'UPDATE platform_turns SET updated_at = updated_at WHERE id = ? AND campaign_id = ?',
+      'UPDATE platform_turns SET updated_at = updated_at WHERE id = ? AND campaign_id = ? AND superseded_at IS NULL',
       [turnId, campaignId],
     );
     return result.changes === 1;
