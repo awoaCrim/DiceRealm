@@ -19,9 +19,24 @@ export interface DatabasePort extends QueryExecutor {
   close(): Promise<void>;
 }
 
+/** A single versioned migration script awaiting atomic application. */
+export interface MigrationToApply {
+  version: string;
+  name: string;
+  sql: string;
+}
+
 /** Executor capable of running multi-statement migration scripts. */
 export interface MigrationExecutor extends QueryExecutor {
   exec(sql: string): Promise<void>;
+  /**
+   * Apply a migration's SQL and its `platform_migrations` tracking row in the
+   * SAME database transaction. Without this, a crash between the schema
+   * statement and the tracking INSERT would leave the schema applied but
+   * untracked, so the next restart re-runs non-idempotent DDL (e.g. 007's
+   * `ALTER TABLE ADD COLUMN`) and fails with a duplicate column.
+   */
+  applyMigration(migration: MigrationToApply, appliedAt: string): Promise<void>;
 }
 
 /**
@@ -32,4 +47,5 @@ export interface SyncMigrationExecutor {
   query<T>(sql: string, params?: unknown[]): T[];
   execute(sql: string, params?: unknown[]): { changes: number };
   exec(sql: string): void;
+  applyMigration(migration: MigrationToApply, appliedAt: string): void;
 }

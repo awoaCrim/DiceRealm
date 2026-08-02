@@ -1,12 +1,14 @@
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createSqliteDatabase } from './SqliteDatabaseAdapter.js';
 import { rewritePlaceholders } from './PostgresDatabaseAdapter.js';
 import { MigrationRunner } from './migrations/MigrationRunner.js';
+import type { MigrationToApply } from './DatabasePort.js';
 import { createMemoryDb } from '../../db/connection.js';
-import { migrate } from '../../db/schema.js';
+import { createLegacySyncAdapter, migrate, migratePlatform } from '../../db/schema.js';
 import { defineDatabaseContractSuite } from './databaseContractSuite.js';
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations/', import.meta.url));
@@ -172,6 +174,86 @@ describe('migration runner failure modes', () => {
   });
 });
 
+describe('atomic migration application', () => {
+  it('rolls back the migration schema when the tracking INSERT fails', async () => {
+    const db = createSqliteDatabase(':memory:');
+    try {
+      // Tracking table bootstrap is a separate concern (CREATE IF NOT EXISTS)
+      // and is intentionally done by hand here, mirroring MigrationRunner.
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS platform_migrations (
+          version TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        )
+      `);
+      // 预置失败注入：故意让 tracking INSERT 违反约束（重复主键），从而在
+      // SQL 已执行之后、COMMIT 之前抛错。若 schema 与 tracking 在同一个
+      // 事务中提交/回滚，则下方的表也必须不存在。
+      await db.execute('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)', ['009', 'dummy', 'now']);
+
+      const migration: MigrationToApply = {
+        version: '009',
+        name: '009_atomic_test.sql',
+        sql: `
+          CREATE TABLE atomic_rollback_probe (id TEXT PRIMARY KEY);
+          ALTER TABLE users ADD COLUMN atomic_rollback_probe_col TEXT;
+        `,
+      };
+      await expect(db.applyMigration(migration, new Date().toISOString())).rejects.toThrow();
+      const tableRows = await db.query<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ['atomic_rollback_probe'],
+      );
+      expect(tableRows).toEqual([]);
+      const colRows = await db.query<{ name: string }>(
+        "SELECT name FROM pragma_table_info('users') WHERE name = ?",
+        ['atomic_rollback_probe_col'],
+      );
+      expect(colRows).toEqual([]);
+      // tracking 行仍只有预置的那条，失败的 INSERT 没有留下半提交。
+      const tracking = await db.query<{ version: string }>('SELECT version FROM platform_migrations');
+      expect(tracking.map((row) => row.version)).toEqual(['009']);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('commits the migration schema and its tracking row together', async () => {
+    const db = createSqliteDatabase(':memory:');
+    try {
+      // Tracking table bootstrap is a separate concern (CREATE IF NOT EXISTS),
+      // exactly as MigrationRunner does before discovering applied versions.
+      await db.exec(`
+        CREATE TABLE IF NOT EXISTS platform_migrations (
+          version TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        )
+      `);
+      const migration: MigrationToApply = {
+        version: '010',
+        name: '010_atomic_commit_test.sql',
+        sql: 'CREATE TABLE atomic_commit_probe (id TEXT PRIMARY KEY);',
+      };
+      const appliedAt = new Date().toISOString();
+      await db.applyMigration(migration, appliedAt);
+      const tableRows = await db.query<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+        ['atomic_commit_probe'],
+      );
+      expect(tableRows.map((row) => row.name)).toEqual(['atomic_commit_probe']);
+      const tracking = await db.query<{ version: string; name: string; applied_at: string }>(
+        'SELECT version, name, applied_at FROM platform_migrations WHERE version = ?',
+        ['010'],
+      );
+      expect(tracking).toEqual([{ version: '010', name: '010_atomic_commit_test.sql', applied_at: appliedAt }]);
+    } finally {
+      await db.close();
+    }
+  });
+});
+
 describe('legacy schema initialisation', () => {
   it('creates schema_migrations matching the legacy table contract', () => {
     const db = createMemoryDb();
@@ -220,5 +302,75 @@ describe('legacy schema initialisation', () => {
     );
     expect(new Set(platform.map((row) => row.version)).size).toBe(platform.length);
     await adapter.close();
+  });
+
+  it('rolls back the migration schema when tracking fails on the legacy sync path', () => {
+    const db = createMemoryDb();
+    try {
+      migrate(db);
+      // Tracking bootstrap mirrors MigrationRunner; preseed a duplicate version
+      // so the tracking INSERT violates its PRIMARY KEY after the SQL ran.
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS platform_migrations (
+          version TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          applied_at TEXT NOT NULL
+        )
+      `);
+      db.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)').run('900', 'seed', 'now');
+      const migration: MigrationToApply = {
+        version: '900',
+        name: '900_sync_atomic_test.sql',
+        sql: 'ALTER TABLE rooms ADD COLUMN atomic_sync_probe TEXT;',
+      };
+
+      expect(() => createLegacySyncAdapter(db).applyMigration(migration, new Date().toISOString())).toThrow();
+      const roomColumns = db.prepare('PRAGMA table_info(rooms)').all() as Array<{ name: string }>;
+      expect(roomColumns.some((c) => c.name === 'atomic_sync_probe')).toBe(false);
+      const tracking = db.prepare('SELECT version FROM platform_migrations').all() as Array<{ version: string }>;
+      expect(tracking.map((row) => row.version)).toEqual(['900']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('applies a migration and its tracking row together on the legacy sync path, then skips', () => {
+    const db = createMemoryDb();
+    const tmpDir = mkdtempSync(join(tmpdir(), 'dnd-migration-sync-test-'));
+    try {
+      migrate(db);
+      writeFileSync(join(tmpDir, '901_sync_commit_test.sql'), 'CREATE TABLE atomic_sync_commit_probe (id TEXT PRIMARY KEY);');
+
+      const first = MigrationRunner.runSync(createLegacySyncAdapter(db), tmpDir);
+      expect(first.applied).toEqual(['901']);
+      expect(first.skipped).toEqual([]);
+      const tables = db
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+        .all('atomic_sync_commit_probe') as Array<{ name: string }>;
+      expect(tables.map((t) => t.name)).toEqual(['atomic_sync_commit_probe']);
+      const tracking = db.prepare('SELECT version, name FROM platform_migrations WHERE version = ?').all('901') as Array<{ version: string; name: string }>;
+      expect(tracking).toEqual([{ version: '901', name: '901_sync_commit_test.sql' }]);
+
+      const second = MigrationRunner.runSync(createLegacySyncAdapter(db), tmpDir);
+      expect(second.applied).toEqual([]);
+      expect(second.skipped).toEqual(['901']);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+      db.close();
+    }
+  });
+
+  it('migratePlatform applies every platform migration once and is idempotent on the sync path', () => {
+    const db = createMemoryDb();
+    try {
+      migrate(db);
+      migratePlatform(db);
+      migratePlatform(db);
+      const rows = db.prepare('SELECT version FROM platform_migrations').all() as Array<{ version: string }>;
+      expect(rows.length).toBeGreaterThan(0);
+      expect(new Set(rows.map((row) => row.version)).size).toBe(rows.length);
+    } finally {
+      db.close();
+    }
   });
 });

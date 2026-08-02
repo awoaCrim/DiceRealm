@@ -1,7 +1,7 @@
 import Database from 'better-sqlite3';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { AppDatabase } from '../../db/connection.js';
-import type { DatabasePort, MigrationExecutor, QueryExecutor } from './DatabasePort.js';
+import type { DatabasePort, MigrationExecutor, MigrationToApply, QueryExecutor } from './DatabasePort.js';
 import { MigrationRunner } from './migrations/MigrationRunner.js';
 
 /**
@@ -42,6 +42,33 @@ export class SqliteDatabaseAdapter implements DatabasePort, MigrationExecutor {
     this.raw.exec('BEGIN');
     try {
       this.raw.exec(sql);
+      this.raw.exec('COMMIT');
+    } catch (error) {
+      this.raw.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  /**
+   * Apply a migration's SQL and its `platform_migrations` tracking row in ONE
+   * transaction. A crash between the two steps would otherwise leave the
+   * schema applied but untracked, and the next restart would re-run
+   * non-idempotent DDL (007's `ALTER TABLE ADD COLUMN`) and fail.
+   *
+   * Deliberately does NOT go through the async `transaction()` helper: this
+   * path must execute the multi-statement migration script directly on the
+   * connection (the async queue would wrap it in a second BEGIN), and the
+   * script plus a parameterised prepared INSERT must share one transaction.
+   */
+  async applyMigration(migration: MigrationToApply, appliedAt: string): Promise<void> {
+    this.raw.exec('BEGIN');
+    try {
+      this.raw.exec(migration.sql);
+      this.raw.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)').run(
+        migration.version,
+        migration.name,
+        appliedAt,
+      );
       this.raw.exec('COMMIT');
     } catch (error) {
       this.raw.exec('ROLLBACK');

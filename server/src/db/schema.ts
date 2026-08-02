@@ -1,4 +1,5 @@
 import type { AppDatabase } from './connection.js';
+import type { MigrationToApply, SyncMigrationExecutor } from '../platform/database/DatabasePort.js';
 import { MigrationRunner } from '../platform/database/migrations/MigrationRunner.js';
 
 export function migrate(db: AppDatabase): void {
@@ -1111,12 +1112,16 @@ function createResourceCatalogTriggers(db: AppDatabase): void {
  * The platform migrations are tracked in the dedicated `platform_migrations`
  * table, so calling this after `migrate()` on the same database applies the
  * platform tables exactly once and never touches the legacy tables.
+ *
+ * Each migration's schema script and its tracking row are applied through the
+ * same explicit BEGIN/COMMIT/ROLLBACK transaction, so a crash between the two
+ * steps cannot leave the schema applied but untracked.
  */
 export function migratePlatform(db: AppDatabase): void {
   MigrationRunner.runSync(createLegacySyncAdapter(db));
 }
 
-function createLegacySyncAdapter(db: AppDatabase): SyncMigrationExecutorAdapter {
+export function createLegacySyncAdapter(db: AppDatabase): SyncMigrationExecutor {
   return {
     query<T>(sql: string, params: unknown[] = []): T[] {
       return db.prepare(sql).all(...params) as T[];
@@ -1127,11 +1132,22 @@ function createLegacySyncAdapter(db: AppDatabase): SyncMigrationExecutorAdapter 
     exec(sql: string): void {
       db.exec(sql);
     },
+    applyMigration(migration: MigrationToApply, appliedAt: string): void {
+      // Schema script + tracking INSERT share one explicit transaction so a
+      // mid-apply failure rolls back the schema changes as well as the row.
+      db.exec('BEGIN');
+      try {
+        db.exec(migration.sql);
+        db.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)').run(
+          migration.version,
+          migration.name,
+          appliedAt,
+        );
+        db.exec('COMMIT');
+      } catch (error) {
+        db.exec('ROLLBACK');
+        throw error;
+      }
+    },
   };
-}
-
-interface SyncMigrationExecutorAdapter {
-  query<T>(sql: string, params?: unknown[]): T[];
-  execute(sql: string, params?: unknown[]): { changes: number };
-  exec(sql: string): void;
 }

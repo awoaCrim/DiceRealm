@@ -1,14 +1,10 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { MigrationExecutor } from '../DatabasePort.js';
+import type { MigrationExecutor, MigrationToApply, SyncMigrationExecutor } from '../DatabasePort.js';
 
 /** One migration file discovered in the migrations directory. */
-export interface Migration {
-  version: string;
-  name: string;
-  sql: string;
-}
+export type Migration = MigrationToApply;
 
 /** Result of a migration run. */
 export interface MigrationReport {
@@ -37,7 +33,14 @@ const TRACKING_TABLE_DDL = `
 
 /**
  * Runs versioned SQL migrations from the migrations directory and records
- * applied versions in `schema_migrations` so migrations never run twice.
+ * applied versions in `platform_migrations` so migrations never run twice.
+ *
+ * Each migration's schema script and its `platform_migrations` tracking row
+ * are applied through `applyMigration` so both commit (or roll back) in the
+ * SAME database transaction. Without that atomicity a crash between the two
+ * steps would leave the schema applied but untracked, and the next restart
+ * would re-run non-idempotent DDL (e.g. 007's `ALTER TABLE ADD COLUMN`) and
+ * fail with a duplicate column.
  *
  * The `run()` path targets the asynchronous `DatabasePort` adapters (SQLite
  * and PostgreSQL). `runSync()` exists for the legacy SQLite startup path
@@ -63,17 +66,13 @@ export class MigrationRunner {
         report.skipped.push(migration.version);
         continue;
       }
-      await this.executor.exec(migration.sql);
-      await this.executor.execute(
-        'INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)',
-        [migration.version, migration.name, new Date().toISOString()],
-      );
+      await this.executor.applyMigration(migration, new Date().toISOString());
       report.applied.push(migration.version);
     }
     return report;
   }
 
-  static runSync(executor: SyncLegacyExecutor, migrationsDir: string = DEFAULT_MIGRATIONS_DIR): MigrationReport {
+  static runSync(executor: SyncMigrationExecutor, migrationsDir: string = DEFAULT_MIGRATIONS_DIR): MigrationReport {
     executor.exec(TRACKING_TABLE_DDL);
     const applied = new Set(executor.query<{ version: string }>('SELECT version FROM platform_migrations').map((row) => row.version));
     const report: MigrationReport = { applied: [], skipped: [] };
@@ -83,12 +82,7 @@ export class MigrationRunner {
         report.skipped.push(migration.version);
         continue;
       }
-      executor.exec(migration.sql);
-      executor.execute('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)', [
-        migration.version,
-        migration.name,
-        new Date().toISOString(),
-      ]);
+      executor.applyMigration(migration, new Date().toISOString());
       report.applied.push(migration.version);
     }
     return report;
@@ -97,16 +91,6 @@ export class MigrationRunner {
   private async appliedVersions(): Promise<Array<{ version: string }>> {
     return this.executor.query<{ version: string }>('SELECT version FROM platform_migrations');
   }
-}
-
-/**
- * Synchronous SQLite executor used by the legacy startup path
- * (`server/src/db/schema.ts`), which cannot await migrations.
- */
-export interface SyncLegacyExecutor {
-  query<T>(sql: string, params?: unknown[]): T[];
-  execute(sql: string, params?: unknown[]): { changes: number };
-  exec(sql: string): void;
 }
 
 /** Load `.sql` files from the migrations directory, sorted by filename. */
