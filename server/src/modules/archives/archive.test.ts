@@ -378,4 +378,139 @@ describe('archives', () => {
     // 快照内角色仍然可查（字符没有 superseded 语义，只有 status）。
     await db.close();
   });
+
+  it('rolls back the archive version counter when a capture fails after allocation', async () => {
+    const { db, archives, ownerCtx } = await makeFixture();
+    const charRow = (await db.query<{ id: string }>('SELECT id FROM platform_characters WHERE campaign_id = ? LIMIT 1', [ownerCtx.campaignId]))[0];
+    // 破坏 sheet_json 使 captureSnapshot 在 nextVersion 之后抛错 → 整个 tx 回滚（含 version counter）。
+    await db.execute("UPDATE platform_characters SET sheet_json = ? WHERE id = ?", ['{bad json', charRow.id]);
+    await expect(archives.createManual(ownerCtx, '失败')).rejects.toBeTruthy();
+    // 修复 sheet 后下一次分配仍为 1（counter 与存档同 tx 回滚，绝不从 2 续号）。
+    await db.execute("UPDATE platform_characters SET sheet_json = ? WHERE id = ?", ['{"ac":14}', charRow.id]);
+    const ok = await archives.createManual(ownerCtx, '成功');
+    expect(ok.version).toBe(1);
+    await db.close();
+  });
+
+  it('restores supersede ai runs and their entries above the snapshot ai-run watermark', async () => {
+    const { db, turns, archives, ownerCtx, aCtx, bCtx } = await makeFixture();
+    const t1 = await turns.startTurn(ownerCtx);
+    await turns.submitAction(aCtx, t1.id, { body: 'A' });
+    await turns.submitAction(bCtx, t1.id, { body: 'B' });
+    // 快照时无任何 AI run：aiRunCampaignSequence=0。
+    const manual = await archives.createManual(ownerCtx, 'ai-watermark');
+    const now = new Date().toISOString();
+    // 存档后产生一条 succeeded run（seq=1 > watermark=0）与它的 entry；restore 不得被 running 守卫挡住。
+    await db.execute(
+      `INSERT INTO platform_ai_runs
+        (id, campaign_id, campaign_sequence, turn_id, attempt, idempotency_key, provider, model, status,
+         context_json, result_json, error_code, error_json, raw_debug_json, started_at, completed_at, superseded_at, superseded_by_archive_id)
+       VALUES (?, ?, 1, ?, 1, 'wm-run', 'scripted', 'scripted', 'succeeded', '{}', '{}', NULL, NULL, NULL, ?, ?, NULL, NULL)`,
+      ['wm-run-1', ownerCtx.campaignId, t1.id, now, now],
+    );
+    await db.execute(
+      `INSERT INTO platform_turn_entries (id, ai_run_id, campaign_id, turn_id, entry_kind, entry_index, visibility, target_player_id, payload_json, created_at)
+       VALUES (?, ?, ?, ?, 'narrative', 0, 'public', NULL, '{"text":"x"}', ?)`,
+      ['wm-entry-1', 'wm-run-1', ownerCtx.campaignId, t1.id, now],
+    );
+    await archives.restore(ownerCtx, manual.id);
+    const run = await db.query<{ superseded_at: string | null; superseded_by_archive_id: string | null }>(
+      'SELECT superseded_at, superseded_by_archive_id FROM platform_ai_runs WHERE id = ?', ['wm-run-1'],
+    );
+    expect(run[0].superseded_at).not.toBeNull(); // 超 AI watermark 的 run 被 supersede
+    expect(run[0].superseded_by_archive_id).toBe(manual.id);
+    const entries = await db.query<{ count: number }>(
+      'SELECT COUNT(*) AS count FROM platform_turn_entries WHERE id = ? AND superseded_at IS NULL', ['wm-entry-1'],
+    );
+    expect(Number(entries[0].count)).toBe(0); // run 的 entries 同 tx supersede
+    await db.close();
+  });
+
+  it('supersedes later archives when an earlier version is restored', async () => {
+    const { db, archives, ownerCtx } = await makeFixture();
+    const v1 = await archives.createManual(ownerCtx, 'v1');
+    const v2 = await archives.createManual(ownerCtx, 'v2');
+    expect(v1.version).toBe(1);
+    expect(v2.version).toBe(2);
+    await archives.restore(ownerCtx, v1.id);
+    const rows = await db.query<{ version: number; superseded_at: string | null }>(
+      'SELECT version, superseded_at FROM platform_archives WHERE campaign_id = ? ORDER BY version', [ownerCtx.campaignId],
+    );
+    expect(rows.map((r) => r.version)).toEqual([1, 2]);
+    expect(rows[0].superseded_at).toBeNull(); // 被恢复的 v1 保持 active
+    expect(rows[1].superseded_at).not.toBeNull(); // v2 被 supersede（不物理删除，version counter 不回退）
+    const list = await archives.listForCampaign(ownerCtx);
+    expect(list.map((a) => a.version)).toEqual([1]);
+    await db.close();
+  });
+
+  it('restores world facts exactly and supersedes facts created after the snapshot', async () => {
+    const { db, archives, ownerCtx } = await makeFixture();
+    const facts = new WorldFactRepository(db);
+    const now = new Date().toISOString();
+    await facts.insert({
+      id: 'fact-1', campaign_id: ownerCtx.campaignId, title: '酒馆', kind: 'location',
+      content: '热闹。', visibility: 'public', known_by_json: '[]', created_at: now, updated_at: now,
+    });
+    const manual = await archives.createManual(ownerCtx, 'facts');
+    // 存档后篡改快照内事实，并新增一个快照外事实。
+    await db.execute("UPDATE platform_world_facts SET content = '冷清。', updated_at = ? WHERE id = ?", [now, 'fact-1']);
+    await facts.insert({
+      id: 'fact-2', campaign_id: ownerCtx.campaignId, title: '新传闻', kind: 'lore',
+      content: 'x', visibility: 'public', known_by_json: '[]', created_at: now, updated_at: now,
+    });
+    await archives.restore(ownerCtx, manual.id);
+    const f1 = await db.query<{ content: string; superseded_at: string | null }>(
+      'SELECT content, superseded_at FROM platform_world_facts WHERE id = ?', ['fact-1'],
+    );
+    expect(f1[0].content).toBe('热闹。'); // 恢复为快照值
+    expect(f1[0].superseded_at).toBeNull();
+    const f2 = await db.query<{ superseded_at: string | null }>(
+      'SELECT superseded_at FROM platform_world_facts WHERE id = ?', ['fact-2'],
+    );
+    expect(f2[0].superseded_at).not.toBeNull(); // 快照外事实被 supersede
+    await db.close();
+  });
+
+  it('restores turn actions and requirements exactly', async () => {
+    const { db, turns, archives, ownerCtx, aCtx, bCtx } = await makeFixture();
+    const t1 = await turns.startTurn(ownerCtx);
+    await turns.submitAction(aCtx, t1.id, { body: 'A 原行动' });
+    await turns.submitAction(bCtx, t1.id, { body: 'B 原行动' });
+    const manual = await archives.createManual(ownerCtx, 'actions'); // snapshot currentTurn = t1 locked
+    const now = new Date().toISOString();
+    // 存档后篡改行动正文并删除 B 的 requirement，再把回合置 completed。
+    await db.execute('UPDATE platform_actions SET body = ? WHERE turn_id = ? AND player_id = ?', ['A 改后', t1.id, aCtx.playerId]);
+    await db.execute('DELETE FROM platform_turn_requirements WHERE turn_id = ? AND player_id = ?', [t1.id, bCtx.playerId]);
+    await db.execute("UPDATE platform_turns SET status = 'completed', completed_at = ? WHERE id = ?", [now, t1.id]);
+    await archives.restore(ownerCtx, manual.id);
+    const actions = await db.query<{ body: string }>('SELECT body FROM platform_actions WHERE turn_id = ? ORDER BY body', [t1.id]);
+    expect(actions.map((a) => a.body)).toEqual(['A 原行动', 'B 原行动']); // 恢复为快照行动
+    const reqs = await db.query<{ player_id: string }>('SELECT player_id FROM platform_turn_requirements WHERE turn_id = ? ORDER BY player_id', [t1.id]);
+    expect(reqs.map((r) => r.player_id).sort()).toEqual([aCtx.playerId as string, bCtx.playerId as string].sort()); // B 的 requirement 恢复
+    const turnRow = await db.query<{ status: string; superseded_at: string | null }>('SELECT status, superseded_at FROM platform_turns WHERE id = ?', [t1.id]);
+    expect(turnRow[0].status).toBe('locked'); // 恢复到锁定状态，不开新回合
+    expect(turnRow[0].superseded_at).toBeNull();
+    await db.close();
+  });
+
+  it('never leaks state_json or _json fields and keeps non-owners out', async () => {
+    const { db, turns, archives, ownerCtx, aCtx, bCtx } = await makeFixture();
+    const turn = await turns.startTurn(ownerCtx);
+    await turns.submitAction(aCtx, turn.id, { body: 'A 行动' });
+    await turns.submitAction(bCtx, turn.id, { body: 'B 行动' });
+    const manual = await archives.createManual(ownerCtx, 'DTO');
+    // DTO 永不携带 state_json / 任何 *_json 内部字段（mapArchive 只输出契约形字段）。
+    expect(JSON.stringify(manual)).not.toContain('state_json');
+    expect(JSON.stringify(manual)).not.toContain('stateJson');
+    expect(JSON.stringify(manual)).not.toContain('_json');
+    const list = await archives.listForCampaign(ownerCtx);
+    expect(JSON.stringify(list)).not.toContain('state_json');
+    expect(JSON.stringify(list)).not.toContain('_json');
+    // 非 owner 完全不可达 archive DTO：service 层直接 FORBIDDEN，错误体不含任何 state_json。
+    await expect(archives.listForCampaign(aCtx)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(archives.restore(aCtx, manual.id)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await expect(archives.createManual(aCtx, '越权')).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    await db.close();
+  });
 });

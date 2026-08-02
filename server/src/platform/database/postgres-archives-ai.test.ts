@@ -15,6 +15,9 @@ const url = process.env.POSTGRES_TEST_URL;
 describe.skipIf(!url)('postgres archives + ai runtime', () => {
   it('allocates archive versions and restores a completed snapshot (no number reuse)', async () => {
     const db = new PostgresDatabaseAdapter(new pg.Pool({ connectionString: url, max: 1 }));
+    // 共享 PG 测试库：捕获本次 fixture 的 id，finally 中按 FK 安全顺序清理，避免残留。
+    let campaignId = '';
+    const userIds: string[] = [];
     try {
       await db.migrate();
       const identity = new IdentityService(db);
@@ -25,7 +28,9 @@ describe.skipIf(!url)('postgres archives + ai runtime', () => {
       const owner = await identity.register({ login: `owner-${suffix}@example.test`, password: 'correct-password' });
       const a = await identity.register({ login: `a-${suffix}@example.test`, password: 'correct-password' });
       const b = await identity.register({ login: `b-${suffix}@example.test`, password: 'correct-password' });
+      userIds.push(owner.userId, a.userId, b.userId);
       const created = await campaigns.create(owner.userId, { name: '矿坑', ruleset: 'dnd5e' });
+      campaignId = created.campaign.id;
       await campaigns.join({ userId: a.userId }, created.campaign.id, created.inviteCode);
       await campaigns.join({ userId: b.userId }, created.campaign.id, created.inviteCode);
       const ownerCtx = await resolveCampaignContext(db, { userId: owner.userId }, created.campaign.id);
@@ -60,6 +65,43 @@ describe.skipIf(!url)('postgres archives + ai runtime', () => {
       expect(rows[1].superseded_at).not.toBeNull(); // t2 被 supersede
       expect(rows[2].status).toBe('waiting_for_actions'); // 恢复自动开的新回合，number=3 不复用
     } finally {
+      // FK 安全顺序清理本 campaign 及其用户（best-effort：单条失败不影响其余清理与连接关闭）。
+      if (campaignId) {
+        const cleanup: Array<[string, string[]]> = [
+          ['DELETE FROM platform_turn_entries WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_interaction_requests WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_ai_runs WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_ai_run_sequences WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_turn_requirements WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_actions WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_character_audits WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_turns WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_characters WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_world_facts WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_outbox_events WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_outbox_sequences WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_archives WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM platform_archive_sequences WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM campaign_members WHERE campaign_id = ?', [campaignId]],
+          ['DELETE FROM campaigns WHERE id = ?', [campaignId]],
+        ];
+        for (const [sql, params] of cleanup) {
+          try {
+            await db.execute(sql, params);
+          } catch {
+            // best-effort：单条清理失败不掩盖主断言结果，后续清理继续。
+          }
+        }
+      }
+      for (const userId of userIds) {
+        for (const sql of ['DELETE FROM sessions WHERE user_id = ?', 'DELETE FROM users WHERE id = ?']) {
+          try {
+            await db.execute(sql, [userId]);
+          } catch {
+            // 同上。
+          }
+        }
+      }
       await db.close();
     }
   });

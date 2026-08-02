@@ -10,6 +10,9 @@ export interface TurnRow {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
+  /** 007 superseded-history：被存档恢复覆盖的历史回合。insert 不写这两列（默认 NULL），读取时必可访问。 */
+  superseded_at?: string | null;
+  superseded_by_archive_id?: string | null;
 }
 
 export interface ActionRow {
