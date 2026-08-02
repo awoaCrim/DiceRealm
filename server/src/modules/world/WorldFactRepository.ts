@@ -50,13 +50,13 @@ export class WorldFactRepository {
 
   async findById(id: string): Promise<WorldFactRow | null> {
     const rows = await this.executor.query<WorldFactRow>(
-      'SELECT * FROM platform_world_facts WHERE id = ?',
+      'SELECT * FROM platform_world_facts WHERE id = ? AND superseded_at IS NULL',
       [id],
     );
     return rows[0] ?? null;
   }
 
-  /** 条件更新：仅当行存在且属于该 campaign 时更新；未命中返回 false → NOT_FOUND。 */
+  /** 条件更新：仅当行存在、属于该 campaign 且未 superseded 时更新；未命中返回 false → NOT_FOUND。 */
   async updateContent(
     factId: string,
     campaignId: string,
@@ -65,17 +65,17 @@ export class WorldFactRepository {
     const result = await this.executor.execute(
       `UPDATE platform_world_facts
          SET title = ?, kind = ?, content = ?, visibility = ?, known_by_json = ?, updated_at = ?
-       WHERE id = ? AND campaign_id = ?`,
+       WHERE id = ? AND campaign_id = ? AND superseded_at IS NULL`,
       [patch.title, patch.kind, patch.content, patch.visibility, patch.known_by_json,
        patch.updated_at, factId, campaignId],
     );
     return result.changes === 1;
   }
 
-  /** 条件删除：仅当行存在且属于该 campaign 时删除；未命中返回 false → NOT_FOUND。 */
+  /** 条件删除：仅当行存在、属于该 campaign 且未 superseded 时删除；未命中返回 false → NOT_FOUND。 */
   async delete(factId: string, campaignId: string): Promise<boolean> {
     const result = await this.executor.execute(
-      'DELETE FROM platform_world_facts WHERE id = ? AND campaign_id = ?',
+      'DELETE FROM platform_world_facts WHERE id = ? AND campaign_id = ? AND superseded_at IS NULL',
       [factId, campaignId],
     );
     return result.changes === 1;
@@ -88,5 +88,35 @@ export class WorldFactRepository {
       [campaignId],
     );
     return rows.map((row) => row.user_id);
+  }
+
+  /** 恢复：快照内事实 upsert 并清 superseded；快照外事实 supersede（archiveId 由调用方传入）。 */
+  async upsertRestored(row: WorldFactRow): Promise<void> {
+    await this.executor.execute(
+      `INSERT INTO platform_world_facts
+        (id, campaign_id, title, kind, content, visibility, known_by_json, created_at, updated_at, superseded_at, superseded_by_archive_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+       ON CONFLICT (id) DO UPDATE SET
+         campaign_id = excluded.campaign_id,
+         title = excluded.title,
+         kind = excluded.kind,
+         content = excluded.content,
+         visibility = excluded.visibility,
+         known_by_json = excluded.known_by_json,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at,
+         superseded_at = NULL,
+         superseded_by_archive_id = NULL`,
+      [row.id, row.campaign_id, row.title, row.kind, row.content, row.visibility,
+       row.known_by_json, row.created_at, row.updated_at],
+    );
+  }
+
+  async supersedeFactsNotIn(campaignId: string, keptIds: string[], archiveId: string, now: string): Promise<void> {
+    const placeholders = keptIds.map(() => '?').join(',');
+    const sql = keptIds.length > 0
+      ? `UPDATE platform_world_facts SET superseded_at = ?, superseded_by_archive_id = ? WHERE campaign_id = ? AND superseded_at IS NULL AND id NOT IN (${placeholders})`
+      : `UPDATE platform_world_facts SET superseded_at = ?, superseded_by_archive_id = ? WHERE campaign_id = ? AND superseded_at IS NULL`;
+    await this.executor.execute(sql, keptIds.length > 0 ? [now, archiveId, campaignId, ...keptIds] : [now, archiveId, campaignId]);
   }
 }

@@ -1,3 +1,4 @@
+import { nanoid } from 'nanoid';
 import type { CharacterStatus } from '@dnd/contracts';
 import type { QueryExecutor } from '../../platform/database/DatabasePort.js';
 
@@ -102,5 +103,55 @@ export class CharacterRepository {
       [row.id, row.character_id, row.campaign_id, row.actor_user_id, row.action,
        row.before_json, row.after_json, row.created_at],
     );
+  }
+
+  /** 恢复：无条件 upsert 快照角色（INSERT ... ON CONFLICT(id) DO UPDATE）。返回 void；
+   *  恢复本身由调用方在 restore tx 内写 `archive_restore` audit 记录（不依赖返回值）。 */
+  async upsertRestored(row: CharacterRow): Promise<void> {
+    await this.executor.execute(
+      `INSERT INTO platform_characters
+        (id, campaign_id, player_id, name, status, sheet_json, derived_json, submitted_at, approved_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET
+         campaign_id = excluded.campaign_id,
+         player_id = excluded.player_id,
+         name = excluded.name,
+         status = excluded.status,
+         sheet_json = excluded.sheet_json,
+         derived_json = excluded.derived_json,
+         submitted_at = excluded.submitted_at,
+         approved_at = excluded.approved_at,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`,
+      [row.id, row.campaign_id, row.player_id, row.name, row.status, row.sheet_json,
+       row.derived_json, row.submitted_at, row.approved_at, row.created_at, row.updated_at],
+    );
+  }
+
+  /** 恢复：快照外（存档后新建）的角色一律 archived（不物理删除审计历史）。
+   *  每个真实状态变化都在 restore tx 内写 character audit（action=archive_restore_supersede，
+   *  before/after、actor=owner），使恢复过程可审计。 */
+  async archiveCharactersNotIn(tx: QueryExecutor, campaignId: string, keptIds: string[], now: string, actorUserId: string): Promise<void> {
+    const placeholders = keptIds.map(() => '?').join(',');
+    const rows = await tx.query<CharacterRow>(
+      keptIds.length > 0
+        ? `SELECT * FROM platform_characters WHERE campaign_id = ? AND id NOT IN (${placeholders}) AND status != 'archived'`
+        : `SELECT * FROM platform_characters WHERE campaign_id = ? AND status != 'archived'`,
+      keptIds.length > 0 ? [campaignId, ...keptIds] : [campaignId],
+    );
+    for (const row of rows) {
+      const archived: CharacterRow = { ...row, status: 'archived', updated_at: now };
+      await tx.execute(
+        "UPDATE platform_characters SET status = 'archived', updated_at = ? WHERE id = ? AND status != 'archived'",
+        [now, row.id],
+      );
+      await tx.execute(
+        `INSERT INTO platform_character_audits
+          (id, character_id, campaign_id, actor_user_id, action, before_json, after_json, created_at)
+         VALUES (?, ?, ?, ?, 'archive_restore_supersede', ?, ?, ?)`,
+        [nanoid(24), row.id, campaignId, actorUserId,
+         JSON.stringify(row), JSON.stringify(archived), now],
+      );
+    }
   }
 }

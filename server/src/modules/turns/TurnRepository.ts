@@ -49,7 +49,10 @@ export class TurnRepository {
   }
 
   async findTurnById(id: string): Promise<TurnRow | null> {
-    const rows = await this.executor.query<TurnRow>('SELECT * FROM platform_turns WHERE id = ?', [id]);
+    const rows = await this.executor.query<TurnRow>(
+      'SELECT * FROM platform_turns WHERE id = ? AND superseded_at IS NULL',
+      [id],
+    );
     return rows[0] ?? null;
   }
 
@@ -188,6 +191,85 @@ export class TurnRepository {
     return this.executor.query<ActionRow>(
       'SELECT * FROM platform_actions WHERE turn_id = ? ORDER BY submitted_at ASC',
       [turnId],
+    );
+  }
+
+  async findResolvingTurn(campaignId: string): Promise<TurnRow | null> {
+    const rows = await this.executor.query<TurnRow>(
+      "SELECT * FROM platform_turns WHERE campaign_id = ? AND status = 'resolving' AND superseded_at IS NULL ORDER BY number ASC LIMIT 1",
+      [campaignId],
+    );
+    return rows[0] ?? null;
+  }
+
+  /** 存档 watermark：捕获时 unsuperseded 历史最大 turn number（setup 无回合 = 0）。
+   *  必须显式过滤 superseded：与 maxTurnNumber（含 superseded，防号码复用）语义不同。 */
+  async maxActiveTurnNumber(campaignId: string): Promise<number> {
+    const rows = await this.executor.query<{ max: number | null }>(
+      'SELECT MAX(number) AS max FROM platform_turns WHERE campaign_id = ? AND superseded_at IS NULL',
+      [campaignId],
+    );
+    return Number(rows[0].max ?? 0);
+  }
+
+  async findByNumber(campaignId: string, number: number): Promise<TurnRow | null> {
+    const rows = await this.executor.query<TurnRow>(
+      'SELECT * FROM platform_turns WHERE campaign_id = ? AND number = ?', [campaignId, number],
+    );
+    return rows[0] ?? null;
+  }
+
+  /** 恢复：清掉快照当前回合的 superseded 标记，使其成为当前状态。 */
+  async clearSuperseded(turnId: string): Promise<void> {
+    await this.executor.execute(
+      'UPDATE platform_turns SET superseded_at = NULL, superseded_by_archive_id = NULL WHERE id = ?', [turnId],
+    );
+  }
+
+  /** 恢复：恢复现有回合的状态字段（status/locked_at/completed_at/updated_at），
+   *  使已完成行恢复到快照中的 locked/waiting/needs_owner_attention 等状态。
+   *  注意：completed_at 按快照原样恢复（可能保留快照中的 completed_at 时间）。
+   *  只有 currentTurn 快照的 turn 才调用；null 快照不会走到这里。 */
+  async restoreTurnState(
+    turnId: string,
+    patch: { status: TurnStatus; lockedAt: string | null; completedAt: string | null; updatedAt: string },
+  ): Promise<void> {
+    await this.executor.execute(
+      'UPDATE platform_turns SET status = ?, locked_at = ?, completed_at = ?, updated_at = ? WHERE id = ?',
+      [patch.status, patch.lockedAt, patch.completedAt, patch.updatedAt, turnId],
+    );
+  }
+
+  /** 恢复：该回合的所有动作替换为快照动作（delete + insert，同 tx）。 */
+  async replaceActions(turnId: string, campaignId: string, actions: ActionRow[]): Promise<void> {
+    await this.executor.execute('DELETE FROM platform_actions WHERE turn_id = ?', [turnId]);
+    for (const action of actions) {
+      await this.executor.execute(
+        `INSERT INTO platform_actions (id, turn_id, campaign_id, player_id, body, submitted_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [action.id, turnId, campaignId, action.player_id, action.body, action.submitted_at, action.updated_at],
+      );
+    }
+  }
+
+  async replaceRequirements(turnId: string, campaignId: string, requirements: RequirementRow[]): Promise<void> {
+    await this.executor.execute('DELETE FROM platform_turn_requirements WHERE turn_id = ?', [turnId]);
+    for (const requirement of requirements) {
+      await this.executor.execute(
+        'INSERT INTO platform_turn_requirements (turn_id, campaign_id, player_id, submitted) VALUES (?, ?, ?, ?)',
+        [turnId, campaignId, requirement.player_id, requirement.submitted],
+      );
+    }
+  }
+
+  /** 恢复：超 watermark 的回合（number 更大）一律 supersede。setup 与 idle-after-completed 统一走本方法：
+   *  setup 快照（turnNumber=0）→ 所有回合 number>0 全部 supersede（等效全量 supersede）；
+   *  idle-after-completed 快照（currentTurn=null, turnNumber=N>0）→ 只 supersede number>N 的 later turns，
+   *  保留 <=N 的既有 completed 历史。绝不在 null currentTurn 时从 `currentTurn===null` 推断 supersede 全部。 */
+  async supersedeTurnsAfterNumber(campaignId: string, number: number, archiveId: string, now: string): Promise<void> {
+    await this.executor.execute(
+      'UPDATE platform_turns SET superseded_at = ?, superseded_by_archive_id = ? WHERE campaign_id = ? AND superseded_at IS NULL AND number > ?',
+      [now, archiveId, campaignId, number],
     );
   }
 }
