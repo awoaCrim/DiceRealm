@@ -3436,8 +3436,8 @@ describe('ai resolution service', () => {
     await waiting.db.close();
 
     // completed 用例：locked fixture（默认 lockTurn: true 已提交并锁定）后在测试 SQL 直接置 completed
-    // （等价于专用 helper 构造完成态）；新 key resolve 与 waiting 一致必须 TURN_NOT_ACTIVE，
-    // 而非 STATE_CONFLICT——completed 是终态，与未锁定同属"当前回合不允许结算"。
+    // （等价于专用 helper 构造完成态）；completed 是终态已结算，新 key resolve 不得绕过 idempotency，
+    // 因此必须 STATE_CONFLICT（同 key completed replay 返回既有 succeeded run，见下方独立用例）。
     const { db, service, ownerCtx, turn } = await makeFixture(
       new ScriptedAiProvider(scriptedResolution({ publicNarrative: 'x', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [] })),
     );
@@ -3445,7 +3445,7 @@ describe('ai resolution service', () => {
     await db.execute("UPDATE platform_turns SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?", [
       now, now, turn.id,
     ]);
-    await expect(service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'k-completed' })).rejects.toMatchObject({ code: 'TURN_NOT_ACTIVE' });
+    await expect(service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'k-completed' })).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
     await db.close();
   });
 
@@ -3575,7 +3575,7 @@ describe('ai resolution service', () => {
 rtk npm test -- --run server/src/modules/ai-runtime/ai-resolution.test.ts
 ```
 
-预期：失败——`AiResolutionService` 不存在；`TurnRepository` 缺 `markResolving`/`markCompleted`；waiting/completed 拒绝断言依赖 claim 的 `TURN_NOT_ACTIVE` 分支（见 Step 3）。门控的 `postgres-archives-ai.test.ts` 在未配置 `POSTGRES_TEST_URL` 时跳过。
+预期：失败——`AiResolutionService` 不存在；`TurnRepository` 缺 `markResolving`/`markCompleted`；waiting 拒绝断言依赖 claim 的 `TURN_NOT_ACTIVE` 分支、completed 新 key 拒绝断言依赖 `STATE_CONFLICT` 分支（见 Step 3）。门控的 `postgres-archives-ai.test.ts` 在未配置 `POSTGRES_TEST_URL` 时跳过。
 
 ### Step 3：实现
 
@@ -3727,11 +3727,11 @@ export class AiResolutionService {
         // 幂等 replay 不调用 provider、不写 entries/archive/events，直接返回既有 run（kind='replay'）。
         return { kind: 'replay', run: existing };
       }
-      // 3) 只有创建新 run 时才校验回合状态：waiting 与 completed 同属"非结算许可状态"
-      //    （waiting 未锁定、completed 已终结），统一 TURN_NOT_ACTIVE；其余（如 resolving
-      //    并发中）归 STATE_CONFLICT。
+      // 3) 只有创建新 run 时才校验回合状态：waiting 未锁定 → TURN_NOT_ACTIVE；
+      //    completed 是终态（已结算），新 key 不得绕过 idempotency → STATE_CONFLICT；
+      //    其余非许可状态（如 resolving 并发中）同样 STATE_CONFLICT。
       if (turn.status !== 'locked' && turn.status !== 'needs_owner_attention') {
-        if (turn.status === 'waiting_for_actions' || turn.status === 'completed') {
+        if (turn.status === 'waiting_for_actions') {
           throw new AppError('TURN_NOT_ACTIVE', '当前回合不允许结算。');
         }
         throw new AppError('STATE_CONFLICT', '当前回合状态不允许结算。');
@@ -3916,7 +3916,7 @@ rtk npm run typecheck --workspace server
 rtk npm run build --workspace server
 ```
 
-预期：ai-resolution 测试全绿——claim→provider→formal apply→automatic archive→下一回合 number=2；idempotency 同 key 不重复调 provider；成功 replay 在 turn completed 后返回既有 succeeded run（created=false）；并发同 key 恰一次 provider 调用、同 run、一组 entries/archive；并发不同 key 恰一 claim 成功、另一 `STATE_CONFLICT`、attempt 无重复；provider throw → `AI_PROVIDER_FAILED` + needs_owner_attention + 无 entries/archive/next turn/turn.resolved，且 error_json/raw_debug 为严格白名单脱敏结构（原始 provider 文本/secret/堆栈不落库）；**preview delta 短 tx/outbox publish 失败 → `INTERNAL_ERROR`（绝不当 `AI_PROVIDER_FAILED`），run failed/error_code=INTERNAL_ERROR、turn=needs_owner_attention、无正式 entries/archive/next turn、error_json 含内部固定文案 `AI 预览流式写入内部错误。` 且不含原始 DB 错误文本**；invalid 输出 → `AI_OUTPUT_INVALID`；combat → `STATE_CONFLICT`；formal-apply 内非 AppError → `INTERNAL_ERROR` + needs_owner_attention + 无半截正式写（materializer/insert 故障测试），且落库 error_json 脱敏文案为内部固定文案（`AI 结算内部错误，详情已脱敏。`）而非 provider 文案；failed retry 新 key → attempt=2 成功、同 key 重试返回既有 failed run；waiting/completed turn 拒绝（均 `TURN_NOT_ACTIVE`）；player 拒绝；既有 ai-persistence/archive/turn 不回退。
+预期：ai-resolution 测试全绿——claim→provider→formal apply→automatic archive→下一回合 number=2；idempotency 同 key 不重复调 provider；成功 replay 在 turn completed 后返回既有 succeeded run（created=false）；并发同 key 恰一次 provider 调用、同 run、一组 entries/archive；并发不同 key 恰一 claim 成功、另一 `STATE_CONFLICT`、attempt 无重复；provider throw → `AI_PROVIDER_FAILED` + needs_owner_attention + 无 entries/archive/next turn/turn.resolved，且 error_json/raw_debug 为严格白名单脱敏结构（原始 provider 文本/secret/堆栈不落库）；**preview delta 短 tx/outbox publish 失败 → `INTERNAL_ERROR`（绝不当 `AI_PROVIDER_FAILED`），run failed/error_code=INTERNAL_ERROR、turn=needs_owner_attention、无正式 entries/archive/next turn、error_json 含内部固定文案 `AI 预览流式写入内部错误。` 且不含原始 DB 错误文本**；invalid 输出 → `AI_OUTPUT_INVALID`；combat → `STATE_CONFLICT`；formal-apply 内非 AppError → `INTERNAL_ERROR` + needs_owner_attention + 无半截正式写（materializer/insert 故障测试），且落库 error_json 脱敏文案为内部固定文案（`AI 结算内部错误，详情已脱敏。`）而非 provider 文案；failed retry 新 key → attempt=2 成功、同 key 重试返回既有 failed run；waiting turn 拒绝（`TURN_NOT_ACTIVE`）、completed turn 新 key 拒绝（`STATE_CONFLICT`，终态不得绕过 idempotency）；player 拒绝；既有 ai-persistence/archive/turn 不回退。
 
 ### Step 5：提交
 
