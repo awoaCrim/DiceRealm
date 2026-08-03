@@ -21,10 +21,19 @@ import { OutboxRepository } from './platform/events/OutboxRepository.js';
 import { createTurnRouter } from './routes/turnRoutes.js';
 import { ArchiveService } from './modules/archives/ArchiveService.js';
 import { createArchiveRouter } from './routes/archiveRoutes.js';
+import { AiResolutionService } from './modules/ai-runtime/AiResolutionService.js';
+import { AiContextBuilder } from './modules/ai-runtime/AiContextBuilder.js';
+import { TurnResolutionValidator } from './modules/ai-runtime/TurnResolutionValidator.js';
+import { StateChangeMaterializer } from './modules/ai-runtime/StateChangeMaterializer.js';
+import { UnavailableAiProvider } from './modules/ai-runtime/UnavailableAiProvider.js';
+import type { AiProviderPort } from './modules/ai-runtime/AiProviderPort.js';
+import { createAiRouter } from './routes/aiRoutes.js';
 
 export interface CreateAppOptions {
   /** 可选：平台数据库适配器。提供时挂载身份/战役路由与会话中间件。 */
   platformDb?: SqliteDatabaseAdapter;
+  /** AI Provider：生产默认 UnavailableAiProvider（resolve 安全失败 AI_PROVIDER_FAILED）；测试注入 ScriptedAiProvider。绝不默认 Mock。 */
+  aiProvider?: AiProviderPort;
 }
 
 export function createApp(db: AppDatabase, options: CreateAppOptions = {}) {
@@ -52,6 +61,16 @@ export function createApp(db: AppDatabase, options: CreateAppOptions = {}) {
     // 存档路由同样挂在 campaign-scoped 前缀下；owner-only 权限由 service 在事务内 enforce。
     const archives = new ArchiveService(options.platformDb, new OutboxRepository(options.platformDb));
     app.use('/api/campaigns/:campaignId/archives', createArchiveRouter(options.platformDb, archives));
+    // AI 路由同样挂在 campaign-scoped 前缀下：resolve 权限由 AiResolutionService 在事务内 enforce；
+    // 只读端点由路由层 requireOwner + campaign 归属校验保证。生产默认 UnavailableAiProvider（安全失败）。
+    const aiProvider = options.aiProvider ?? new UnavailableAiProvider();
+    const ai = new AiResolutionService(
+      options.platformDb, aiProvider, new OutboxRepository(options.platformDb), archives,
+      new AiContextBuilder(options.platformDb),
+      new TurnResolutionValidator(options.platformDb),
+      new StateChangeMaterializer(options.platformDb),
+    );
+    app.use('/api/campaigns/:campaignId/ai', createAiRouter(options.platformDb, ai));
     // 平台路由的错误统一由新错误中间件处理；必须先于旧错误中间件注册，
     // 否则会被下面 legacy 的错误兜底吞掉并泄漏原始 message。
     app.use(errorMiddleware);

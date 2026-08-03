@@ -7,6 +7,7 @@ import {
   createSqliteDatabase,
   type SqliteDatabaseAdapter,
 } from '../platform/database/SqliteDatabaseAdapter.js';
+import type { AiProviderPort } from '../modules/ai-runtime/AiProviderPort.js';
 
 export interface StartedPlatform {
   baseUrl: string;
@@ -23,12 +24,12 @@ export interface TestActor {
 }
 
 /** 启动一个带平台路由的完整 HTTP 服务器（真实 SQLite 内存库）。 */
-export async function startPlatformServer(): Promise<StartedPlatform> {
+export async function startPlatformServer(options: { aiProvider?: AiProviderPort } = {}): Promise<StartedPlatform> {
   const raw = createMemoryDb();
   migrate(raw);
   const platformDb = createSqliteDatabase(undefined, { reuseRaw: raw });
   await platformDb.migrate();
-  const app = createApp(raw, { platformDb });
+  const app = createApp(raw, { platformDb, aiProvider: options.aiProvider });
   const server = app.listen(0);
   await new Promise<void>((resolve) => server.once('listening', () => resolve()));
   const address = server.address() as AddressInfo;
