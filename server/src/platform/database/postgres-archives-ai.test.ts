@@ -9,6 +9,11 @@ import { resolveCampaignContext } from '../../modules/campaigns/CampaignAccess.j
 import { TurnService } from '../../modules/turns/TurnService.js';
 import { OutboxRepository } from '../events/OutboxRepository.js';
 import { ArchiveService } from '../../modules/archives/ArchiveService.js';
+import { AiContextBuilder } from '../../modules/ai-runtime/AiContextBuilder.js';
+import { TurnResolutionValidator } from '../../modules/ai-runtime/TurnResolutionValidator.js';
+import { StateChangeMaterializer } from '../../modules/ai-runtime/StateChangeMaterializer.js';
+import { AiResolutionService } from '../../modules/ai-runtime/AiResolutionService.js';
+import { ScriptedAiProvider, scriptedResolution } from '../../modules/ai-runtime/ScriptedAiProvider.js';
 
 const url = process.env.POSTGRES_TEST_URL;
 
@@ -105,4 +110,145 @@ describe.skipIf(!url)('postgres archives + ai runtime', () => {
       await db.close();
     }
   });
+
+  it('claims idempotently on postgres (same key returns the existing run)', async () => {
+    const db = new PostgresDatabaseAdapter(new pg.Pool({ connectionString: url, max: 1 }));
+    let campaignId = '';
+    const userIds: string[] = [];
+    try {
+      await db.migrate();
+      // 复用与 restore 用例相同的最小 fixture（identity/campaign/2 角色/turn 锁定）。
+      // 共享 Postgres 测试库：每次运行用 randomUUID 唯一 login，避免重复运行撞 UNIQUE(login) 与残留。
+      const identity = new IdentityService(db);
+      const campaigns = new CampaignService(db);
+      const characters = new CharacterService(db);
+      const suffix = randomUUID();
+      const owner = await identity.register({ login: `o-${suffix}@example.test`, password: 'correct-password' });
+      const a = await identity.register({ login: `pa-${suffix}@example.test`, password: 'correct-password' });
+      const b = await identity.register({ login: `pb-${suffix}@example.test`, password: 'correct-password' });
+      userIds.push(owner.userId, a.userId, b.userId);
+      const created = await campaigns.create(owner.userId, { name: '矿坑', ruleset: 'dnd5e' });
+      campaignId = created.campaign.id;
+      await campaigns.join({ userId: a.userId }, created.campaign.id, created.inviteCode);
+      await campaigns.join({ userId: b.userId }, created.campaign.id, created.inviteCode);
+      const ownerCtx = await resolveCampaignContext(db, { userId: owner.userId }, created.campaign.id);
+      const aCtx = await resolveCampaignContext(db, { userId: a.userId }, created.campaign.id);
+      const bCtx = await resolveCampaignContext(db, { userId: b.userId }, created.campaign.id);
+      for (const ctx of [aCtx, bCtx]) {
+        const draft = await characters.createDraft(ctx, { name: '角色', sheet: { ac: 12 } });
+        await characters.submitForReview(ctx, draft.id);
+        await characters.approve(ownerCtx, draft.id);
+      }
+      const turns = new TurnService(db, new OutboxRepository(db));
+      const t1 = await turns.startTurn(ownerCtx);
+      await turns.submitAction(aCtx, t1.id, { body: 'A' });
+      await turns.submitAction(bCtx, t1.id, { body: 'B' });
+      const outbox = new OutboxRepository(db);
+      const archives = new ArchiveService(db, outbox);
+      const service = new AiResolutionService(
+        db, new ScriptedAiProvider(scriptedResolution({ publicNarrative: 'ok', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [] })),
+        outbox, archives, new AiContextBuilder(db), new TurnResolutionValidator(db), new StateChangeMaterializer(db),
+      );
+      const first = await service.resolveTurn(ownerCtx, t1.id, { idempotencyKey: 'pg-k1' });
+      const second = await service.resolveTurn(ownerCtx, t1.id, { idempotencyKey: 'pg-k1' });
+      expect(second.created).toBe(false);
+      expect(second.run.id).toBe(first.run.id);
+      expect(second.run.status).toBe('succeeded');
+    } finally {
+      await cleanupCampaign(db, campaignId, userIds);
+      await db.close();
+    }
+  });
+
+  it('rejects concurrent different-key claims on postgres (one claim wins, other gets STATE_CONFLICT)', async () => {
+    const db = new PostgresDatabaseAdapter(new pg.Pool({ connectionString: url, max: 1 }));
+    let campaignId = '';
+    const userIds: string[] = [];
+    try {
+      await db.migrate();
+      const identity = new IdentityService(db);
+      const campaigns = new CampaignService(db);
+      const characters = new CharacterService(db);
+      const suffix = randomUUID();
+      const owner = await identity.register({ login: `o2-${suffix}@example.test`, password: 'correct-password' });
+      const a = await identity.register({ login: `pa2-${suffix}@example.test`, password: 'correct-password' });
+      const b = await identity.register({ login: `pb2-${suffix}@example.test`, password: 'correct-password' });
+      userIds.push(owner.userId, a.userId, b.userId);
+      const created = await campaigns.create(owner.userId, { name: '并发矿坑', ruleset: 'dnd5e' });
+      campaignId = created.campaign.id;
+      await campaigns.join({ userId: a.userId }, created.campaign.id, created.inviteCode);
+      await campaigns.join({ userId: b.userId }, created.campaign.id, created.inviteCode);
+      const ownerCtx = await resolveCampaignContext(db, { userId: owner.userId }, created.campaign.id);
+      const aCtx = await resolveCampaignContext(db, { userId: a.userId }, created.campaign.id);
+      const bCtx = await resolveCampaignContext(db, { userId: b.userId }, created.campaign.id);
+      for (const ctx of [aCtx, bCtx]) {
+        const draft = await characters.createDraft(ctx, { name: '角色', sheet: { ac: 12 } });
+        await characters.submitForReview(ctx, draft.id);
+        await characters.approve(ownerCtx, draft.id);
+      }
+      const turns = new TurnService(db, new OutboxRepository(db));
+      const t1 = await turns.startTurn(ownerCtx);
+      await turns.submitAction(aCtx, t1.id, { body: 'A' });
+      await turns.submitAction(bCtx, t1.id, { body: 'B' });
+      const outbox = new OutboxRepository(db);
+      const archives = new ArchiveService(db, outbox);
+      const service = new AiResolutionService(
+        db, new ScriptedAiProvider(scriptedResolution({ publicNarrative: 'ok', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [] })),
+        outbox, archives, new AiContextBuilder(db), new TurnResolutionValidator(db), new StateChangeMaterializer(db),
+      );
+      const results = await Promise.allSettled([
+        service.resolveTurn(ownerCtx, t1.id, { idempotencyKey: 'pg-ca' }),
+        service.resolveTurn(ownerCtx, t1.id, { idempotencyKey: 'pg-cb' }),
+      ]);
+      const rejected = results.filter((r): r is PromiseRejectedResult => r.status === 'rejected');
+      expect(rejected).toHaveLength(1);
+      expect((rejected[0].reason as { code?: string }).code).toBe('STATE_CONFLICT');
+      const runs = await db.query<{ attempt: number }>('SELECT attempt FROM platform_ai_runs WHERE turn_id = ?', [t1.id]);
+      expect(runs).toHaveLength(1);
+      expect(runs[0].attempt).toBe(1);
+    } finally {
+      await cleanupCampaign(db, campaignId, userIds);
+      await db.close();
+    }
+  });
 });
+
+/** 共享 Postgres 测试库：按 FK 安全顺序清理本 campaign 及其用户，避免残留（单条失败不影响其余）。 */
+async function cleanupCampaign(db: PostgresDatabaseAdapter, campaignId: string, userIds: string[]): Promise<void> {
+  if (campaignId) {
+    const cleanup: Array<[string, string[]]> = [
+      ['DELETE FROM platform_turn_entries WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_interaction_requests WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_ai_runs WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_ai_run_sequences WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_turn_requirements WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_actions WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_character_audits WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_turns WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_characters WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_world_facts WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_outbox_events WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_outbox_sequences WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_archives WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM platform_archive_sequences WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM campaign_members WHERE campaign_id = ?', [campaignId]],
+      ['DELETE FROM campaigns WHERE id = ?', [campaignId]],
+    ];
+    for (const [sql, params] of cleanup) {
+      try {
+        await db.execute(sql, params);
+      } catch {
+        // best-effort：单条清理失败不掩盖主断言结果，后续清理继续。
+      }
+    }
+  }
+  for (const userId of userIds) {
+    for (const sql of ['DELETE FROM sessions WHERE user_id = ?', 'DELETE FROM users WHERE id = ?']) {
+      try {
+        await db.execute(sql, [userId]);
+      } catch {
+        // 同上。
+      }
+    }
+  }
+}

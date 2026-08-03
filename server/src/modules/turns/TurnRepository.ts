@@ -120,6 +120,24 @@ export class TurnRepository {
     return result.changes === 1;
   }
 
+  /** claim：仅当 locked 或 needs_owner_attention 时置 resolving（owner 可对失败回合用新 key 重试）。 */
+  async markResolving(turnId: string, now: string): Promise<boolean> {
+    const result = await this.executor.execute(
+      "UPDATE platform_turns SET status = 'resolving', updated_at = ? WHERE id = ? AND status IN ('locked','needs_owner_attention')",
+      [now, turnId],
+    );
+    return result.changes === 1;
+  }
+
+  /** formal apply：仅当仍为 resolving 时置 completed。 */
+  async markCompleted(turnId: string, completedAt: string): Promise<boolean> {
+    const result = await this.executor.execute(
+      "UPDATE platform_turns SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ? AND status = 'resolving'",
+      [completedAt, completedAt, turnId],
+    );
+    return result.changes === 1;
+  }
+
   async insertRequirement(turnId: string, campaignId: string, playerId: string): Promise<void> {
     await this.executor.execute(
       'INSERT INTO platform_turn_requirements (turn_id, campaign_id, player_id, submitted) VALUES (?, ?, ?, 0)',
