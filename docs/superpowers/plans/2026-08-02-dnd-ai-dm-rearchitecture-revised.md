@@ -82,15 +82,15 @@
 - `2026-08-02-dnd-ai-dm-rearchitecture-revised.md`（本文件）只保留权威总路线图。
 - **阶段一详细计划** [`2026-08-02-dnd-ai-dm-phase-1-access-characters.md`](./2026-08-02-dnd-ai-dm-phase-1-access-characters.md) 已执行完毕并通过最终审查（READY_FOR_PHASE_2，见 [`2026-08-02-phase-1-access-characters-review.md`](../reviews/2026-08-02-phase-1-access-characters-review.md)），不再作为待执行计划。
 - 后续阶段在前一阶段通过验收与两级 review 后再写详细计划，避免过早生成未经实现验证的伪代码漂移。
-- **Phase 2 按两个可执行计划推进**：**Phase 2A**（world facts + 事务性 outbox + turn/actions，迁移 `004_world_state` → `005_events_outbox` → `006_turns_actions`，详细计划 [`2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md`](./2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md) **已执行完毕并通过最终审查 READY_FOR_PHASE_2B**，见 [`2026-08-02-phase-2a-world-outbox-turns-review.md`](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)，不再作为待执行计划）与 **Phase 2B**（archives + AI runtime + 服务端 AI 垂直流程，迁移 `007_archives` → `008_ai_runtime`，详细计划 [`2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md`](./2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md) **已编写，待执行，尚未实现**）。
+- **Phase 2 按两个可执行计划推进**：**Phase 2A**（world facts + 事务性 outbox + turn/actions，迁移 `004_world_state` → `005_events_outbox` → `006_turns_actions`，详细计划 [`2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md`](./2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md) **已执行完毕并通过最终审查 READY_FOR_PHASE_2B**，见 [`2026-08-02-phase-2a-world-outbox-turns-review.md`](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)，不再作为待执行计划）与 **Phase 2B**（archives + AI runtime + 服务端 AI 垂直流程，迁移 `007_archives` → `008_ai_runtime`，详细计划 [`2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md`](./2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md) **已执行完毕并通过最终审查 READY_FOR_PHASE_3**，见 [`2026-08-03-phase-2b-archives-ai-runtime-review.md`](../reviews/2026-08-03-phase-2b-archives-ai-runtime-review.md)，不再作为待执行计划）。
 
 ## 阶段总览（依赖关系）
 
 | 阶段 | 内容 | 迁移 | 依赖 | 状态 / 详细计划 |
 | --- | --- | --- | --- | --- |
 | Phase 1 | 基线硬化、campaign-scoped access/visibility、角色后端、HTTP 垂直验收 | `003_characters.sql` | 无（基于 Task 1-3） | ✅ 已完成（提交 `62c40df`–`6e11c7a`）；复审 [READY_FOR_PHASE_2](../reviews/2026-08-02-phase-1-access-characters-review.md) |
-| Phase 2 | world facts、事务性 outbox、turn/actions、archives、AI runtime、服务端 AI 垂直流程 | `004`–`008` | Phase 1 | 🟡 拆分为 **Phase 2A（world + outbox + turn，`004`–`006`）** 与 **Phase 2B（archive + AI，`007`–`008`）**；Phase 2A ✅ 已完成（提交 `b12059c`–`4d57bd7`，复审 [READY_FOR_PHASE_2B](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)），Phase 2B 详细计划 ✅ 已编写（[`2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md`](./2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md)），**⏭ 待执行，尚未实现** |
-| Phase 3 | SSE 实时投递与结构化战斗 | `009_combat.sql` | Phase 2 | Phase 2 通过复审后编写 |
+| Phase 2 | world facts、事务性 outbox、turn/actions、archives、AI runtime、服务端 AI 垂直流程 | `004`–`008` | Phase 1 | ✅ 已完成；拆分为 **Phase 2A（world + outbox + turn，`004`–`006`）**（提交 `b12059c`–`4d57bd7`，复审 [READY_FOR_PHASE_2B](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)）与 **Phase 2B（archive + AI，`007`–`008`）**（提交 `4009c95`–`60d5d43`，复审 [READY_FOR_PHASE_3](../reviews/2026-08-03-phase-2b-archives-ai-runtime-review.md)）；Phase 2 总体验收（服务端 AI 垂直流程 + 两级 review）完成 |
+| Phase 3 | SSE 实时投递与结构化战斗 | `009_combat.sql` | Phase 2 | ✅ 可编写详细计划（待编写，由下一任务负责） |
 | Phase 4 | 前端 App Shell、认证、战役列表、owner/player 工作区 | 无 | Phase 2/3 | Phase 3 通过复审后编写 |
 | Phase 5 | 规则/Provider、真实加密、legacy adapter、多上下文 E2E、cutover | `010_rules_providers.sql` | Phase 1-4 | Phase 4 通过复审后编写 |
 
@@ -147,9 +147,9 @@
 
 ---
 
-## Phase 2：world facts、事务性 outbox、turn/actions、存档、AI 运行时与服务端 AI 垂直流程 — ✅ Phase 2A 已完成，⏭ Phase 2B 待执行
+## Phase 2：world facts、事务性 outbox、turn/actions、存档、AI 运行时与服务端 AI 垂直流程 — ✅ 已完成（READY_FOR_PHASE_3）
 
-**定位：** 构建核心跑团数据平面与 AI 结算，交付服务端 AI 垂直流程 `create → join → approve → submit → lock → resolve → archive → project`，这是后续前端与实时能力的服务端前提。Phase 1 已通过复审，本阶段按两个可执行计划推进：**Phase 2A（world + outbox + turn，迁移 `004`–`006`）** 与 **Phase 2B（archive + AI，迁移 `007`–`008`）**；**Phase 2A 已完成并通过复审（READY_FOR_PHASE_2B，见 [`2026-08-02-phase-2a-world-outbox-turns-review.md`](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)）**，**Phase 2B 详细计划已编写（[`2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md`](./2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md)，⏭ 待执行，尚未实现）**。Phase 2 总体验收（服务端 AI 垂直流程 + 两级 review）**仍未完成**。
+**定位：** 构建核心跑团数据平面与 AI 结算，交付服务端 AI 垂直流程 `create → join → approve → submit → lock → resolve → archive → project`，这是后续前端与实时能力的服务端前提。Phase 1 已通过复审，本阶段按两个可执行计划推进：**Phase 2A（world + outbox + turn，迁移 `004`–`006`）** 与 **Phase 2B（archive + AI，迁移 `007`–`008`）**；**Phase 2A 已完成并通过复审（READY_FOR_PHASE_2B，见 [`2026-08-02-phase-2a-world-outbox-turns-review.md`](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)）**，**Phase 2B 已完成并通过复审（READY_FOR_PHASE_3，见 [`2026-08-03-phase-2b-archives-ai-runtime-review.md`](../reviews/2026-08-03-phase-2b-archives-ai-runtime-review.md)）**。**Phase 2 总体验收（服务端 AI 垂直流程 + 两级 review）已完成。**
 
 ### 范围
 
@@ -196,7 +196,7 @@
 
 ### 详细计划编写时机
 
-**Phase 1 已完成并通过复审（READY_FOR_PHASE_2）**。本阶段按 **Phase 2A（world + outbox + turn）** 与 **Phase 2B（archive + AI）** 两个可执行计划先后推进：**Phase 2A 详细计划已执行完毕并通过最终审查（READY_FOR_PHASE_2B，见 [`2026-08-02-phase-2a-world-outbox-turns-review.md`](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)）**（[`2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md`](./2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md)，迁移 `004_world_state` → `005_events_outbox` → `006_turns_actions`，含共享 HTTP harness 重构与三 actor HTTP 垂直验收），不再作为待执行计划；**Phase 2B 详细计划已编写（迁移 `007_archives` → `008_ai_runtime`，见 [`2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md`](./2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md)，⏭ 待执行，尚未实现）**；Phase 2B 实现与 Phase 2 总体验收尚未完成。
+**Phase 1 已完成并通过复审（READY_FOR_PHASE_2）**。本阶段按 **Phase 2A（world + outbox + turn）** 与 **Phase 2B（archive + AI）** 两个可执行计划先后推进：**Phase 2A 详细计划已执行完毕并通过最终审查（READY_FOR_PHASE_2B，见 [`2026-08-02-phase-2a-world-outbox-turns-review.md`](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)）**（[`2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md`](./2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md)，迁移 `004_world_state` → `005_events_outbox` → `006_turns_actions`，含共享 HTTP harness 重构与三 actor HTTP 垂直验收），不再作为待执行计划；**Phase 2B 详细计划已执行完毕并通过最终审查（READY_FOR_PHASE_3，见 [`2026-08-03-phase-2b-archives-ai-runtime-review.md`](../reviews/2026-08-03-phase-2b-archives-ai-runtime-review.md)）**（[`2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md`](./2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md)，迁移 `007_archives` → `008_ai_runtime`，含三 actor 服务端 AI 垂直验收），不再作为待执行计划；**Phase 2B 实现与 Phase 2 总体验收均已完成，进入 READY_FOR_PHASE_3。**
 
 ### 验收门
 
@@ -237,7 +237,7 @@
 
 ### 详细计划编写时机
 
-**只有在 Phase 2 完成并通过复审后才编写 Phase 3 详细计划。**
+**只有在 Phase 2 完成并通过复审后才编写 Phase 3 详细计划。** 现满足该条件（Phase 2 复审 [READY_FOR_PHASE_3](../reviews/2026-08-03-phase-2b-archives-ai-runtime-review.md) 通过），**Phase 3 详细计划可编写（待编写，由下一任务负责）；Phase 3 尚未实现，本阶段状态不代表实现已开始。**
 
 ### 验收门
 
@@ -385,17 +385,17 @@
 - [x] 既有 authCampaignRoutes/database/contracts 测试不回归；typecheck/build 通过
 - [x] 两级 review（计划 review + 实现 review）通过
 
-### Phase 2（核心跑团与 AI 垂直）— ✅ Phase 2A（迁移 `004`–`006`）已完成；⏭ Phase 2B（迁移 `007`–`008`）详细计划已编写，待执行
+### Phase 2（核心跑团与 AI 垂直）— ✅ 已完成（Phase 2A 提交 `b12059c`–`4d57bd7`；Phase 2B 提交 `4009c95`–`60d5d43`；复审 READY_FOR_PHASE_3）
 
 - [x] **Phase 2A**：共享 HTTP harness 抽取（纯 refactor）；`004_world_state.sql` 创建；world fact contract/service/route 测试通过（owner 写、player 只读投影、knownBy 收敛 `[]`/自己）
 - [x] **Phase 2A**：`005_events_outbox.sql` 创建；`campaignEventSchema` 每 variant 带 `campaignId`、`owner.debug` 定义未 emit、`eventDefaultAudience`/`canReadEvent` 就绪；outbox 每战役 sequence 并发安全（原子 upsert + `RETURNING`）、回滚无残留、`published_at` 可空
 - [x] **Phase 2A**：`006_turns_actions.sql` 创建；最后一名玩家提交后自动锁定；锁定后不可修改；未批准角色不能提交；A 编辑不重复发事件；并发 A/B 只发一次 `turn.locked`；`sequence=[1,2,3]`；locked 也阻挡新回合（`f6d5eb2` 修复）
 - [x] **Phase 2A**：HTTP 垂直验收（world + outbox + turns，owner/playerA/playerB）通过；world 投影隔离、outbox 顺序/内容/未发布、turn 视图隐私、DTO 无 `*_json`/内部字段；typecheck/build 通过；两级 review 通过（结论 READY_FOR_PHASE_2B，见 [`2026-08-02-phase-2a-world-outbox-turns-review.md`](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)）
-- [ ] **Phase 2B**：`007_archives.sql` 创建；存档保存真实快照并支持真实恢复；恢复后后续历史标记 superseded；manual label trimmed / automatic label=null；per-campaign version 原子分配（绝不 MAX+1）
-- [ ] **Phase 2B**：`008_ai_runtime.sql` 创建；AI 状态机 locked→resolving→completed / needs_owner_attention；失败不写半截日志、不重复应用（同 key 幂等返回既有 run）
-- [ ] **Phase 2B**：服务端 AI 垂直流程（create→join→approve→submit→lock→resolve→archive→project）通过；`combat` stateChange 以 `STATE_CONFLICT` 门禁拒绝；生产默认 `UnavailableAiProvider`（绝不默认 Mock）
-- [ ] **Phase 2B**：typecheck/build 通过；两级 review 通过
-- [ ] **Phase 2B**：详细计划（[`2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md`](./2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md)）已编写（⏭ 待执行），实现尚未开始
+- [x] **Phase 2B**：`007_archives.sql` 创建；存档保存真实快照并支持真实恢复；恢复后后续历史标记 superseded（含快照外角色 archived、快照内角色按原状态/字段 upsert 并写 `archive_restore` audit）；manual label trimmed / automatic label=null；per-campaign version 原子分配（原子 upsert 计数器 + `RETURNING`，绝不 MAX+1；回滚/并发测试覆盖）；恢复后选中 archive 解除 superseded 重新激活（`95ea961`）
+- [x] **Phase 2B**：`008_ai_runtime.sql` 创建；AI 状态机 locked→resolving→completed / needs_owner_attention；失败不写半截日志、不重复应用（同 key 幂等返回既有 run、failed retry 必须新 key）；短事务 lifecycle + 自动存档 + 下一回合（formal apply tx 内，绝不嵌套 `TurnService.transaction`）；provider 原始 Error 一律不落库（严格白名单脱敏）
+- [x] **Phase 2B**：服务端 AI 垂直流程（create→join→approve→submit→lock→resolve→archive→project）通过；`combat` stateChange 以 `STATE_CONFLICT` 门禁拒绝；生产默认 `UnavailableAiProvider`（绝不默认 Mock）；A/B 隐私隔离 + owner 调试隔离成立
+- [x] **Phase 2B**：迁移原子性修复（`72066b5`/`1c25569`/`a7e8d25`）——`applyMigration` 使迁移 SQL 与 `platform_migrations` 跟踪行同事务 commit/rollback；typecheck/build 通过；两级 review 通过（结论 READY_FOR_PHASE_3，见 [`2026-08-03-phase-2b-archives-ai-runtime-review.md`](../reviews/2026-08-03-phase-2b-archives-ai-runtime-review.md)）
+- [x] **Phase 2B**：详细计划（[`2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md`](./2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md)）已编写并执行完毕（实现锁定于 `60d5d43`），不再作为待执行计划
 
 ### Phase 3（SSE 与结构化战斗）
 
