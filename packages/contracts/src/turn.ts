@@ -29,6 +29,15 @@ export const diceResultSchema = z.object({
   formula: z.string().min(1),
   total: z.number().int(),
   visibility: visibilitySchema,
+  /** player_private 必填非空；public/owner_only 必为 null。 */
+  targetPlayerId: z.string().min(1).nullable(),
+}).superRefine((dice, ctx) => {
+  if (dice.visibility === 'player_private' && !dice.targetPlayerId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'player_private dice result 必须指定 targetPlayerId。' });
+  }
+  if (dice.visibility !== 'player_private' && dice.targetPlayerId !== null) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'public/owner_only dice result 的 targetPlayerId 必须为 null。' });
+  }
 });
 
 export type DiceResult = z.infer<typeof diceResultSchema>;
@@ -54,8 +63,9 @@ export const interactionRequestSchema = z.object({
 
 export type InteractionRequest = z.infer<typeof interactionRequestSchema>;
 
+/** 公开叙事必填非空：空叙事视为无效输出（invalid 测试不再依赖 combat 触发）。 */
 export const turnResolutionSchema = z.object({
-  publicNarrative: z.string(),
+  publicNarrative: z.string().min(1),
   privateUpdates: z.array(privateUpdateSchema),
   diceResults: z.array(diceResultSchema),
   stateChanges: z.array(stateChangeSchema),

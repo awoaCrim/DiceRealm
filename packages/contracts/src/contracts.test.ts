@@ -28,6 +28,7 @@ describe('shared contracts', () => {
           formula: '1d20+5',
           total: 18,
           visibility: 'public',
+          targetPlayerId: null,
         },
       ],
       stateChanges: [
@@ -47,8 +48,23 @@ describe('shared contracts', () => {
       ],
     });
 
+    expect(result.diceResults[0].targetPlayerId).toBeNull();
     expect(result.diceResults[0].total).toBe(18);
     expect(result.stateChanges[0].patch).toEqual({ hpCurrent: 3 });
     expect(result.interactionRequests[0].prompt).toMatch(/酒馆老板/);
+  });
+
+  it('requires a non-null targetPlayerId for player_private dice', () => {
+    expect(() => turnResolutionSchema.parse({
+      publicNarrative: 'x', privateUpdates: [], stateChanges: [],
+      diceResults: [{ id: 'd', formula: '1d20', total: 7, visibility: 'player_private', targetPlayerId: null }],
+      interactionRequests: [],
+    })).toThrow();
+  });
+
+  it('rejects an empty publicNarrative', () => {
+    expect(() => turnResolutionSchema.parse({
+      publicNarrative: '', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [],
+    })).toThrow();
   });
 });

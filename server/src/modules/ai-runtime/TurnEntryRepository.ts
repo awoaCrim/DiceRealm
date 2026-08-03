@@ -1,5 +1,6 @@
 import type { Visibility } from '@dnd/contracts';
 import type { QueryExecutor } from '../../platform/database/DatabasePort.js';
+import { canRead, type VisibilitySubject } from '../visibility/VisibilityPolicy.js';
 
 export interface TurnEntryRow {
   id: string;
@@ -57,4 +58,12 @@ export class TurnEntryRepository {
       [turnId],
     );
   }
+}
+
+/** Turn entries 唯一投影：owner 全量；player 只见 public + 自己的 player_private；owner_only 不泄漏。 */
+export function projectEntries(subject: VisibilitySubject, rows: TurnEntryRow[]): TurnEntryRow[] {
+  return rows.filter((row) => {
+    if (subject.role === 'owner') return true;
+    return canRead(subject, row.visibility, row.target_player_id ? [row.target_player_id] : []);
+  });
 }
