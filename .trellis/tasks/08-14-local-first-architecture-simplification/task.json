@@ -1,0 +1,30 @@
+{
+  "id": "local-first-architecture-simplification",
+  "name": "local-first-architecture-simplification",
+  "title": "Simplify local-first architecture",
+  "description": "Simplify the platform for a single-instance SQLite local/small-group deployment while preserving gameplay correctness and Internet-facing security basics.",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "zeta",
+  "assignee": "zeta",
+  "createdAt": "2026-08-14",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-14-simplify-platform-startup",
+    "08-14-simplify-realtime-session",
+    "08-14-simplify-composition-adapters"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

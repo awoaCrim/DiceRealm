@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { visibilitySchema } from './turn.js';
+import { visibilitySchema } from './visibility.js';
 
 /** 世界事实 contract：owner 写入，player 只读经 VisibilityPolicy 投影。 */
 

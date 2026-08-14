@@ -1,0 +1,9 @@
+{"file":".trellis/spec/guides/index.md","reason":"Shared Trellis guidance for code reuse, cross-layer contracts, and pre-modification search discipline."}
+{"file":".trellis/spec/contracts/backend/index.md","reason":"Contract-layer conventions for server-consumed Zod schemas and compatibility boundaries."}
+{"file":".trellis/spec/contracts/frontend/index.md","reason":"Frontend contract conventions for response DTOs and client-side schema consumers."}
+{"file":".trellis/spec/server/backend/index.md","reason":"Server HTTP, middleware ordering, parser, and test conventions."}
+{"file":".trellis/spec/server/frontend/index.md","reason":"Server-facing frontend/API integration conventions relevant to auth and HTTP flow."}
+{"file":".trellis/spec/client/frontend/index.md","reason":"Client platform HTTP and auth API conventions."}
+{"file":"docs/superpowers/plans/2026-08-12-dnd-ai-dm-v1-phase2-security-foundation.md","reason":"Authoritative Phase 2 security requirements, CSRF lifecycle, parser ordering, and scope boundaries."}
+{"file":"docs/superpowers/specs/2026-08-12-dnd-ai-dm-v1-decisions.md","reason":"Authoritative security, cookie/session, and maintenance decisions that must remain compatible."}
+{"file":"docs/superpowers/plans/2026-08-12-dnd-ai-dm-v1-hardening-cutover.md","reason":"Cutover constraints, migration boundary, and Task 7-to-8/9 sequencing context."}

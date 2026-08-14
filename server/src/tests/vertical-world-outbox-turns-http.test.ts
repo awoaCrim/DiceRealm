@@ -1,9 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import { jsonHeaders, registerAndLogin, startPlatformServer } from './httpTestHarness.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { installHarnessFetch, jsonHeaders, registerAndLogin, startTestPlatformServer } from './httpTestHarness.js';
+
+let restoreHarnessFetch: (() => void) | undefined;
+beforeAll(() => { restoreHarnessFetch = installHarnessFetch(); });
+afterAll(() => { restoreHarnessFetch?.(); });
 
 interface Actor {
   userId: string;
-  cookieHeader: string;
+  cookieJar: import('./httpTestHarness.js').TestCookieJar;
 }
 
 async function createCharacter(
@@ -14,14 +18,14 @@ async function createCharacter(
 ): Promise<string> {
   const createRes = await fetch(`${charsBase}`, {
     method: 'POST',
-    headers: jsonHeaders(actor.cookieHeader),
+    headers: jsonHeaders(actor.cookieJar.header()),
     body: JSON.stringify({ name, sheet: { ac } }),
   });
   expect(createRes.status).toBe(201);
   const body = (await createRes.json()) as { character: { id: string } };
   const submitRes = await fetch(`${charsBase}/${body.character.id}/submit`, {
     method: 'POST',
-    headers: jsonHeaders(actor.cookieHeader),
+    headers: jsonHeaders(actor.cookieJar.header()),
   });
   expect(submitRes.status).toBe(200);
   return body.character.id;
@@ -29,7 +33,7 @@ async function createCharacter(
 
 describe('HTTP world + outbox + turns vertical flow', () => {
   it('projects world facts per player, locks the turn after the last submit, and emits ordered outbox events without bodies', async () => {
-    const server = await startPlatformServer();
+    const server = await startTestPlatformServer();
     try {
       const { baseUrl, platformDb } = server;
       const owner = await registerAndLogin(baseUrl, 'owner@example.test');
@@ -37,7 +41,7 @@ describe('HTTP world + outbox + turns vertical flow', () => {
       const playerB = await registerAndLogin(baseUrl, 'b@example.test');
 
       const createRes = await fetch(`${baseUrl}/api/campaigns`, {
-        method: 'POST', headers: jsonHeaders(owner.cookieHeader),
+        method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),
         body: JSON.stringify({ name: '失落矿坑', ruleset: 'dnd5e' }),
       });
       expect(createRes.status).toBe(201);
@@ -45,7 +49,7 @@ describe('HTTP world + outbox + turns vertical flow', () => {
 
       for (const actor of [playerA, playerB]) {
         const joinRes = await fetch(`${baseUrl}/api/campaigns/${createBody.campaign.id}/join`, {
-          method: 'POST', headers: jsonHeaders(actor.cookieHeader),
+          method: 'POST', headers: jsonHeaders(actor.cookieJar.header()),
           body: JSON.stringify({ inviteCode: createBody.inviteCode }),
         });
         expect(joinRes.status).toBe(201);
@@ -56,7 +60,7 @@ describe('HTTP world + outbox + turns vertical flow', () => {
       const bCharId = await createCharacter(charsBase, playerB, '卡恩', 16);
       for (const charId of [aCharId, bCharId]) {
         const review = await fetch(`${charsBase}/${charId}/review`, {
-          method: 'POST', headers: jsonHeaders(owner.cookieHeader),
+          method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),
           body: JSON.stringify({ action: 'approve' }),
         });
         expect(review.status).toBe(200);
@@ -66,7 +70,7 @@ describe('HTTP world + outbox + turns vertical flow', () => {
       const worldBase = `${baseUrl}/api/campaigns/${createBody.campaign.id}/world`;
       const createFact = async (body: Record<string, unknown>) => {
         const res = await fetch(`${worldBase}`, {
-          method: 'POST', headers: jsonHeaders(owner.cookieHeader), body: JSON.stringify(body),
+          method: 'POST', headers: jsonHeaders(owner.cookieJar.header()), body: JSON.stringify(body),
         });
         expect(res.status).toBe(201);
         return (await res.json()) as { fact: { id: string } };
@@ -78,26 +82,26 @@ describe('HTTP world + outbox + turns vertical flow', () => {
 
       // player 不能写 world：owner-only → FORBIDDEN（契约错误体）。
       const playerCreateFact = await fetch(`${worldBase}`, {
-        method: 'POST', headers: jsonHeaders(playerA.cookieHeader),
+        method: 'POST', headers: jsonHeaders(playerA.cookieJar.header()),
         body: JSON.stringify({ title: '越权', kind: 'lore', content: 'x', visibility: 'public' }),
       });
       expect(playerCreateFact.status).toBe(403);
       const playerCreateFactBody = (await playerCreateFact.json()) as { error: { code: string } };
       expect(playerCreateFactBody.error.code).toBe('FORBIDDEN');
 
-      const aWorld = (await (await fetch(`${worldBase}`, { headers: { cookie: playerA.cookieHeader } })).json()) as {
+      const aWorld = (await (await fetch(`${worldBase}`, { headers: { cookie: playerA.cookieJar.header() } })).json()) as {
         projection: { facts: Array<{ title: string; knownBy: string[] }> };
       };
       expect(aWorld.projection.facts.map((f) => f.title).sort()).toEqual(['A 的密信', '酒馆']);
       expect(aWorld.projection.facts.every((f) => f.knownBy.length <= 1)).toBe(true);
       expect(JSON.stringify(aWorld)).not.toContain(playerB.userId);
 
-      const bWorld = (await (await fetch(`${worldBase}`, { headers: { cookie: playerB.cookieHeader } })).json()) as {
+      const bWorld = (await (await fetch(`${worldBase}`, { headers: { cookie: playerB.cookieJar.header() } })).json()) as {
         projection: { facts: Array<{ title: string }> };
       };
       expect(bWorld.projection.facts.map((f) => f.title).sort()).toEqual(['B 的密信', '酒馆']);
 
-      const ownerWorld = (await (await fetch(`${worldBase}`, { headers: { cookie: owner.cookieHeader } })).json()) as {
+      const ownerWorld = (await (await fetch(`${worldBase}`, { headers: { cookie: owner.cookieJar.header() } })).json()) as {
         projection: { facts: Array<{ title: string; knownBy: string[] }> };
       };
       expect(ownerWorld.projection.facts).toHaveLength(4);
@@ -107,13 +111,13 @@ describe('HTTP world + outbox + turns vertical flow', () => {
       const turnsBase = `${baseUrl}/api/campaigns/${createBody.campaign.id}/turns`;
       // player 不能开始回合：owner-only → FORBIDDEN。
       const playerStartTurn = await fetch(`${turnsBase}`, {
-        method: 'POST', headers: jsonHeaders(playerA.cookieHeader),
+        method: 'POST', headers: jsonHeaders(playerA.cookieJar.header()),
       });
       expect(playerStartTurn.status).toBe(403);
       const playerStartBody = (await playerStartTurn.json()) as { error: { code: string } };
       expect(playerStartBody.error.code).toBe('FORBIDDEN');
 
-      const startRes = await fetch(`${turnsBase}`, { method: 'POST', headers: jsonHeaders(owner.cookieHeader) });
+      const startRes = await fetch(`${turnsBase}`, { method: 'POST', headers: jsonHeaders(owner.cookieJar.header()) });
       expect(startRes.status).toBe(201);
       const startBody = (await startRes.json()) as { turn: { id: string; number: number } };
       const turnId = startBody.turn.id;
@@ -121,7 +125,7 @@ describe('HTTP world + outbox + turns vertical flow', () => {
 
       const submit = async (actor: Actor, body: string) => {
         const res = await fetch(`${turnsBase}/${turnId}/actions`, {
-          method: 'POST', headers: jsonHeaders(actor.cookieHeader), body: JSON.stringify({ body }),
+          method: 'POST', headers: jsonHeaders(actor.cookieJar.header()), body: JSON.stringify({ body }),
         });
         return res;
       };
@@ -167,18 +171,18 @@ describe('HTTP world + outbox + turns vertical flow', () => {
       }
 
       // B 看不到 A 正文；owner 看全。
-      const bTurnView = (await (await fetch(`${turnsBase}/${turnId}`, { headers: { cookie: playerB.cookieHeader } })).json()) as {
+      const bTurnView = (await (await fetch(`${turnsBase}/${turnId}`, { headers: { cookie: playerB.cookieJar.header() } })).json()) as {
         view: { myAction: { body: string } | null };
       };
       expect(JSON.stringify(bTurnView)).not.toContain('搜索房间');
       expect(bTurnView.view.myAction?.body).toBe('我警戒门口。');
-      const ownerTurnView = (await (await fetch(`${turnsBase}/${turnId}`, { headers: { cookie: owner.cookieHeader } })).json()) as {
+      const ownerTurnView = (await (await fetch(`${turnsBase}/${turnId}`, { headers: { cookie: owner.cookieJar.header() } })).json()) as {
         view: { actions: Array<{ body: string; playerId: string }> };
       };
       expect(ownerTurnView.view.actions.map((a) => a.body).sort()).toEqual(['我仔细搜索房间。', '我警戒门口。']);
 
       // turn list 无 action 正文。
-      const turnList = (await (await fetch(`${turnsBase}`, { headers: { cookie: owner.cookieHeader } })).json()) as { turns: unknown[] };
+      const turnList = (await (await fetch(`${turnsBase}`, { headers: { cookie: owner.cookieJar.header() } })).json()) as { turns: unknown[] };
       expect(JSON.stringify(turnList)).not.toContain('搜索房间');
       expect(JSON.stringify(turnList)).not.toContain('警戒门口');
 

@@ -67,4 +67,60 @@ describe('shared contracts', () => {
       publicNarrative: '', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [],
     })).toThrow();
   });
+
+  it('defaults every omitted empty collection to an empty array', () => {
+    const result = turnResolutionSchema.parse({ publicNarrative: '雨停了。' });
+
+    expect(result.privateUpdates).toEqual([]);
+    expect(result.diceResults).toEqual([]);
+    expect(result.stateChanges).toEqual([]);
+    expect(result.interactionRequests).toEqual([]);
+    expect(result.worldFactCreations).toEqual([]);
+    expect(result.encounterStarts).toEqual([]);
+  });
+
+  it('still rejects malformed nested values when a collection is supplied', () => {
+    expect(() => turnResolutionSchema.parse({
+      publicNarrative: '雨停了。',
+      privateUpdates: [{ playerId: 'player-1', content: 42 }],
+    })).toThrow();
+  });
+
+  it('parses worldFactCreations and encounterStarts with rollInitiative defaulting to true', () => {
+    const result = turnResolutionSchema.parse({
+      publicNarrative: '战斗开始。',
+      privateUpdates: [],
+      diceResults: [],
+      stateChanges: [],
+      interactionRequests: [],
+      worldFactCreations: [
+        { title: '烛堡密道', kind: 'location', content: '石墙后藏着通道。', visibility: 'public', knownBy: [] },
+      ],
+      encounterStarts: [
+        {
+          name: '密道伏击',
+          combatants: [
+            { name: '哥布林', characterId: null, initiativeBonus: 2, hpCurrent: 9, hpMax: 9, ac: 13, conditions: [], visibility: 'public', targetPlayerId: null },
+          ],
+        },
+      ],
+    });
+    expect(result.worldFactCreations[0].title).toBe('烛堡密道');
+    expect(result.encounterStarts[0].rollInitiative).toBe(true);
+    expect(result.encounterStarts[0].combatants[0].name).toBe('哥布林');
+  });
+
+  it('honors rollInitiative=false when explicitly provided', () => {
+    const result = turnResolutionSchema.parse({
+      publicNarrative: 'x', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [],
+      encounterStarts: [{
+        name: '对峙',
+        rollInitiative: false,
+        combatants: [
+          { name: '卫士', characterId: null, initiativeBonus: 1, hpCurrent: 10, hpMax: 10, ac: 15, conditions: [], visibility: 'public', targetPlayerId: null },
+        ],
+      }],
+    });
+    expect(result.encounterStarts[0].rollInitiative).toBe(false);
+  });
 });

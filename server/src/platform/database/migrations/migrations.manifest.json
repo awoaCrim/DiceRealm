@@ -1,0 +1,61 @@
+{
+  "format": 1,
+  "files": [
+    {
+      "name": "001_initial_platform.sql",
+      "sha256": "71309a66112fc5bb7a7e1d327d7e7cc1c05ce4a254a2eec4395c9b8592d75f84"
+    },
+    {
+      "name": "002_campaign_invites.sql",
+      "sha256": "e0740d468fc0a135d95f96614013bc66912336d0b90c00dc17bbb966cd7c30c2"
+    },
+    {
+      "name": "003_characters.sql",
+      "sha256": "ea5058441a8e8a07878d9a666ecac2cb43473dbc425ae4d7c1138993a07ec4f1"
+    },
+    {
+      "name": "004_world_state.sql",
+      "sha256": "ba54bc422979dfa6bbd36ad76cfb96c27c34d489c99939dc85745843b846fb23"
+    },
+    {
+      "name": "005_events_outbox.sql",
+      "sha256": "db6f4718ed7824f87e7582807d4f90cbafe3f053ceaa2da8ca37ec9c55780226"
+    },
+    {
+      "name": "006_turns_actions.sql",
+      "sha256": "ee3fe97c9a6cc5f38404995f7d315a53d671a6f52085a069e174a8c1b7af5204"
+    },
+    {
+      "name": "007_archives.sql",
+      "sha256": "7a807a1fc47727f1942c5d72434fec2d7dbe4ce6157e8dfd8a71dd1586aad592"
+    },
+    {
+      "name": "008_ai_runtime.sql",
+      "sha256": "940bb738288ecfb773a46e59079ee0e73f1221d868d973ff3c8f380c622d1861"
+    },
+    {
+      "name": "009_combat.sql",
+      "sha256": "67f13ee713d4f8e30461af84e64ea5e0af222dbb6f84507e2dab954a6b96fd2a"
+    },
+    {
+      "name": "010_ai_provider_credentials.sql",
+      "sha256": "19614aa75bd34d70f480ff31dc07b06b7fde7b8a1d7aa39df98f3b943fa76b25"
+    },
+    {
+      "name": "011_rule_sources.sql",
+      "sha256": "8900931e4ab1e7162410e9407ce8730b81aa447ad7ae4e5200c6f24b49186939"
+    },
+    {
+      "name": "012_platform_foundation.sql",
+      "sha256": "3dab3ce75d06ef68f80cb6ebb5e78fb00cdf06d176ddfac544c27669ce6168e6"
+    },
+    {
+      "name": "013_secure_sessions.sql",
+      "sha256": "f9fdabf1a41f00502896f004162b9ec4dcfce8ee33ac5b73541bdd09e0bb68f6"
+    },
+    {
+      "name": "014_security_audit.sql",
+      "sha256": "f86b8d86853bbd9f61ced3416f971634393f738fea8a19fff7db245bcff2c7b8"
+    }
+  ]
+}

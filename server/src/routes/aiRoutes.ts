@@ -1,6 +1,7 @@
+import { jsonBodyBudget } from '../platform/http/jsonBodyBudget.js';
 import { Router } from 'express';
-import type { Request, Response } from 'express';
-import { resolveTurnInputSchema } from '@dnd/contracts';
+import type { Request, Response, NextFunction } from 'express';
+import { aiProviderConfigInputSchema, resolveTurnInputSchema } from '@dnd/contracts';
 import type { QueryExecutor } from '../platform/database/DatabasePort.js';
 import { AppError } from '../platform/http/AppError.js';
 import { getCampaignContext, requireCampaignMember } from '../platform/http/campaignMiddleware.js';
@@ -10,6 +11,7 @@ import { AiRunRepository, type AiRunRow } from '../modules/ai-runtime/AiRunRepos
 import { TurnEntryRepository, projectEntries, type TurnEntryRow } from '../modules/ai-runtime/TurnEntryRepository.js';
 import { TurnRepository } from '../modules/turns/TurnRepository.js';
 import { requireOwner } from '../modules/campaigns/CampaignAccess.js';
+import type { AiProviderConfigService } from '../modules/ai-runtime/AiProviderConfigService.js';
 
 /**
  * AI 路由：挂在 /api/campaigns/:campaignId/ai。
@@ -17,11 +19,38 @@ import { requireOwner } from '../modules/campaigns/CampaignAccess.js';
  * resolve（POST /turns/:turnId/runs）的 owner 权限由 AiResolutionService 在事务内 enforce；
  * 只读端点（runs 列表 / run 详情）由路由层 requireOwner + campaign 归属校验共同保证。
  */
-export function createAiRouter(executor: QueryExecutor, ai: AiResolutionService): Router {
+export function createAiRouter(executor: QueryExecutor, ai: AiResolutionService, providerConfig: AiProviderConfigService): Router {
   const router = Router({ mergeParams: true });
   router.use(requireCampaignMember(executor));
 
-  router.post('/turns/:turnId/runs', asyncHandler(async (req: Request, res: Response) => {
+  router.get('/provider-status', asyncHandler(async (req: Request, res: Response) => {
+    const ctx = getCampaignContext(req);
+    res.json({ provider: await providerConfig.getForOwner(ctx) });
+  }));
+
+  router.put('/provider-config', requireRouteOwner, jsonBodyBudget('aiProvider'), asyncHandler(async (req: Request, res: Response) => {
+    const ctx = getCampaignContext(req);
+    requireOwner(ctx);
+    const input = aiProviderConfigInputSchema.parse(req.body);
+    res.json({ provider: await providerConfig.save(ctx, input) });
+  }));
+
+  router.post('/provider-config/test', requireRouteOwner, jsonBodyBudget('aiProvider'), asyncHandler(async (req: Request, res: Response) => {
+    const ctx = getCampaignContext(req);
+    requireOwner(ctx);
+    const input = aiProviderConfigInputSchema.parse(req.body);
+    await providerConfig.test(ctx, input);
+    res.json({ ok: true });
+  }));
+
+  router.get('/runs', asyncHandler(async (req: Request, res: Response) => {
+    const ctx = getCampaignContext(req);
+    requireOwner(ctx);
+    const runs = await new AiRunRepository(executor).listByCampaign(ctx.campaignId);
+    res.json({ runs: runs.map(toView) });
+  }));
+
+  router.post('/turns/:turnId/runs', requireRouteOwner, jsonBodyBudget('ai'), asyncHandler(async (req: Request, res: Response) => {
     const ctx = getCampaignContext(req);
     const input = resolveTurnInputSchema.parse(req.body);
     // 新 run → 201；同 key 幂等 replay（既有 run）→ 200。service 返回 { created, run }。
@@ -59,7 +88,12 @@ export function createAiRouter(executor: QueryExecutor, ai: AiResolutionService)
   return router;
 }
 
-/** 校验回合属于该 campaign：跨 campaign 的已知 turnId 直接 NOT_FOUND（路由边界，不能靠 repo 过滤绕过）。 */
+function requireRouteOwner(req: Request, _res: Response, next: NextFunction): void {
+  try { requireOwner(getCampaignContext(req)); next(); }
+  catch (error) { next(error); }
+}
+
+
 async function requireTurnInCampaign(executor: QueryExecutor, campaignId: string, turnId: string): Promise<void> {
   const turn = await new TurnRepository(executor).findTurnById(turnId);
   if (!turn || turn.campaign_id !== campaignId) {

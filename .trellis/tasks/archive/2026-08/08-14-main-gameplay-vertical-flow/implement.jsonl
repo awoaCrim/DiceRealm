@@ -1,0 +1,6 @@
+{"file":".trellis/spec/guides/index.md","reason":"Apply cross-layer and code-reuse guidance to the browser-to-server vertical flow without duplicating test infrastructure."}
+{"file":".trellis/spec/server/backend/index.md","reason":"Use server route, fixture, HTTPS, realtime, and test conventions when diagnosing integration blockers."}
+{"file":".trellis/spec/server/frontend/index.md","reason":"Use server-facing frontend integration conventions for the Vite proxy and browser harness boundary."}
+{"file":".trellis/spec/client/frontend/index.md","reason":"Use client routing, query, realtime, and browser interaction conventions."}
+{"file":"docs/superpowers/validation/phase2-task7-ledger.md","reason":"Preserve the accepted HTTPS, pinned-CA, fixture isolation, and default DB/key safety gates."}
+{"file":"docs/superpowers/plans/2026-08-12-dnd-ai-dm-v1-hardening-cutover.md","reason":"Keep the main gameplay vertical flow aligned with the frozen campaign, AI, archive, and production boundaries."}

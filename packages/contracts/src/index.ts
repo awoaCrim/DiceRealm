@@ -7,4 +7,5 @@ export * from './combat.js';
 export * from './ai.js';
 export * from './events.js';
 export * from './errors.js';
+export * from './rules.js';
 export * from './world.js';

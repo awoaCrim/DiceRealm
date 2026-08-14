@@ -1,9 +1,8 @@
 /**
  * Database port: the interface the business layer depends on.
  *
- * SQLite and PostgreSQL are isolated behind this port so modules never touch
- * driver-specific APIs. Placeholders use `?` for both adapters; PostgreSQL
- * converts them to `$1`, `$2`, ... internally.
+ * The local SQLite driver stays behind this port so modules never depend on
+ * better-sqlite3 APIs or a raw connection. SQL parameters use `?` placeholders.
  */
 
 /** Minimal SQL executor shared by every database adapter. */
@@ -12,10 +11,19 @@ export interface QueryExecutor {
   execute(sql: string, params?: unknown[]): Promise<{ changes: number }>;
 }
 
-/** Asynchronous port implemented by the SQLite and PostgreSQL adapters. */
+/** 只读执行器：只有 query，没有 execute；用于 readCommitted 短快照读。 */
+export interface QueryReader {
+  query<T>(sql: string, params?: unknown[]): Promise<T[]>;
+}
+
+/**
+ * SQLite 应用数据端口。readCommitted 与 write transaction 共用单一 FIFO 队列：
+ * read 排在已有事务之后，绝不看到未提交或已回滚的数据。
+ */
 export interface DatabasePort extends QueryExecutor {
   migrate(): Promise<void>;
   transaction<T>(work: (tx: QueryExecutor) => Promise<T>): Promise<T>;
+  readCommitted<T>(work: (reader: QueryReader) => Promise<T>): Promise<T>;
   close(): Promise<void>;
 }
 
@@ -42,15 +50,4 @@ export interface MigrationExecutor extends QueryExecutor {
    * callback (the nested BEGIN would fail).
    */
   applyMigration(migration: MigrationToApply, appliedAt: string): Promise<void>;
-}
-
-/**
- * Synchronous executor used only by the legacy SQLite startup path
- * (`server/src/db/schema.ts`) which cannot await migrations.
- */
-export interface SyncMigrationExecutor {
-  query<T>(sql: string, params?: unknown[]): T[];
-  execute(sql: string, params?: unknown[]): { changes: number };
-  exec(sql: string): void;
-  applyMigration(migration: MigrationToApply, appliedAt: string): void;
 }

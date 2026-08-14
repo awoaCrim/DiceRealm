@@ -1,0 +1,29 @@
+{
+  "id": "phase2-tasks-8-9",
+  "name": "phase2-tasks-8-9",
+  "title": "Phase 2 Tasks 8-9 Security and Contract Hardening",
+  "description": "",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "zeta",
+  "assignee": "zeta",
+  "createdAt": "2026-08-14",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "codex/upload-initial-code",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "08-14-task8-csrf-rate-limiting",
+    "08-14-task9-strict-body-contracts"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "Deferred by user decision; prioritize the main product flow and do not start this task until reopened.",
+  "meta": {}
+}

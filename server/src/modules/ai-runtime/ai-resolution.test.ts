@@ -16,8 +16,12 @@ import { StateChangeMaterializer } from './StateChangeMaterializer.js';
 import { ScriptedAiProvider, scriptedResolution, approvedPlayerIds } from './ScriptedAiProvider.js';
 import { AiResolutionService } from './AiResolutionService.js';
 import type { AiProviderPort } from './AiProviderPort.js';
+import { CombatService } from '../combat/CombatService.js';
+import { CombatAiAdapter } from '../combat/CombatAiAdapter.js';
+import { CombatRepository } from '../combat/CombatRepository.js';
+import type { StartEncounterInput } from '@dnd/contracts';
 
-async function makeFixture(provider: AiProviderPort, options: { lockTurn?: boolean } = {}) {
+async function makeFixture(provider: AiProviderPort, options: { lockTurn?: boolean; combat?: boolean } = {}) {
   const db = createSqliteDatabase(':memory:');
   await db.migrate();
   const identity = new IdentityService(db);
@@ -46,9 +50,12 @@ async function makeFixture(provider: AiProviderPort, options: { lockTurn?: boole
     await turns.submitAction(bCtx, turn.id, { body: '我警戒门口。' });
   }
   const archives = new ArchiveService(db, outbox);
+  const materializer = options.combat
+    ? new StateChangeMaterializer(db, new CombatAiAdapter(new CombatService(db, outbox, () => 0.5), new CombatRepository(db)))
+    : new StateChangeMaterializer(db);
   const service = new AiResolutionService(
     db, provider, outbox, archives,
-    new AiContextBuilder(db), new TurnResolutionValidator(db), new StateChangeMaterializer(db),
+    new AiContextBuilder(db), new TurnResolutionValidator(db), materializer,
   );
   return { db, service, ownerCtx, aCtx, bCtx, turn };
 }
@@ -81,6 +88,12 @@ describe('ai resolution service', () => {
     const run = result.run;
     expect(run.status).toBe('succeeded');
     expect(run.attempt).toBe(1);
+    const contextRows = await db.query<{ context_json: string }>(
+      'SELECT context_json FROM platform_ai_runs WHERE id = ?', [run.id],
+    );
+    const savedPrompt = (JSON.parse(contextRows[0].context_json) as { prompt: { messages: Array<{ role: string }>; system?: unknown } }).prompt;
+    expect(savedPrompt).not.toHaveProperty('system');
+    expect(savedPrompt.messages.filter((message) => message.role === 'system')).toHaveLength(1);
     const turnRow = await db.query<{ status: string; completed_at: string | null }>(
       'SELECT status, completed_at FROM platform_turns WHERE id = ?', [turn.id],
     );
@@ -99,15 +112,47 @@ describe('ai resolution service', () => {
       'SELECT number, status FROM platform_turns WHERE campaign_id = ? AND number = 2', [turn.campaignId],
     );
     expect(next).toEqual([{ number: 2, status: 'waiting_for_actions' }]);
-    // outbox 事件：preview.started → deltas → turn.resolved（无 owner.debug emit）。
-    const events = await db.query<{ event_type: string }>(
-      'SELECT event_type FROM platform_outbox_events WHERE campaign_id = ? ORDER BY sequence', [turn.campaignId],
+    // outbox 事件：preview.started → deltas → turn.resolved + owner.debug（Phase 3）。
+    const events = await db.query<{ event_type: string; payload_json: string }>(
+      'SELECT event_type, payload_json FROM platform_outbox_events WHERE campaign_id = ? ORDER BY sequence', [turn.campaignId],
     );
-    expect(events.map((e) => e.event_type)).toContain('ai.preview.started');
-    expect(events.map((e) => e.event_type)).toContain('ai.preview.delta');
-    expect(events.map((e) => e.event_type)).toContain('turn.resolved');
-    expect(events.map((e) => e.event_type)).not.toContain('owner.debug');
+    const types = events.map((e) => e.event_type);
+    expect(types).toContain('ai.preview.started');
+    expect(types).toContain('ai.preview.delta');
+    expect(types).toContain('turn.resolved');
+    // owner.debug 只携带 { runId, kind }，不含 context/result/raw debug。
+    expect(types).toContain('owner.debug');
+    const debug = events.find((e) => e.event_type === 'owner.debug')!;
+    const debugPayload = JSON.parse(debug.payload_json) as { type: string; campaignId: string; runId: string; kind: string };
+    expect(debugPayload).toMatchObject({ type: 'owner.debug', campaignId: turn.campaignId, kind: 'result' });
+    expect(debugPayload.runId).toBeTruthy();
+    expect(JSON.stringify(debugPayload)).not.toContain('publicNarrative');
+    expect(JSON.stringify(debugPayload)).not.toContain('raw_debug');
     await db.close();
+  });
+
+  it('records the provider model separately from the provider name in the run', async () => {
+    // 身份保真：run.model 必须来自 Provider.model（真实模型名），而不是 provider.name。
+    const customProvider: AiProviderPort = {
+      name: 'custom-name',
+      model: 'custom-model',
+      stream: async (input, hooks) => {
+        const [pa, pb] = approvedPlayerIds(input);
+        return scriptedResolution(validResolution(pa, pb))(input, hooks);
+      },
+    };
+    const { db, service, ownerCtx, turn } = await makeFixture(customProvider);
+    try {
+      const result = await service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'model-fidelity' });
+      expect(result.run.provider).toBe('custom-name');
+      expect(result.run.model).toBe('custom-model');
+      const row = await db.query<{ provider: string; model: string }>(
+        'SELECT provider, model FROM platform_ai_runs WHERE turn_id = ?', [turn.id],
+      );
+      expect(row[0]).toEqual({ provider: 'custom-name', model: 'custom-model' });
+    } finally {
+      await db.close();
+    }
   });
 
   it('is idempotent for the same key and does not call the provider again', async () => {
@@ -372,15 +417,269 @@ describe('ai resolution service', () => {
     await db.close();
   });
 
-  it('gates combat state changes with STATE_CONFLICT and writes no formal state', async () => {
+  it('persists bounded path-only schema diagnostics without raw Provider values', async () => {
+    const secretValue = 'raw-private-provider-value';
     const { db, service, ownerCtx, turn } = await makeFixture(
-      new ScriptedAiProvider(scriptedResolution({ publicNarrative: '战斗开始。', privateUpdates: [], diceResults: [], stateChanges: [{ kind: 'combat', targetId: 'enc-1', patch: { hpCurrent: 1 }, visibility: 'public' }], interactionRequests: [] })),
+      new ScriptedAiProvider(scriptedResolution({
+        publicNarrative: '雨停了。',
+        privateUpdates: [{ playerId: 'player-1', content: { secretValue } }],
+      })),
     );
-    await expect(service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'combat1' })).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    await expect(service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'bad-schema-diagnostic' }))
+      .rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
+    const rows = await db.query<{ error_json: string | null; raw_debug_json: string | null }>(
+      'SELECT error_json, raw_debug_json FROM platform_ai_runs WHERE turn_id = ?', [turn.id],
+    );
+    expect(rows).toHaveLength(1);
+    const rawDebug = JSON.parse(rows[0].raw_debug_json as string) as Record<string, unknown>;
+    expect(rawDebug).toMatchObject({
+      code: 'AI_OUTPUT_INVALID',
+      diagnostic: {
+        kind: 'turn_resolution_schema_validation',
+        issues: expect.arrayContaining([
+          { path: ['privateUpdates', 0, 'content'], code: 'invalid_type' },
+        ]),
+      },
+    });
+    // 通用 error_json（以及由它生成的 HTTP 文案）不附带诊断；只有 Owner-only rawDebug 有 path/code。
+    expect(rows[0].error_json).not.toContain('diagnostic');
+    expect(rows[0].error_json).not.toContain('privateUpdates');
+    expect(JSON.stringify(rows)).not.toContain(secretValue);
+    expect((await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id]))).toHaveLength(0);
+    expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId]))).toHaveLength(0);
+    expect((await db.query('SELECT id FROM platform_turns WHERE campaign_id = ? AND number = 2', [turn.campaignId]))).toHaveLength(0);
+    await db.close();
+  });
+
+  it('does not persist or return schema-valid domain-invalid Provider values', async () => {
+    const providerValue = `not-a-member-${'secret'.repeat(100)}`;
+    const { db, service, ownerCtx, turn } = await makeFixture(
+      new ScriptedAiProvider(scriptedResolution({
+        publicNarrative: '雨停了。',
+        privateUpdates: [{ playerId: providerValue, content: `私密正文-${providerValue}` }],
+      })),
+    );
+    let caught: unknown;
+    try {
+      await service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'bad-domain-diagnostic' });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({
+      code: 'AI_OUTPUT_INVALID',
+      message: 'AI 输出不符合结构化结算契约。',
+    });
+    expect((caught as Error).message).not.toContain(providerValue);
+    const rows = await db.query<{ error_json: string | null; raw_debug_json: string | null }>(
+      'SELECT error_json, raw_debug_json FROM platform_ai_runs WHERE turn_id = ?', [turn.id],
+    );
+    expect(JSON.stringify(rows)).not.toContain(providerValue);
+    expect(JSON.parse(rows[0].raw_debug_json as string)).toMatchObject({
+      code: 'AI_OUTPUT_INVALID',
+      diagnostic: {
+        kind: 'turn_resolution_domain_validation',
+        issues: [{ path: ['privateUpdates', 0, 'playerId'], code: 'not_campaign_member' }],
+        truncated: false,
+      },
+    });
+    expect((await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id]))).toHaveLength(0);
+    expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId]))).toHaveLength(0);
+    expect((await db.query('SELECT id FROM platform_turns WHERE campaign_id = ? AND number = 2', [turn.campaignId]))).toHaveLength(0);
+    await db.close();
+  });
+
+  it('keeps combat state conflicts as STATE_CONFLICT and writes no formal state', async () => {
+    const { db, service, ownerCtx, turn } = await makeFixture(
+      new ScriptedAiProvider(scriptedResolution({ publicNarrative: '战斗开始。', privateUpdates: [], diceResults: [], stateChanges: [{ kind: 'combat', targetId: 'enc-x', patch: { command: 'advance_turn' }, visibility: 'public' }], interactionRequests: [] })),
+      { combat: true },
+    );
+    // 不存在的 encounter → validator 预校验 AI_OUTPUT_INVALID（不再是 Phase 2 的 STATE_CONFLICT gate）。
+    await expect(service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'combat-bad-target' })).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
     const turnRow = await db.query<{ status: string }>('SELECT status FROM platform_turns WHERE id = ?', [turn.id]);
     expect(turnRow[0].status).toBe('needs_owner_attention');
     expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).length).toBe(0);
     expect((await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id])).length).toBe(0);
+    await db.close();
+  });
+
+  it('materializes world fact creations and an AI-started encounter with rolled initiative, then auto-archives them', async () => {
+    const { db, service, ownerCtx, turn, aCtx } = await makeFixture(
+      new ScriptedAiProvider(async (input, hooks) => {
+        const [pa, pb] = approvedPlayerIds(input);
+        return scriptedResolution({
+          publicNarrative: '密道深处传来低沉的吼声。',
+          privateUpdates: [
+            { playerId: pa, content: '你认出墙上的影印暗记。' },
+            { playerId: pb, content: '你听见远处有脚步声。' },
+          ],
+          diceResults: [],
+          stateChanges: [],
+          interactionRequests: [],
+          worldFactCreations: [
+            { title: '烛堡密道', kind: 'location', content: '石墙后藏着一条封闭密道。', visibility: 'public', knownBy: [] },
+            { title: '影印暗记', kind: 'lore', content: '只有甲见过的标记。', visibility: 'player_private', knownBy: [pa] },
+            { title: '地宫主人', kind: 'npc', content: 'Owner 专属的秘密。', visibility: 'owner_only', knownBy: [] },
+          ],
+          encounterStarts: [{
+            name: '密道伏击',
+            combatants: [
+              { name: '哥布林斥候', characterId: null, initiativeBonus: 2, hpCurrent: 9, hpMax: 9, ac: 13, conditions: [], visibility: 'public', targetPlayerId: null },
+              { name: '影缚刺客', characterId: null, initiativeBonus: 4, hpCurrent: 16, hpMax: 16, ac: 14, conditions: [], visibility: 'player_private', targetPlayerId: pa },
+              { name: '地宫支配者', characterId: null, initiativeBonus: 5, hpCurrent: 40, hpMax: 40, ac: 17, conditions: [], visibility: 'owner_only', targetPlayerId: null },
+            ],
+          }],
+        }, ['密道', '深处'])(input, hooks);
+      }),
+      { combat: true },
+    );
+    const result = await service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'creations-1' });
+    expect(result.created).toBe(true);
+    expect(result.run.status).toBe('succeeded');
+    // 世界事实：三条已落库，public/owner_only knownBy 为 []，player_private 保留成员。
+    const facts = await db.query<{ title: string; visibility: string; known_by_json: string }>(
+      'SELECT title, visibility, known_by_json FROM platform_world_facts WHERE campaign_id = ? ORDER BY title ASC',
+      [turn.campaignId],
+    );
+    const factTitles = facts.map((f) => f.title).sort();
+    expect(factTitles).toEqual(['影印暗记', '烛堡密道', '地宫主人'].sort());
+    expect(JSON.parse(facts.find((f) => f.title === '影印暗记')!.known_by_json)).toEqual([aCtx.playerId]);
+    expect(JSON.parse(facts.find((f) => f.title === '地宫主人')!.known_by_json)).toEqual([]);
+    // 遭遇：服务端 id、默认 rollInitiative=true → active 且全员先攻已掷。
+    const encounters = await db.query<{ id: string; name: string; status: string; active_combatant_id: string | null; round: number }>(
+      'SELECT id, name, status, active_combatant_id, round FROM platform_encounters WHERE campaign_id = ?',
+      [turn.campaignId],
+    );
+    expect(encounters).toHaveLength(1);
+    expect(encounters[0].status).toBe('active');
+    expect(encounters[0].active_combatant_id).not.toBeNull();
+    expect(encounters[0].id).toHaveLength(24);
+    const combatants = await db.query<{ name: string; initiative: number | null }>(
+      'SELECT name, initiative FROM platform_combatants WHERE encounter_id = ?',
+      [encounters[0].id],
+    );
+    expect(combatants.map((c) => c.name).sort()).toEqual(['哥布林斥候', '影缚刺客', '地宫支配者'].sort());
+    expect(combatants.every((c) => c.initiative !== null)).toBe(true);
+    // result/debug 自然持久化新数组。
+    const run = await db.query<{ result_json: string; raw_debug_json: string }>(
+      'SELECT result_json, raw_debug_json FROM platform_ai_runs WHERE id = ?', [result.run.id],
+    );
+    expect(run[0].result_json).toContain('worldFactCreations');
+    expect(run[0].result_json).toContain('encounterStarts');
+    expect(run[0].raw_debug_json).toContain('密道伏击');
+    // 自动存档捕获创建后状态：快照含三条事实与该遭遇。
+    const archive = await db.query<{ state_json: string }>(
+      'SELECT state_json FROM platform_archives WHERE campaign_id = ? AND kind = ?',
+      [turn.campaignId, 'automatic'],
+    );
+    expect(archive).toHaveLength(1);
+    const snapshot = JSON.parse(archive[0].state_json) as { worldFacts: Array<{ title: string }>; encounters: Array<{ encounter: { name: string; status: string } }> };
+    expect(snapshot.worldFacts.map((f) => f.title).sort()).toEqual(['烛堡密道', '影印暗记', '地宫主人'].sort());
+    expect(snapshot.encounters).toHaveLength(1);
+    expect(snapshot.encounters[0].encounter.name).toBe('密道伏击');
+    expect(snapshot.encounters[0].encounter.status).toBe('active');
+    await db.close();
+  });
+
+  it('rejects an AI encounter start that violates the one-unfinished-encounter invariant with STATE_CONFLICT and no formal writes', async () => {
+    const { db, service, ownerCtx, turn } = await makeFixture(
+      new ScriptedAiProvider(scriptedResolution({
+        publicNarrative: '战斗再起。', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [],
+        encounterStarts: [{
+          name: '第二次伏击',
+          combatants: [{ name: '哥布林', characterId: null, initiativeBonus: 2, hpCurrent: 9, hpMax: 9, ac: 13, conditions: [], visibility: 'public', targetPlayerId: null }],
+        }],
+      })),
+      { combat: true },
+    );
+    // 已有未完成遭遇：AI 再发起 → 保持 STATE_CONFLICT。
+    const outbox = new OutboxRepository(db);
+    const combat = new CombatService(db, outbox, () => 0.5);
+    await combat.start(ownerCtx, {
+      name: '已有遭遇',
+      combatants: [{ name: '地精', characterId: null, initiativeBonus: 0, hpCurrent: 5, hpMax: 5, ac: 10, conditions: [], visibility: 'public', targetPlayerId: null }],
+    });
+    await expect(service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'creations-conflict' })).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    // 无正式写：无 entries、无自动存档、run failed、turn needs_owner_attention。
+    expect((await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id])).length).toBe(0);
+    expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).length).toBe(0);
+    expect((await db.query('SELECT id FROM platform_encounters WHERE campaign_id = ?', [turn.campaignId])).length).toBe(1);
+    const turnRow = await db.query<{ status: string }>('SELECT status FROM platform_turns WHERE id = ?', [turn.id]);
+    expect(turnRow[0].status).toBe('needs_owner_attention');
+    await db.close();
+  });
+
+  it('rejects AI world fact creation with a non-member knownBy as AI_OUTPUT_INVALID inside formal apply', async () => {
+    const { db, service, ownerCtx, turn } = await makeFixture(
+      new ScriptedAiProvider(scriptedResolution({
+        publicNarrative: '秘密浮现。', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [],
+        worldFactCreations: [
+          { title: '私密', kind: 'lore', content: 'x', visibility: 'player_private', knownBy: ['ghost'] },
+        ],
+      })),
+      { combat: true },
+    );
+    await expect(service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'creations-bad-knownby' })).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
+    // 无半截写。
+    expect((await db.query('SELECT id FROM platform_world_facts WHERE campaign_id = ?', [turn.campaignId])).length).toBe(0);
+    expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).length).toBe(0);
+    await db.close();
+  });
+
+  it('applies an AI combat command atomically with entries, archive and turn resolved', async () => {
+    const { db, ownerCtx, turn } = await makeFixture(
+      new ScriptedAiProvider(scriptedResolution({ publicNarrative: '占位。', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [] })),
+      { combat: true },
+    );
+    const outbox = new OutboxRepository(db);
+    const archives = new ArchiveService(db, outbox);
+    const combat = new CombatService(db, outbox, () => 0.5);
+    const combatAdapter = new CombatAiAdapter(combat, new CombatRepository(db));
+    const makeAi = (provider: AiProviderPort): AiResolutionService =>
+      new AiResolutionService(
+        db, provider, outbox, archives,
+        new AiContextBuilder(db), new TurnResolutionValidator(db),
+        new StateChangeMaterializer(db, combatAdapter),
+      );
+    // 建真实战斗并掷先攻（rng 0.5 → 战士先攻更高）。
+    const encounter = await combat.start(ownerCtx, {
+      name: 'AI 遭遇',
+      combatants: [
+        { name: '战士', characterId: null, initiativeBonus: 2, hpCurrent: 12, hpMax: 12, ac: 16, conditions: [], visibility: 'public', targetPlayerId: null },
+        { name: '地精', characterId: null, initiativeBonus: 0, hpCurrent: 5, hpMax: 5, ac: 10, conditions: [], visibility: 'public', targetPlayerId: null },
+      ],
+    });
+    const active = await combat.execute(ownerCtx, encounter.id, { kind: 'roll_initiative', payload: {} });
+    const fighter = active.combatants.find((c) => c.name === '战士')!;
+    const goblin = active.combatants.find((c) => c.name === '地精')!;
+    expect(active.activeCombatantId).toBe(fighter.id);
+    // AI 对非活动 actor 的命令 → STATE_CONFLICT，无任何 formal 写。
+    const conflictAi = makeAi(new ScriptedAiProvider(scriptedResolution({
+      publicNarrative: 'AI 尝试。', privateUpdates: [], diceResults: [],
+      stateChanges: [{ kind: 'combat', targetId: encounter.id, patch: { command: 'apply_damage', actorCombatantId: goblin.id, targetCombatantId: fighter.id, amount: 2 }, visibility: 'public' }],
+      interactionRequests: [],
+    })));
+    await expect(conflictAi.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'combat-conflict' })).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).length).toBe(0);
+    expect((await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id])).length).toBe(0);
+    const hpAfterConflict = await db.query<{ hp_current: number }>('SELECT hp_current FROM platform_combatants WHERE id = ?', [fighter.id]);
+    expect(hpAfterConflict[0].hp_current).toBe(12); // 无状态变化
+    // 活动 actor 的合法命令：combat 更新与 entries/archive/turn resolved 原子。
+    await db.execute("UPDATE platform_turns SET status = 'locked' WHERE id = ?", [turn.id]);
+    const okAi = makeAi(new ScriptedAiProvider(scriptedResolution({
+      publicNarrative: 'AI 打击命中。', privateUpdates: [], diceResults: [],
+      stateChanges: [{ kind: 'combat', targetId: encounter.id, patch: { command: 'apply_damage', actorCombatantId: fighter.id, targetCombatantId: goblin.id, amount: 2 }, visibility: 'public' }],
+      interactionRequests: [],
+    })));
+    const ok = await okAi.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'combat-ok' });
+    expect(ok.run.status).toBe('succeeded');
+    const hpAfter = await db.query<{ hp_current: number }>('SELECT hp_current FROM platform_combatants WHERE id = ?', [goblin.id]);
+    expect(hpAfter[0].hp_current).toBe(3); // 5 - 2
+    const events = await db.query<{ event_type: string }>(
+      'SELECT event_type FROM platform_outbox_events WHERE campaign_id = ?', [ownerCtx.campaignId],
+    );
+    expect(events.map((e) => e.event_type)).toContain('turn.resolved');
+    expect(events.map((e) => e.event_type)).toContain('combat.updated');
+    expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).length).toBe(1);
     await db.close();
   });
 

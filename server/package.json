@@ -4,8 +4,9 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "npm run build --workspace @dnd/contracts && tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
+    "build": "npm run build --workspace @dnd/contracts && node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/copy-migrations.mjs",
     "start": "node dist/index.js",
+    "platform:cli": "tsx src/cli/platformCli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
@@ -14,14 +15,14 @@
     "dotenv": "latest",
     "express": "latest",
     "nanoid": "latest",
-    "pg": "latest",
+    "proxy-addr": "^2.0.7",
     "zod": "latest"
   },
   "devDependencies": {
     "@types/better-sqlite3": "latest",
     "@types/cors": "latest",
     "@types/express": "latest",
-    "@types/pg": "latest",
+    "@types/proxy-addr": "^2.0.3",
     "tsx": "latest"
   }
 }

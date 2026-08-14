@@ -1,29 +1,22 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createSqliteDatabase } from './SqliteDatabaseAdapter.js';
-import { rewritePlaceholders } from './PostgresDatabaseAdapter.js';
 import { MigrationRunner, PLATFORM_MIGRATION_INSERT_SQL } from './migrations/MigrationRunner.js';
 import type { MigrationToApply } from './DatabasePort.js';
-import { createMemoryDb } from '../../db/connection.js';
-import { createLegacySyncAdapter, migrate, migratePlatform } from '../../db/schema.js';
-import { defineDatabaseContractSuite } from './databaseContractSuite.js';
+import { defineSqliteDatabaseContractSuite } from './databaseContractSuite.js';
 
 const MIGRATIONS_DIR = fileURLToPath(new URL('./migrations/', import.meta.url));
 
-defineDatabaseContractSuite({
-  label: 'sqlite',
-  create: async () => createSqliteDatabase(':memory:'),
-});
+defineSqliteDatabaseContractSuite();
 
 describe('database adapter', () => {
   it('creates the initial platform tables after migrate', async () => {
     const db = createSqliteDatabase(':memory:');
     await db.migrate();
-    for (const table of ['users', 'sessions', 'campaigns', 'campaign_members']) {
+    for (const table of ['users', 'sessions', 'campaigns', 'campaign_members', 'platform_ai_provider_configs', 'platform_rule_sources', 'platform_instance', 'platform_administrators', 'platform_registration_invites', 'platform_security_audit_events']) {
       const rows = await db.query<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
         [table],
@@ -128,29 +121,176 @@ describe('transaction serialization', () => {
   });
 });
 
-describe('postgres placeholder rewrite', () => {
-  it('rewrites ? placeholders to $1, $2 in order', () => {
-    expect(rewritePlaceholders('SELECT * FROM t WHERE a = ? AND b = ?', 2)).toBe(
-      'SELECT * FROM t WHERE a = $1 AND b = $2',
-    );
-  });
-
-  it('does not rewrite ? inside single-quoted string literals', () => {
-    expect(rewritePlaceholders("SELECT '?' AS literal, a = ? FROM t", 1)).toBe(
-      "SELECT '?' AS literal, a = $1 FROM t",
-    );
-  });
-
-  it('does not rewrite ? inside double-quoted identifiers', () => {
-    expect(rewritePlaceholders('SELECT "?" AS id FROM t', 0)).toBe('SELECT "?" AS id FROM t');
-  });
-});
-
-describe('migration SQL portability', () => {
-  it('never uses the SQLite-only datetime() function', () => {
+describe('SQLite migration SQL', () => {
+  it('uses CURRENT_TIMESTAMP rather than SQLite datetime()', () => {
     const sql = readFileSync(join(MIGRATIONS_DIR, '001_initial_platform.sql'), 'utf8');
     expect(sql).not.toMatch(/datetime\s*\(/i);
     expect(sql).toContain('DEFAULT CURRENT_TIMESTAMP');
+  });
+});
+
+describe('migration 009 combat tables', () => {
+  it('creates platform_encounters and platform_combatants with constraints', async () => {
+    const db = createSqliteDatabase(':memory:');
+    try {
+      await db.migrate();
+      const tables = await db.query<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('platform_encounters', 'platform_combatants')",
+      );
+      expect(tables.map((row) => row.name).sort()).toEqual(['platform_combatants', 'platform_encounters']);
+
+      // 构造满足外键的父行：campaign/users/characters/archives。
+      const now = '2026-08-09T00:00:00.000Z';
+      await db.execute('INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)', ['u9', 'user9', 'hash']);
+      await db.execute('INSERT INTO campaigns (id, owner_id, name, ruleset, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', ['c9', 'u9', '战役9', 'dnd5e', 'active', now, now]);
+      await db.execute('INSERT INTO platform_characters (id, campaign_id, player_id, name, status, sheet_json, derived_json, submitted_at, approved_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', ['ch9', 'c9', 'u9', '角色9', 'approved', '{}', '{}', now, now, now, now]);
+      await db.execute('INSERT INTO platform_archives (id, campaign_id, kind, turn_id, label, version, state_json, created_by_user_id, superseded_at, superseded_by_archive_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', ['ar9', 'c9', 'manual', null, '存档9', 1, '{}', 'u9', null, null, now]);
+
+      await db.execute(
+        'INSERT INTO platform_encounters (id, campaign_id, name, status, active_combatant_id, round, superseded_at, superseded_by_archive_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['enc9', 'c9', '遭遇9', 'preparation', null, 1, null, null, now, now],
+      );
+      // 显式 ISO 时间被保留（不依赖默认文本格式）。
+      const enc = await db.query<{ created_at: string; updated_at: string }>(
+        'SELECT created_at, updated_at FROM platform_encounters WHERE id = ?',
+        ['enc9'],
+      );
+      expect(enc[0]).toEqual({ created_at: now, updated_at: now });
+
+      await db.execute(
+        'INSERT INTO platform_combatants (id, encounter_id, campaign_id, character_id, name, initiative, initiative_bonus, hp_current, hp_max, ac, conditions_json, visibility, target_player_id, position, superseded_at, superseded_by_archive_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['cbt9', 'enc9', 'c9', 'ch9', '战士', 18, 2, 10, 12, 16, '[]', 'public', null, 0, null, null, now, now],
+      );
+      const cbt = await db.query<{ visibility: string; target_player_id: string | null; created_at: string }>(
+        'SELECT visibility, target_player_id, created_at FROM platform_combatants WHERE id = ?',
+        ['cbt9'],
+      );
+      expect(cbt[0]).toEqual({ visibility: 'public', target_player_id: null, created_at: now });
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('enforces encounter FK, hp/round checks, unique position and visibility-target pairing', async () => {
+    const db = createSqliteDatabase(':memory:');
+    try {
+      await db.migrate();
+      const now = '2026-08-09T00:00:00.000Z';
+      await db.execute('INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)', ['u9b', 'user9b', 'hash']);
+      await db.execute('INSERT INTO campaigns (id, owner_id, name, ruleset, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', ['c9b', 'u9b', '战役9b', 'dnd5e', 'active', now, now]);
+      // 无对应 campaign 的 encounter 违反 FK。
+      await expect(db.execute(
+        'INSERT INTO platform_encounters (id, campaign_id, name, status, active_combatant_id, round, superseded_at, superseded_by_archive_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['enc-bad', 'no-such-campaign', 'x', 'preparation', null, 1, null, null, now, now],
+      )).rejects.toThrow(/FOREIGN KEY/i);
+
+      await db.execute('INSERT INTO platform_encounters (id, campaign_id, name, status, active_combatant_id, round, superseded_at, superseded_by_archive_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', ['enc9b', 'c9b', '遭遇9b', 'preparation', null, 1, null, null, now, now]);
+      // round < 1 违反 CHECK。
+      await expect(db.execute(
+        'INSERT INTO platform_encounters (id, campaign_id, name, status, active_combatant_id, round, superseded_at, superseded_by_archive_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['enc-bad-round', 'c9b', 'x', 'preparation', null, 0, null, null, now, now],
+      )).rejects.toThrow(/CHECK/i);
+
+      // 同一 encounter 相同 position 违反 UNIQUE。
+      await db.execute(
+        'INSERT INTO platform_combatants (id, encounter_id, campaign_id, character_id, name, initiative, initiative_bonus, hp_current, hp_max, ac, conditions_json, visibility, target_player_id, position, superseded_at, superseded_by_archive_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['cbt9b-1', 'enc9b', 'c9b', null, '地精甲', null, 1, 7, 7, 13, '[]', 'public', null, 0, null, null, now, now],
+      );
+      await expect(db.execute(
+        'INSERT INTO platform_combatants (id, encounter_id, campaign_id, character_id, name, initiative, initiative_bonus, hp_current, hp_max, ac, conditions_json, visibility, target_player_id, position, superseded_at, superseded_by_archive_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['cbt9b-2', 'enc9b', 'c9b', null, '地精乙', null, 1, 7, 7, 13, '[]', 'public', null, 0, null, null, now, now],
+      )).rejects.toThrow(/UNIQUE/i);
+
+      // hp_max <= 0 违反 CHECK。
+      await expect(db.execute(
+        'INSERT INTO platform_combatants (id, encounter_id, campaign_id, character_id, name, initiative, initiative_bonus, hp_current, hp_max, ac, conditions_json, visibility, target_player_id, position, superseded_at, superseded_by_archive_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['cbt9b-3', 'enc9b', 'c9b', null, '坏战斗员', null, 0, 0, 0, 10, '[]', 'public', null, 1, null, null, now, now],
+      )).rejects.toThrow(/CHECK/i);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('applies 009 migration only once with the full version sequence', async () => {
+    const db = createSqliteDatabase(':memory:');
+    try {
+      await db.migrate();
+      const versions = await db.query<{ version: string }>('SELECT version FROM platform_migrations ORDER BY version');
+      expect(versions.map((row) => row.version)).toContain('009');
+      expect(new Set(versions.map((row) => row.version)).size).toBe(versions.length);
+    } finally {
+      await db.close();
+    }
+  });
+});
+
+describe('migration 010 AI Provider credentials', () => {
+  it('stores only encrypted campaign-scoped credentials and applies once', async () => {
+    const db = createSqliteDatabase(':memory:');
+    try {
+      await db.migrate();
+      const now = '2026-08-10T00:00:00.000Z';
+      await db.execute('INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)', ['u10', 'user10', 'hash']);
+      await db.execute('INSERT INTO campaigns (id, owner_id, name, ruleset, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', ['c10', 'u10', '战役10', 'dnd5e', 'active', now, now]);
+      await db.execute(
+        'INSERT INTO platform_ai_provider_configs (campaign_id, provider, base_url, model, encrypted_api_key, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ['c10', 'openai-compatible', 'https://provider.example/v1', 'gpt-test', 'v1.ciphertext-only', now, now],
+      );
+      const rows = await db.query<{ campaign_id: string; encrypted_api_key: string }>('SELECT campaign_id, encrypted_api_key FROM platform_ai_provider_configs');
+      expect(rows).toEqual([{ campaign_id: 'c10', encrypted_api_key: 'v1.ciphertext-only' }]);
+      const versions = await db.query<{ version: string }>('SELECT version FROM platform_migrations WHERE version = ?', ['010']);
+      expect(versions).toEqual([{ version: '010' }]);
+      await db.migrate();
+      const afterSecondRun = await db.query<{ count: number }>('SELECT COUNT(*) AS count FROM platform_migrations WHERE version = ?', ['010']);
+      expect(Number(afterSecondRun[0].count)).toBe(1);
+    } finally {
+      await db.close();
+    }
+  });
+});
+
+describe('migration 011 rule sources', () => {
+  it('stores immutable provenance metadata only with scope/target and dedup constraints', async () => {
+    const db = createSqliteDatabase(':memory:');
+    try {
+      await db.migrate();
+      const columns = await db.query<{ name: string }>('PRAGMA table_info(platform_rule_sources)');
+      expect(columns.map((column) => column.name)).toEqual([
+        'id', 'source_name', 'version', 'license', 'attribution', 'content_hash',
+        'scope', 'campaign_id', 'user_id', 'created_by_user_id', 'created_at',
+      ]);
+      expect(columns.map((column) => column.name)).not.toContain('content');
+
+      const now = '2026-08-10T00:00:00.000Z';
+      await db.execute('INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)', ['u11', 'user11', 'hash']);
+      await db.execute('INSERT INTO campaigns (id, owner_id, name, ruleset, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', ['c11', 'u11', '战役11', 'dnd5e', 'active', now, now]);
+      const hash = 'ab'.repeat(32);
+      await db.execute(
+        'INSERT INTO platform_rule_sources (id, source_name, version, license, attribution, content_hash, scope, campaign_id, user_id, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['rs11', 'Open Reference', '1', 'CC-BY-4.0', 'Example Author', hash, 'campaign', 'c11', null, 'u11', now],
+      );
+      await expect(db.execute(
+        'INSERT INTO platform_rule_sources (id, source_name, version, license, attribution, content_hash, scope, campaign_id, user_id, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['rs11-duplicate', 'Open Reference', '1', 'CC-BY-4.0', 'Example Author', 'cd'.repeat(32), 'campaign', 'c11', null, 'u11', now],
+      )).rejects.toThrow(/UNIQUE/i);
+      await expect(db.execute(
+        'INSERT INTO platform_rule_sources (id, source_name, version, license, attribution, content_hash, scope, campaign_id, user_id, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['rs11-duplicate-hash', 'Renamed Reference', '2', 'CC-BY-4.0', 'Example Author', hash, 'campaign', 'c11', null, 'u11', now],
+      )).rejects.toThrow(/UNIQUE/i);
+      await expect(db.execute(
+        'INSERT INTO platform_rule_sources (id, source_name, version, license, attribution, content_hash, scope, campaign_id, user_id, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['rs11-bad-pair', 'Bad', '1', 'CC0', 'Example', 'cd'.repeat(32), 'campaign', null, 'u11', 'u11', now],
+      )).rejects.toThrow(/CHECK/i);
+      await expect(db.execute(
+        'INSERT INTO platform_rule_sources (id, source_name, version, license, attribution, content_hash, scope, campaign_id, user_id, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['rs11-bad-hash', 'Bad hash', '1', 'CC0', 'Example', 'not-sha256', 'user', null, 'u11', 'u11', now],
+      )).rejects.toThrow(/CHECK/i);
+
+      const versions = await db.query<{ version: string }>('SELECT version FROM platform_migrations WHERE version = ?', ['011']);
+      expect(versions).toEqual([{ version: '011' }]);
+    } finally {
+      await db.close();
+    }
   });
 });
 
@@ -259,127 +399,6 @@ describe('atomic migration application', () => {
       expect(tracking).toEqual([{ version, name, applied_at: appliedAt }]);
     } finally {
       await db.close();
-    }
-  });
-});
-
-describe('legacy schema initialisation', () => {
-  it('creates schema_migrations matching the legacy table contract', () => {
-    const db = createMemoryDb();
-    migrate(db);
-    const columns = db
-      .prepare('PRAGMA table_info(schema_migrations)')
-      .all() as Array<{ name: string; type: string; notnull: number; pk: number }>;
-    const byName = new Map(columns.map((column) => [column.name, column]));
-    // Note: SQLite reports notnull=0 for a TEXT PRIMARY KEY column even when
-    // it is the primary key; the reviewer-required constraints are the
-    // primary key on `id` and NOT NULL on `version` (and the remaining fields
-    // matching the legacy production table contract).
-    expect(byName.get('id')).toMatchObject({ type: 'TEXT', pk: 1 });
-    expect(byName.get('version')).toMatchObject({ type: 'INTEGER', notnull: 1, pk: 0 });
-    expect(byName.get('summary_json')).toMatchObject({ type: 'TEXT', notnull: 1, pk: 0 });
-    expect(byName.get('completed_at')).toMatchObject({ type: 'TEXT', notnull: 1, pk: 0 });
-    expect(columns).toHaveLength(4);
-    db.close();
-  });
-
-  it('inserts the legacy checkpoint only once across restarts', () => {
-    const db = createMemoryDb();
-    migrate(db);
-    migrate(db);
-    const rows = db
-      .prepare("SELECT id, version FROM schema_migrations WHERE id = 'legacy-schema-init-v1'")
-      .all() as Array<{ id: string; version: number }>;
-    expect(rows).toEqual([{ id: 'legacy-schema-init-v1', version: 0 }]);
-    db.close();
-  });
-
-  it('keeps the legacy schema_migrations rows untouched when platform migrations run', async () => {
-    const raw = createMemoryDb();
-    migrate(raw);
-    const adapter = createSqliteDatabase(undefined, { reuseRaw: raw });
-    await adapter.migrate();
-    const rows = await adapter.query<{ id: string; version: number }>(
-      "SELECT id, version FROM schema_migrations WHERE id = 'legacy-schema-init-v1'",
-    );
-    expect(rows).toEqual([{ id: 'legacy-schema-init-v1', version: 0 }]);
-    const platform = await adapter.query<{ version: string }>(
-      'SELECT version FROM platform_migrations ORDER BY version',
-    );
-    expect(platform.map((row) => row.version)).toEqual(
-      expect.arrayContaining(['001', '002']),
-    );
-    expect(new Set(platform.map((row) => row.version)).size).toBe(platform.length);
-    await adapter.close();
-  });
-
-  it('rolls back the migration schema when tracking fails on the legacy sync path', () => {
-    const db = createMemoryDb();
-    try {
-      migrate(db);
-      // Tracking bootstrap mirrors MigrationRunner; preseed a duplicate version
-      // so the tracking INSERT violates its PRIMARY KEY after the SQL ran.
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS platform_migrations (
-          version TEXT PRIMARY KEY,
-          name TEXT NOT NULL,
-          applied_at TEXT NOT NULL
-        )
-      `);
-      db.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)').run('900', 'seed', 'now');
-      const migration: MigrationToApply = {
-        version: '900',
-        name: '900_sync_atomic_test.sql',
-        sql: 'ALTER TABLE rooms ADD COLUMN atomic_sync_probe TEXT;',
-      };
-
-      expect(() => createLegacySyncAdapter(db).applyMigration(migration, new Date().toISOString())).toThrow();
-      const roomColumns = db.prepare('PRAGMA table_info(rooms)').all() as Array<{ name: string }>;
-      expect(roomColumns.some((c) => c.name === 'atomic_sync_probe')).toBe(false);
-      const tracking = db.prepare('SELECT version FROM platform_migrations').all() as Array<{ version: string }>;
-      expect(tracking.map((row) => row.version)).toEqual(['900']);
-    } finally {
-      db.close();
-    }
-  });
-
-  it('applies a migration and its tracking row together on the legacy sync path, then skips', () => {
-    const db = createMemoryDb();
-    const tmpDir = mkdtempSync(join(tmpdir(), 'dnd-migration-sync-test-'));
-    try {
-      migrate(db);
-      writeFileSync(join(tmpDir, '901_sync_commit_test.sql'), 'CREATE TABLE atomic_sync_commit_probe (id TEXT PRIMARY KEY);');
-
-      const first = MigrationRunner.runSync(createLegacySyncAdapter(db), tmpDir);
-      expect(first.applied).toEqual(['901']);
-      expect(first.skipped).toEqual([]);
-      const tables = db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
-        .all('atomic_sync_commit_probe') as Array<{ name: string }>;
-      expect(tables.map((t) => t.name)).toEqual(['atomic_sync_commit_probe']);
-      const tracking = db.prepare('SELECT version, name FROM platform_migrations WHERE version = ?').all('901') as Array<{ version: string; name: string }>;
-      expect(tracking).toEqual([{ version: '901', name: '901_sync_commit_test.sql' }]);
-
-      const second = MigrationRunner.runSync(createLegacySyncAdapter(db), tmpDir);
-      expect(second.applied).toEqual([]);
-      expect(second.skipped).toEqual(['901']);
-    } finally {
-      rmSync(tmpDir, { recursive: true, force: true });
-      db.close();
-    }
-  });
-
-  it('migratePlatform applies every platform migration once and is idempotent on the sync path', () => {
-    const db = createMemoryDb();
-    try {
-      migrate(db);
-      migratePlatform(db);
-      migratePlatform(db);
-      const rows = db.prepare('SELECT version FROM platform_migrations').all() as Array<{ version: string }>;
-      expect(rows.length).toBeGreaterThan(0);
-      expect(new Set(rows.map((row) => row.version)).size).toBe(rows.length);
-    } finally {
-      db.close();
     }
   });
 });

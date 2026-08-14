@@ -1,8 +1,10 @@
 # DND AI-DM 平台重构：总路线图与计划索引
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **历史状态（2026-08-12）：** Phase 1-4、Provider 配置与 Rules metadata-only 的已完成记录继续有效；本文件中所有尚未完成的未来工作已由 [`2026-08-12-dnd-ai-dm-v1-hardening-cutover.md`](./2026-08-12-dnd-ai-dm-v1-hardening-cutover.md) 取代。**不要继续执行本文件的 legacy adapter、旧数据映射或原 cutover 方案。** 最新产品与架构边界见 [`2026-08-12-dnd-ai-dm-v1-decisions.md`](../specs/2026-08-12-dnd-ai-dm-v1-decisions.md)。
 
-**Goal:** 在已完成的 Task 1-3 基线上，分五个阶段重建账号/战役之外的完整能力：角色、世界、回合与行动、事务性 outbox、存档、AI 运行时、SSE 实时、结构化战斗、前端工作区、规则/Provider 与旧数据迁移，最终交付一条端到端可恢复的多人 AI-DM 垂直流程。本文件是**权威总路线图与计划索引**，只描述阶段边界、依赖、验收门与硬约束，不再承载逐任务伪代码。
+> **DO_NOT_EXECUTE / SUPERSEDED:** 禁止将本文件交给 executing-plans、subagent-driven-development 或其它自动执行流程。本文件只用于查阅已完成阶段和历史上下文；未来工作只能从 2026-08-12 v1 路线图开始。
+
+**历史 Goal：** 在已完成的 Task 1-3 基线上，分五个阶段重建账号/战役之外的完整能力：角色、世界、回合与行动、事务性 outbox、存档、AI 运行时、SSE 实时、结构化战斗、前端工作区、规则/Provider 与旧数据迁移，最终交付一条端到端可恢复的多人 AI-DM 垂直流程。本文件曾作为权威总路线图与计划索引；自 2026-08-12 起只作为已完成阶段和历史决策记录。
 
 **Architecture:** 本总路线图取代 `docs/superpowers/plans/2026-08-01-dnd-ai-dm-rearchitecture.md` 自 Task 4 起的全部执行内容；Task 1-3 视为已完成基线，不重做、不回滚。实现顺序遵循“先服务端可运行垂直切片，再实时与战斗，最后前端”的铁律：每个阶段结束时都有一条可运行的垂直流程作为验收门。所有新平台表统一 `platform_` 前缀，迁移编号连续；AI 只消费经可见性投影的上下文，SSE 只发布经投影的领域事件；前端在服务端 AI 垂直流程通过后才开始。
 
@@ -67,10 +69,10 @@
 
 ### 全局命名约定（后续所有详细计划必须一致引用）
 
-- 迁移文件：`001/002`（基线）→ `003_characters.sql`（Phase 1）→ `004_world_state.sql`、`005_events_outbox.sql`、`006_turns_actions.sql`（Phase 2A）→ `007_archives.sql`、`008_ai_runtime.sql`（Phase 2B）→ `009_combat.sql`（Phase 3）→ `010_rules_providers.sql`（Phase 5）。
+- 迁移文件：`001/002`（基线）→ `003_characters.sql`（Phase 1）→ `004_world_state.sql`、`005_events_outbox.sql`、`006_turns_actions.sql`（Phase 2A）→ `007_archives.sql`、`008_ai_runtime.sql`（Phase 2B）→ `009_combat.sql`（Phase 3）→ `010_ai_provider_credentials.sql` → `011_rule_sources.sql`（Phase 5）。
 - 新平台表统一 `platform_` 前缀；沿用 001/002 的 `users`、`sessions`、`campaigns`、`campaign_members` 不重命名。
 - 新平台路由统一挂在 `/api/campaigns/:campaignId/*`，均经 campaign middleware（`Router({ mergeParams: true })`）。
-- 错误码：Phase 5 新增 `INVALID_RULE_SOURCE`、`PROVIDER_NOT_CONFIGURED` 并同步 `appErrorCodes`；其余阶段只使用既有码。
+- 错误码：Phase 5 Provider 凭证切片已新增 `CREDENTIAL_ENCRYPTION_UNAVAILABLE`、`CREDENTIAL_DECRYPTION_FAILED`；规则资料切片已新增并同步 `INVALID_RULE_SOURCE`；其余阶段只使用既有码。
 - 端口名：`DatabasePort`/`QueryExecutor`（已存在）、`EventPublisherPort`、`AiProviderPort`（后续阶段定义）。
 - 领域事件：`campaignEventSchema` 每个 variant 带 `campaignId`；outbox 层为每战役自增 `sequence`（并发安全）；事件受众 `public`/`owner_only`/`player_private`（`eventDefaultAudience` + `canReadEvent`），`ai.preview.*` 与 `ai.preview.failed` 对 player 可见。
 - 任务排序铁律：前端任务在服务端 AI 垂直流程通过前不开始；结构化战斗固定放在 AI runtime 之后。
@@ -79,7 +81,7 @@
 
 整体系统跨账号、战役、角色、世界、回合、AI、实时、战斗与前端多个子系统，单一巨型计划无法同时保证正确性与可执行性。因此：
 
-- `2026-08-02-dnd-ai-dm-rearchitecture-revised.md`（本文件）只保留权威总路线图。
+- `2026-08-02-dnd-ai-dm-rearchitecture-revised.md`（本文件）只保留历史阶段、实施记录和旧决策上下文；未来工作以 2026-08-12 v1 路线图为准。
 - **阶段一详细计划** [`2026-08-02-dnd-ai-dm-phase-1-access-characters.md`](./2026-08-02-dnd-ai-dm-phase-1-access-characters.md) 已执行完毕并通过最终审查（READY_FOR_PHASE_2，见 [`2026-08-02-phase-1-access-characters-review.md`](../reviews/2026-08-02-phase-1-access-characters-review.md)），不再作为待执行计划。
 - 后续阶段在前一阶段通过验收与两级 review 后再写详细计划，避免过早生成未经实现验证的伪代码漂移。
 - **Phase 2 按两个可执行计划推进**：**Phase 2A**（world facts + 事务性 outbox + turn/actions，迁移 `004_world_state` → `005_events_outbox` → `006_turns_actions`，详细计划 [`2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md`](./2026-08-02-dnd-ai-dm-phase-2a-world-outbox-turns.md) **已执行完毕并通过最终审查 READY_FOR_PHASE_2B**，见 [`2026-08-02-phase-2a-world-outbox-turns-review.md`](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)，不再作为待执行计划）与 **Phase 2B**（archives + AI runtime + 服务端 AI 垂直流程，迁移 `007_archives` → `008_ai_runtime`，详细计划 [`2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md`](./2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md) **已执行完毕并通过最终审查 READY_FOR_PHASE_3**，见 [`2026-08-03-phase-2b-archives-ai-runtime-review.md`](../reviews/2026-08-03-phase-2b-archives-ai-runtime-review.md)，不再作为待执行计划）。
@@ -90,9 +92,11 @@
 | --- | --- | --- | --- | --- |
 | Phase 1 | 基线硬化、campaign-scoped access/visibility、角色后端、HTTP 垂直验收 | `003_characters.sql` | 无（基于 Task 1-3） | ✅ 已完成（提交 `62c40df`–`6e11c7a`）；复审 [READY_FOR_PHASE_2](../reviews/2026-08-02-phase-1-access-characters-review.md) |
 | Phase 2 | world facts、事务性 outbox、turn/actions、archives、AI runtime、服务端 AI 垂直流程 | `004`–`008` | Phase 1 | ✅ 已完成；拆分为 **Phase 2A（world + outbox + turn，`004`–`006`）**（提交 `b12059c`–`4d57bd7`，复审 [READY_FOR_PHASE_2B](../reviews/2026-08-02-phase-2a-world-outbox-turns-review.md)）与 **Phase 2B（archive + AI，`007`–`008`）**（提交 `4009c95`–`60d5d43`，复审 [READY_FOR_PHASE_3](../reviews/2026-08-03-phase-2b-archives-ai-runtime-review.md)）；Phase 2 总体验收（服务端 AI 垂直流程 + 两级 review）完成 |
-| Phase 3 | SSE 实时投递与结构化战斗 | `009_combat.sql` | Phase 2 | ✅ 可编写详细计划（待编写，由下一任务负责） |
-| Phase 4 | 前端 App Shell、认证、战役列表、owner/player 工作区 | 无 | Phase 2/3 | Phase 3 通过复审后编写 |
-| Phase 5 | 规则/Provider、真实加密、legacy adapter、多上下文 E2E、cutover | `010_rules_providers.sql` | Phase 1-4 | Phase 4 通过复审后编写 |
+| Phase 3 | SSE 实时投递与结构化战斗 | `009_combat.sql` | Phase 2 | ✅ 已完成；实施后 PostgreSQL 空列表 SQL Major 已修复，最终独立规格/工程双审 PASS（详细计划 [2026-08-09-dnd-ai-dm-phase-3-realtime-combat.md](./2026-08-09-dnd-ai-dm-phase-3-realtime-combat.md)；复审 [2026-08-09-phase-3-realtime-combat-review.md](../reviews/2026-08-09-phase-3-realtime-combat-review.md)） |
+| Phase 4 | 前端 App Shell、认证、战役列表、owner/player 工作区 | 无 | Phase 2/3 | ✅ 已完成；真实 owner + playerA + playerB 三隔离浏览器流程 12 步 PASS，最终三审 Major 已闭环并通过针对性独立复审（详细计划 [2026-08-09-dnd-ai-dm-phase-4-frontend-workspaces.md](./2026-08-09-dnd-ai-dm-phase-4-frontend-workspaces.md)；复审 [2026-08-09-phase-4-frontend-workspaces-review.md](../reviews/2026-08-09-phase-4-frontend-workspaces-review.md)） |
+| Phase 5 | 规则/Provider、真实加密、legacy adapter、多上下文 E2E、cutover | `010_ai_provider_credentials.sql`、`011_rule_sources.sql` | Phase 1-4 | ⛔ 已停止：Provider WebUI/AES-256-GCM 与规则来源 metadata-only 已完成并保留；legacy adapter 与原 cutover 已取消，未来工作转入 [2026-08-12 v1 路线图](./2026-08-12-dnd-ai-dm-v1-hardening-cutover.md) |
+
+环境变量启动桥接见 [`2026-08-09-dnd-ai-dm-ai-provider-env-config.md`](./2026-08-09-dnd-ai-dm-ai-provider-env-config.md)。其后用户要求补齐真实 WebUI 配置，因此 Phase 5 的 Provider 凭证切片已提前实施：[`2026-08-10-dnd-ai-dm-webui-provider-config.md`](./2026-08-10-dnd-ai-dm-webui-provider-config.md)。WebUI 保存采用战役级 AES-256-GCM 加密凭证并即时切换运行时；环境变量继续作为未配置战役的回退。
 
 依赖概览：`Phase1 → Phase2 → Phase3 → Phase4`；Phase 5 依赖 Phase 1-4 的服务端结果与前端壳。Phase 4 前端只有在服务端 AI 垂直流程（Phase 2 验收门）通过后才开始。
 
@@ -187,7 +191,7 @@
 - **事务**：一次结算的所有写（world facts、turn entries、状态变更、自动存档、outbox 事件）在同一个 `DatabasePort.transaction` 内；任一失败整体回滚，不产生半截结果。
 - **visibility**：AI 输出与所有查询必须经同一 VisibilityPolicy 投影；`owner_only`/`player_private` 不得通过任何路径泄漏到其它玩家。
 - **idempotency**：同一结算结果不能应用两次（同 turn 只生成一份正式日志与一个自动存档）。
-- **preview**：公开流式预览与正式提交分离；预览失败时丢弃未完成预览，回合保持锁定并可重试，不写半截正式日志。
+- **历史 preview**：公开预览与正式提交分离。v1 将其解释为完整 Provider 响应解析后的 **buffered preview 经平台 SSE 投递**，不是上游 Provider token streaming。
 
 ### 本阶段不做什么
 
@@ -237,7 +241,7 @@
 
 ### 详细计划编写时机
 
-**只有在 Phase 2 完成并通过复审后才编写 Phase 3 详细计划。** 现满足该条件（Phase 2 复审 [READY_FOR_PHASE_3](../reviews/2026-08-03-phase-2b-archives-ai-runtime-review.md) 通过），**Phase 3 详细计划可编写（待编写，由下一任务负责）；Phase 3 尚未实现，本阶段状态不代表实现已开始。**
+**Phase 3 已完成：** 详细计划 [2026-08-09-dnd-ai-dm-phase-3-realtime-combat.md](./2026-08-09-dnd-ai-dm-phase-3-realtime-combat.md) 经计划级规格/工程审查批准后实施；实施后 PostgreSQL 空列表 SQL Major 已通过 TDD 修复，最终独立规格/隐私与工程正确性复审均 PASS；全量 test/typecheck/build 通过。复审见 [2026-08-09-phase-3-realtime-combat-review.md](../reviews/2026-08-09-phase-3-realtime-combat-review.md)。
 
 ### 验收门
 
@@ -245,7 +249,9 @@
 
 ---
 
-## Phase 4：前端 App Shell、认证与 owner/player 工作区
+## Phase 4：前端 App Shell、认证与 owner/player 工作区 — ✅ 已完成
+
+**状态：** 已完成。详细计划、实现三审和四项最终 Major（会话过期、跨回合幂等键、完整 owner 战斗命令、真实 SSE 断连重连证据）针对性独立复审均通过；全量 test/typecheck/build 与三隔离浏览器 12 步验收全绿。见 [`2026-08-09-dnd-ai-dm-phase-4-frontend-workspaces.md`](./2026-08-09-dnd-ai-dm-phase-4-frontend-workspaces.md)、[`2026-08-09-phase-4-frontend-workspaces-review.md`](../reviews/2026-08-09-phase-4-frontend-workspaces-review.md) 和 [`2026-08-09-phase-4-browser-validation.md`](../validation/2026-08-09-phase-4-browser-validation.md)。
 
 **定位：** 提供统一 Web 应用，按身份进入 owner/player 工作区，消费 Phase 1-3 已定的 HTTP API 与 SSE 事件名。
 
@@ -274,9 +280,9 @@
 - 不实现规则内容库/Provider 密钥管理页面（规则/Provider UI 与对应 HTTP API 一并放 Phase 5）。
 - 不引入旧 legacy 页面依赖（Phase 5 提供 adapter）。
 
-### 详细计划编写时机
+### 详细计划与完成记录
 
-**只有在 Phase 3 完成并通过复审后才编写 Phase 4 详细计划。**
+Phase 4 详细计划已在 Phase 3 复审通过后编写并执行完毕：[`2026-08-09-dnd-ai-dm-phase-4-frontend-workspaces.md`](./2026-08-09-dnd-ai-dm-phase-4-frontend-workspaces.md)。最终复审无 Blocker/Major，Phase 5 详细计划现可编写。
 
 ### 验收门
 
@@ -284,18 +290,20 @@
 
 ---
 
-## Phase 5：规则/Provider、真实加密、legacy adapter、多上下文 E2E 与 cutover
+## 历史 Phase 5：规则/Provider、真实加密、legacy adapter、多上下文 E2E 与 cutover（已停止）
+
+> **已停止执行（2026-08-12）：** 本 Phase 仅保留已完成 Provider/Rules 工作的历史记录。Legacy adapter 已明确取消；未来安全硬化、生产验收和 forward-only cutover 统一转入 [`2026-08-12-dnd-ai-dm-v1-hardening-cutover.md`](./2026-08-12-dnd-ai-dm-v1-hardening-cutover.md)。
 
 **定位：** 补齐规则与 Provider 边界、真实加密、旧数据迁移与完整验收，完成发布前清理。
 
 ### 范围
 
-1. **规则资料与 AI Provider 管理（`010_rules_providers.sql`）**
-   - `platform_rule_sources`：来源/版本/许可证/署名/内容哈希/scope（platform/campaign/user），不落第三方规则正文。
-   - 新增 `INVALID_RULE_SOURCE`、`PROVIDER_NOT_CONFIGURED` 错误码并同步 `errors.ts` + `AppError.DEFAULT_HTTP_STATUS`。
-   - `platform_provider_credentials`：provider/base_url/model/`api_key_encrypted`/configured，`UNIQUE(campaign_id)`。
+1. **规则资料与 AI Provider 管理（`010_ai_provider_credentials.sql`、`011_rule_sources.sql`）**
+   - `platform_rule_sources`（已完成）：来源/版本/许可证/署名/内容哈希/scope（platform/campaign/user），不落第三方规则正文。
+   - 新增规则/Provider 配置错误码已同步 `errors.ts` + `AppError.DEFAULT_HTTP_STATUS`：Provider 凭证切片使用 `CREDENTIAL_ENCRYPTION_UNAVAILABLE` / `CREDENTIAL_DECRYPTION_FAILED`，规则资料使用 `INVALID_RULE_SOURCE`（422）。
+   - `platform_ai_provider_configs`（已完成）：provider/base_url/model/`encrypted_api_key`，`campaign_id` 唯一。
 2. **真实加密 Provider Key**
-   - 真实 AES-256-GCM；**禁止 base64 伪装加密、禁止默认密钥**；密钥必须来自强制配置的环境变量，缺失时拒绝保存/读取。
+   - 真实 AES-256-GCM；**禁止 base64 伪装加密、禁止硬编码共享密钥**；服务端首次启动自动生成并持久化本机随机密钥，后续自动复用。密钥文件丢失时自动生成新密钥，旧凭证需在 WebUI 重新填写。
    - API Key 只在服务端保存并加密；前端只见脱敏 DTO（provider/baseUrl/model/configured）。
 3. **Legacy adapter**
    - 只读旧数据映射到新 contract；新写入一律走新模块仓储；不删除旧表。
@@ -397,30 +405,31 @@
 - [x] **Phase 2B**：迁移原子性修复（`72066b5`/`1c25569`/`a7e8d25`）——`applyMigration` 使迁移 SQL 与 `platform_migrations` 跟踪行同事务 commit/rollback；typecheck/build 通过；两级 review 通过（结论 READY_FOR_PHASE_3，见 [`2026-08-03-phase-2b-archives-ai-runtime-review.md`](../reviews/2026-08-03-phase-2b-archives-ai-runtime-review.md)）
 - [x] **Phase 2B**：详细计划（[`2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md`](./2026-08-02-dnd-ai-dm-phase-2b-archives-ai-runtime.md)）已编写并执行完毕（实现锁定于 `60d5d43`），不再作为待执行计划
 
-### Phase 3（SSE 与结构化战斗）
+### Phase 3（SSE 与结构化战斗）— ✅ 已完成
 
-- [ ] SSE 连接经 campaign middleware 鉴权；`?after=<sequence>` 重放 + live 推送同一投影
-- [ ] 公开预览对 player 可见；`ai.preview.failed` 对 player 可见（客户端丢弃临时预览并显示可恢复错误）；owner 调试走独立事件
-- [ ] `009_combat.sql` 创建；白名单命令生效，非活跃战斗员 `STATE_CONFLICT`
-- [ ] `CombatAiAdapter` 注入 `AiResolutionService`，移除 Phase 2 combat 门禁
-- [ ] SSE/战斗/AI 适配测试通过；typecheck/build 通过；两级 review 通过
+- [x] SSE 连接经 campaign middleware 鉴权；`?after=<sequence>` 重放 + live 推送同一投影
+- [x] 公开预览对 player 可见；`ai.preview.failed` 对 player 可见（客户端丢弃临时预览并显示可恢复错误）；owner 调试走独立事件
+- [x] `009_combat.sql` 创建；白名单命令生效，非活跃战斗员 `STATE_CONFLICT`
+- [x] `CombatAiAdapter` 注入 `AiResolutionService`，移除 Phase 2 combat 门禁
+- [x] SSE/战斗/AI 适配测试通过；typecheck/build 通过；两级 review 通过
 
-### Phase 4（前端工作区）
+### Phase 4（前端工作区）— ✅ 已完成
 
-- [ ] App Shell 与路由守卫（/login、/register、/campaigns、owner/player 路由）实现
-- [ ] Query Client/Provider/RealtimeSession 分层；异步状态与错误边界
-- [ ] 玩家工作区（剧情/私密结果/角色/行动/实时）与 owner 工作区（回合/审核/AI/世界/战斗/存档，仅已有 API 页面）渲染测试通过
-- [ ] 前端在服务端 AI 垂直流程通过后才开始（本清单依赖 Phase 2 验收）
-- [ ] client typecheck/build 通过；两级 review 通过
+- [x] App Shell 与路由守卫（/login、/register、/campaigns、owner/player 路由）实现
+- [x] Query Client/Provider/RealtimeSession 分层；异步状态与错误边界
+- [x] 玩家工作区（剧情/私密结果/角色/行动/实时）与 owner 工作区（回合/审核/AI/世界/战斗/存档，仅已有 API 页面）渲染测试通过
+- [x] 前端在服务端 AI 垂直流程通过后才开始（本清单依赖 Phase 2 验收）
+- [x] root/client test、typecheck/build 与真实三隔离 context 浏览器验证通过；实现三审及四项 Major 针对性复审均 APPROVED
 
 ### Phase 5（规则/Provider/加密/E2E/cutover）
 
-- [ ] `010_rules_providers.sql` 创建；`INVALID_RULE_SOURCE`/`PROVIDER_NOT_CONFIGURED` 同步 errors.ts + AppError map
-- [ ] Provider Key 真实 AES-256-GCM、强制环境密钥、无默认密钥、无 base64 伪装；前端只见脱敏 DTO
-- [ ] legacy adapter 只读映射，敏感字段不进入 DTO
-- [ ] 多上下文 E2E（真实 owner + playerA + playerB 三个隔离浏览器 context）通过，隐私隔离断言成立
-- [ ] 发布前检查（test/typecheck/build/status）通过；cutover 文档记录遗留失败
-- [ ] 两级 review 通过
+- [x] `010_ai_provider_credentials.sql` 创建；Provider WebUI 配置、连接测试与战役级动态切换完成
+- [x] Provider Key 真实 AES-256-GCM、本机随机密钥首次启动自动持久化并复用、无手动主密钥配置、无硬编码共享密钥、无 base64 伪装；前端只见脱敏 DTO
+- [x] `011_rule_sources.sql` 创建不可变 metadata-only `platform_rule_sources`；Owner 规则资料页登记/查看来源、版本、许可证、署名、SHA-256 与 scope，不接收或保存第三方规则正文；`INVALID_RULE_SOURCE` 已同步 errors.ts + AppError map
+- **CANCELLED:** legacy adapter 只读映射；v1 不迁移 legacy 数据。
+- **SUPERSEDED:** 多上下文生产验收转入 2026-08-12 v1 路线图 Phase 8。
+- **SUPERSEDED:** 发布检查与 cutover 转入 2026-08-12 v1 路线图 Phase 7-9。
+- **SUPERSEDED:** 后续 review 以新的 v1 决策和路线图为对象。
 
 ## 迁移连续性总表
 
@@ -435,13 +444,14 @@
 | 007_archives.sql | Phase 2B | platform_archives |
 | 008_ai_runtime.sql | Phase 2B | platform_ai_runs + platform_turn_entries |
 | 009_combat.sql | Phase 3 | platform_encounters + platform_combatants |
-| 010_rules_providers.sql | Phase 5 | platform_rule_sources + platform_provider_credentials |
+| 010_ai_provider_credentials.sql | Phase 5 Provider 凭证切片 | platform_ai_provider_configs |
+| 011_rule_sources.sql | Phase 5 规则资料 | platform_rule_sources |
 
 ## 错误码同步
 
 - 基线 13 个码保持不变。
 - Phase 1-4 只引用既有码（`FORBIDDEN`/`CAMPAIGN_NOT_FOUND`/`TURN_LOCKED`/`TURN_NOT_ACTIVE`/`CHARACTER_NOT_APPROVED`/`AI_OUTPUT_INVALID`/`AI_PROVIDER_FAILED`/`STATE_CONFLICT`/`VALIDATION_ERROR`/`NOT_FOUND` 等）。
-- Phase 5 新增 `INVALID_RULE_SOURCE`、`PROVIDER_NOT_CONFIGURED`，必须同步 `errors.ts` + `AppError.DEFAULT_HTTP_STATUS`。
+- Phase 5 Provider 凭证切片已新增 `CREDENTIAL_ENCRYPTION_UNAVAILABLE`、`CREDENTIAL_DECRYPTION_FAILED`；规则资料切片已新增 `INVALID_RULE_SOURCE`，并同步 `errors.ts` + `AppError.DEFAULT_HTTP_STATUS`（422）。
 
 ## 风险记录
 

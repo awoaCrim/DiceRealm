@@ -3,10 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace server\" \"npm run dev --workspace client\"",
+    "dev": "concurrently --kill-others-on-fail \"npm run dev --workspace server\" \"npm run dev:client\"",
+    "dev:client": "tsx scripts/wait-for-dev-server.ts && npm run dev --workspace client",
     "build": "npm run build --workspace server && npm run build --workspace client",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:phase4-browser": "tsx scripts/phase4-browser-validation.ts",
     "typecheck": "npm run typecheck --workspace server && npm run typecheck --workspace client"
   },
   "workspaces": [
@@ -15,7 +17,7 @@
     "client"
   ],
   "engines": {
-    "node": ">=22.12.0 <23"
+    "node": ">=24.11.1 <25"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "latest",
@@ -24,6 +26,7 @@
     "@types/node": "latest",
     "concurrently": "latest",
     "jsdom": "28.1.0",
+    "tsx": "^4.22.3",
     "typescript": "latest",
     "vitest": "latest"
   },

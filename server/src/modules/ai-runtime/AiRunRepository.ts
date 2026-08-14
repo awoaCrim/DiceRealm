@@ -101,6 +101,14 @@ export class AiRunRepository {
     );
   }
 
+  /** all historical runs are retained for Owner audit, including superseded archive history. */
+  async listByCampaign(campaignId: string): Promise<AiRunRow[]> {
+    return this.executor.query<AiRunRow>(
+      'SELECT * FROM platform_ai_runs WHERE campaign_id = ? ORDER BY campaign_sequence DESC',
+      [campaignId],
+    );
+  }
+
   async findRunningRun(campaignId: string): Promise<AiRunRow | null> {
     const rows = await this.executor.query<AiRunRow>(
       "SELECT * FROM platform_ai_runs WHERE campaign_id = ? AND status = 'running' AND superseded_at IS NULL ORDER BY campaign_sequence ASC LIMIT 1",

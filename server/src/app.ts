@@ -1,15 +1,13 @@
-import cors from 'cors';
 import express from 'express';
-import { ZodError } from 'zod';
-import type { AppDatabase } from './db/connection.js';
-import type { SqliteDatabaseAdapter } from './platform/database/SqliteDatabaseAdapter.js';
+import type { SecurityConfig } from './config.js';
+import { RequestSecurityPolicy } from './platform/http/RequestSecurityPolicy.js';
+import { securityHeaders } from './platform/http/securityHeaders.js';
+import type { EventViewer } from '@dnd/contracts';
+import type { DatabasePort } from './platform/database/DatabasePort.js';
 import { errorMiddleware } from './platform/http/errorMiddleware.js';
 import { createSessionMiddleware } from './platform/http/sessionMiddleware.js';
-import { IdentityService } from './modules/identity/IdentityService.js';
+import { IdentityService, type IdentityServiceOptions } from './modules/identity/IdentityService.js';
 import { CampaignService } from './modules/campaigns/CampaignService.js';
-import { createAdminRouter } from './routes/adminRoutes.js';
-import { createPlayerRouter } from './routes/playerRoutes.js';
-import { createSseRouter } from './routes/sseRoutes.js';
 import { createAuthRouter } from './routes/authRoutes.js';
 import { createCampaignRouter } from './routes/campaignRoutes.js';
 import { createCharacterRouter } from './routes/characterRoutes.js';
@@ -28,80 +26,192 @@ import { StateChangeMaterializer } from './modules/ai-runtime/StateChangeMateria
 import { UnavailableAiProvider } from './modules/ai-runtime/UnavailableAiProvider.js';
 import type { AiProviderPort } from './modules/ai-runtime/AiProviderPort.js';
 import { createAiRouter } from './routes/aiRoutes.js';
+import { createEventRouter } from './routes/eventRoutes.js';
+import { createCombatRouter } from './routes/combatRoutes.js';
+import {
+  EventStreamService,
+  TransactionalOutboxTailReader,
+  type EventAuthorityChecker,
+  type EventStreamRuntime,
+} from './platform/realtime/EventStreamService.js';
+import { SessionAuthority, type SessionAuthorityBinding } from './modules/identity/SessionAuthority.js';
+import { CombatService } from './modules/combat/CombatService.js';
+import { CombatAiAdapter } from './modules/combat/CombatAiAdapter.js';
+import { CombatRepository } from './modules/combat/CombatRepository.js';
+import { AiProviderConfigService } from './modules/ai-runtime/AiProviderConfigService.js';
+import { CampaignScopedAiProvider } from './modules/ai-runtime/CampaignScopedAiProvider.js';
+import type { CredentialCipher } from './modules/ai-runtime/CredentialCipher.js';
+import { RulesService } from './modules/rules/RulesService.js';
+import { createRulesRouter } from './routes/rulesRoutes.js';
 
-export interface CreateAppOptions {
-  /** 可选：平台数据库适配器。提供时挂载身份/战役路由与会话中间件。 */
-  platformDb?: SqliteDatabaseAdapter;
-  /** AI Provider：生产默认 UnavailableAiProvider（resolve 安全失败 AI_PROVIDER_FAILED）；测试注入 ScriptedAiProvider。绝不默认 Mock。 */
+/**
+ * 平台唯一组合根。`database` 必填且只能是 `DatabasePort`；
+ * 生产不再接受 raw better-sqlite3 或双 seam。
+ */
+export interface CreatePlatformAppOptions {
+  database: DatabasePort;
+  /** Production falls back to UnavailableAiProvider when no provider is configured. */
   aiProvider?: AiProviderPort;
+  /** Local cipher used for campaign-scoped saved provider credentials. */
+  credentialCipher?: CredentialCipher;
+  /** Validated origin/TLS/proxy policy. */
+  securityConfig: SecurityConfig;
 }
 
-export function createApp(db: AppDatabase, options: CreateAppOptions = {}) {
+/** Deterministic controls exposed only through createTestPlatformApp. */
+export interface PlatformAppTestOptions {
+  identityOptions?: IdentityServiceOptions;
+  providerFetch?: typeof fetch;
+  configuredAiProviderFactory?: (config: import('./config.js').AiProviderEnvConfig, fetchImpl?: typeof fetch) => AiProviderPort;
+  realtimeAuthorityChecker?: EventAuthorityChecker;
+  realtimePollIntervalMs?: number;
+  realtimeHeartbeatIntervalMs?: number;
+}
+
+export interface PlatformApp {
+  app: express.Express;
+  realtimeRuntime: EventStreamRuntime;
+}
+
+export function createPlatformApp(options: CreatePlatformAppOptions): PlatformApp {
+  return composePlatformApp(options, {});
+}
+
+/** Test-only constructor; production startup imports createPlatformApp only. */
+export function createTestPlatformApp(
+  options: CreatePlatformAppOptions,
+  testOptions: PlatformAppTestOptions = {},
+): PlatformApp {
+  return composePlatformApp(options, testOptions);
+}
+
+function composePlatformApp(
+  options: CreatePlatformAppOptions,
+  testOptions: PlatformAppTestOptions,
+): PlatformApp {
+  const { database } = options;
   const app = express();
-
-  app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
-
-  if (options.platformDb) {
-    const identity = new IdentityService(options.platformDb);
-    const campaigns = new CampaignService(options.platformDb);
-    const characters = new CharacterService(options.platformDb);
-    const worldFacts = new WorldFactService(options.platformDb);
-    // TurnService 依赖 EventPublisherPort 端口；composition root 注入 concrete OutboxRepository（与业务同 tx 写 outbox）。
-    const turns = new TurnService(options.platformDb, new OutboxRepository(options.platformDb));
-    app.use(createSessionMiddleware(identity));
-    app.use('/api/auth', createAuthRouter(identity));
-    app.use('/api/campaigns', createCampaignRouter(campaigns));
-    // 角色路由挂在 campaign-scoped 前缀下，与现有 /api/campaigns list/create/join 互不影响。
-    app.use('/api/campaigns/:campaignId/characters', createCharacterRouter(options.platformDb, characters));
-    // 世界事实路由同样挂在 campaign-scoped 前缀下。
-    app.use('/api/campaigns/:campaignId/world', createWorldRouter(options.platformDb, worldFacts));
-    // 回合路由挂在 campaign-scoped 前缀下；owner/player 权限由 service 在事务内 enforce。
-    app.use('/api/campaigns/:campaignId/turns', createTurnRouter(options.platformDb, turns));
-    // 存档路由同样挂在 campaign-scoped 前缀下；owner-only 权限由 service 在事务内 enforce。
-    const archives = new ArchiveService(options.platformDb, new OutboxRepository(options.platformDb));
-    app.use('/api/campaigns/:campaignId/archives', createArchiveRouter(options.platformDb, archives));
-    // AI 路由同样挂在 campaign-scoped 前缀下：resolve 权限由 AiResolutionService 在事务内 enforce；
-    // 只读端点由路由层 requireOwner + campaign 归属校验保证。生产默认 UnavailableAiProvider（安全失败）。
-    const aiProvider = options.aiProvider ?? new UnavailableAiProvider();
-    const ai = new AiResolutionService(
-      options.platformDb, aiProvider, new OutboxRepository(options.platformDb), archives,
-      new AiContextBuilder(options.platformDb),
-      new TurnResolutionValidator(options.platformDb),
-      new StateChangeMaterializer(options.platformDb),
-    );
-    app.use('/api/campaigns/:campaignId/ai', createAiRouter(options.platformDb, ai));
-    // 平台路由的错误统一由新错误中间件处理；必须先于旧错误中间件注册，
-    // 否则会被下面 legacy 的错误兜底吞掉并泄漏原始 message。
-    app.use(errorMiddleware);
-  }
-
-  app.use('/api/admin', createAdminRouter(db));
-  app.use('/api/player', createPlayerRouter(db));
-  app.use('/events', createSseRouter(db));
-  app.use((err: unknown, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (res.headersSent) {
-      next(err);
-      return;
-    }
-    if (err instanceof ZodError) {
-      res.status(400).json({ error: 'Invalid request body', issues: err.issues });
-      return;
-    }
-    if (typeof err === 'object' && err !== null && 'status' in err && typeof err.status === 'number' && err.status >= 400 && err.status < 500) {
-      const message = err instanceof Error ? err.message : 'Invalid request body';
-      res.status(err.status).json({ error: message || 'Invalid request body' });
-      return;
-    }
-    const message = err instanceof Error ? err.message : String(err);
-    res.status(500).json({ error: message || 'Internal server error' });
+  if (!options.securityConfig) throw new Error('security configuration is required');
+  const securityPolicy = new RequestSecurityPolicy(options.securityConfig);
+  app.set('trust proxy', securityPolicy.trustProxyPredicate());
+  app.use((req, res, next) => {
+    if (req.path === '/api/auth' || req.path.startsWith('/api/auth/')) res.setHeader('Cache-Control', 'no-store');
+    next();
   });
+  app.use(securityHeaders());
+  app.use(securityPolicy.middleware());
 
-  // 兜底 404：未匹配的 API 路径返回安全 JSON（而非 Express 默认 HTML），
-  // 不向客户端泄漏任何路由/框架信息。
+  // Realtime is composed before identity so commit-only session notifications can close matching clients.
+  const sessionAuthority = new SessionAuthority(database);
+  const realtimeService = new EventStreamService(
+    new TransactionalOutboxTailReader(database),
+    {},
+    testOptions.realtimeAuthorityChecker ?? sessionAuthority,
+  );
+  const realtimeClients = new Set<{
+    campaignId: string;
+    viewer: EventViewer;
+    authorityBinding?: SessionAuthorityBinding;
+    close(): void;
+    destroy(): void;
+  }>();
+  const closeClients = (matches: (client: {
+    campaignId: string;
+    viewer: EventViewer;
+    authorityBinding?: SessionAuthorityBinding;
+  }) => boolean): number => {
+    const matched = [...realtimeClients].filter(matches);
+    // Linearization order: remove every match first, then drop all delivery state, then destroy all responses.
+    for (const client of matched) realtimeClients.delete(client);
+    for (const client of matched) {
+      try { client.close(); }
+      catch { /* isolate one broken client so all matching delivery state is still dropped */ }
+    }
+    for (const client of matched) {
+      try { client.destroy(); }
+      catch { /* isolate one broken socket so remaining matching responses are still closed */ }
+    }
+    return matched.length;
+  };
+  const realtimeRuntime: EventStreamRuntime = {
+    service: realtimeService,
+    closeAll: () => {
+      closeClients(() => true);
+      realtimeService.closeAll();
+    },
+    registerClient: (client) => {
+      realtimeClients.add(client);
+      return () => { realtimeClients.delete(client); };
+    },
+    closeViewer: (campaignId, viewer) => closeClients((client) => (
+      client.campaignId === campaignId
+      && client.viewer.role === viewer.role
+      && client.viewer.playerId === viewer.playerId
+    )),
+    revokeSession: (internalSessionId) => closeClients((client) => client.authorityBinding?.internalSessionId === internalSessionId),
+    revokeUser: (userId) => closeClients((client) => client.authorityBinding?.userId === userId),
+    closeAllForMaintenance: () => closeClients(() => true),
+  };
+
+  const identity = new IdentityService(database, {
+    ...testOptions.identityOptions,
+    revocationNotifier: testOptions.identityOptions?.revocationNotifier ?? realtimeRuntime,
+  });
+  const campaigns = new CampaignService(database);
+  const characters = new CharacterService(database);
+  const worldFacts = new WorldFactService(database);
+  // TurnService 依赖 EventPublisherPort 端口；composition root 注入 concrete OutboxRepository（与业务同 tx 写 outbox）。
+  const turns = new TurnService(database, new OutboxRepository(database));
+  app.use(createSessionMiddleware(identity));
+  app.use('/api/auth', createAuthRouter(identity));
+  app.use('/api/campaigns', createCampaignRouter(database, campaigns));
+  // 角色路由挂在 campaign-scoped 前缀下，与现有 /api/campaigns list/create/join 互不影响。
+  app.use('/api/campaigns/:campaignId/characters', createCharacterRouter(database, characters));
+  // 世界事实路由同样挂在 campaign-scoped 前缀下。
+  app.use('/api/campaigns/:campaignId/world', createWorldRouter(database, worldFacts));
+  // 回合路由挂在 campaign-scoped 前缀下；owner/player 权限由 service 在事务内 enforce。
+  app.use('/api/campaigns/:campaignId/turns', createTurnRouter(database, turns));
+  // 存档路由同样挂在 campaign-scoped 前缀下；owner-only 权限由 service 在事务内 enforce。
+  const archives = new ArchiveService(database, new OutboxRepository(database));
+  app.use('/api/campaigns/:campaignId/archives', createArchiveRouter(database, archives));
+  // 结构化战斗：HTTP 写命令 owner-only；players 只读投影；AI 经 CombatAiAdapter 同端口。
+  const combat = new CombatService(database, new OutboxRepository(database));
+  app.use('/api/campaigns/:campaignId/combat', createCombatRouter(database, combat));
+  // 规则资料仅登记不可变来源/版本/许可证/署名/哈希元数据，不接收或存储规则正文。
+  const rules = new RulesService(database);
+  app.use('/api/campaigns/:campaignId/rules', createRulesRouter(database, rules));
+  // Shared runtime: requests bind the authoritative session tuple before headers are flushed.
+  app.use('/api/campaigns/:campaignId/events', createEventRouter(database, realtimeRuntime, {
+    pollIntervalMs: testOptions.realtimePollIntervalMs,
+    heartbeatIntervalMs: testOptions.realtimeHeartbeatIntervalMs,
+  }));
+  // AI 路由同样挂在 campaign-scoped 前缀下：WebUI 配置按战役加密保存并由动态 facade
+  // 每次 run 解析，保存后无需重启立即生效；未保存时安全回退到 env/injected Provider。
+  const fallbackAiProvider = options.aiProvider ?? new UnavailableAiProvider();
+  const aiProviderConfig = new AiProviderConfigService(database, {
+    fallbackProvider: fallbackAiProvider,
+    credentialCipher: options.credentialCipher,
+    fetchImpl: testOptions.providerFetch,
+    providerFactory: testOptions.configuredAiProviderFactory,
+  });
+  const aiProvider = new CampaignScopedAiProvider(aiProviderConfig);
+  const ai = new AiResolutionService(
+    database, aiProvider, new OutboxRepository(database), archives,
+    new AiContextBuilder(database),
+    new TurnResolutionValidator(database),
+    // Combat state changes use the same whitelisted command port and formal apply transaction.
+    new StateChangeMaterializer(database, new CombatAiAdapter(combat, new CombatRepository(database))),
+  );
+  app.use('/api/campaigns/:campaignId/ai', createAiRouter(database, ai, aiProviderConfig));
+
+  // 统一错误中间件：注册在所有平台路由之后、404 之前，处理一切已挂载 route 的错误。
+  app.use(errorMiddleware);
+
+  // 兜底 404：未匹配的 API 路径（含已删除的 legacy /api/admin、/api/player、/events）返回
+  // 安全 JSON（而非 Express 默认 HTML），不向客户端泄漏任何路由/框架信息。
   app.use((_req, res) => {
     res.status(404).json({ error: { code: 'NOT_FOUND', message: '接口不存在。' } });
   });
 
-  return app;
+  return { app, realtimeRuntime };
 }

@@ -1,0 +1,9 @@
+{"file":".trellis/spec/guides/index.md","reason":"Shared guidance for code reuse, cross-layer contracts, and search-first modification."}
+{"file":".trellis/spec/contracts/backend/index.md","reason":"Server contract schema conventions and compatibility boundaries."}
+{"file":".trellis/spec/contracts/frontend/index.md","reason":"Frontend DTO and response-wrapper conventions."}
+{"file":".trellis/spec/server/backend/index.md","reason":"HTTP parser, middleware ordering, route inventory, and test conventions."}
+{"file":".trellis/spec/server/frontend/index.md","reason":"Server-side API integration conventions."}
+{"file":".trellis/spec/client/frontend/index.md","reason":"Client response schema consumer conventions."}
+{"file":"docs/superpowers/plans/2026-08-12-dnd-ai-dm-v1-phase2-security-foundation.md","reason":"Authoritative strict-contract, parser-budget, route inventory, and Task 9 boundaries."}
+{"file":"docs/superpowers/specs/2026-08-12-dnd-ai-dm-v1-decisions.md","reason":"Authoritative strict DTO and security compatibility decisions."}
+{"file":"docs/superpowers/plans/2026-08-12-dnd-ai-dm-v1-hardening-cutover.md","reason":"Task sequencing, migration boundary, and future-route scope."}

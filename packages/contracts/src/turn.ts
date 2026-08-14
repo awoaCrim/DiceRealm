@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import { visibilitySchema, type Visibility } from './visibility.js';
+import { worldFactInputSchema } from './world.js';
+import { encounterStartSchema } from './combat.js';
+
+export { visibilitySchema };
+export type { Visibility };
 
 /** 回合状态机与结构化 AI 结算 contract。 */
 
@@ -11,11 +17,6 @@ export const turnStatusSchema = z.enum([
 ]);
 
 export type TurnStatus = z.infer<typeof turnStatusSchema>;
-
-/** 结果可见性：任何产出内容都只按该枚举投影。 */
-export const visibilitySchema = z.enum(['public', 'player_private', 'owner_only']);
-
-export type Visibility = z.infer<typeof visibilitySchema>;
 
 export const privateUpdateSchema = z.object({
   playerId: z.string().min(1),
@@ -66,10 +67,15 @@ export type InteractionRequest = z.infer<typeof interactionRequestSchema>;
 /** 公开叙事必填非空：空叙事视为无效输出（invalid 测试不再依赖 combat 触发）。 */
 export const turnResolutionSchema = z.object({
   publicNarrative: z.string().min(1),
-  privateUpdates: z.array(privateUpdateSchema),
-  diceResults: z.array(diceResultSchema),
-  stateChanges: z.array(stateChangeSchema),
-  interactionRequests: z.array(interactionRequestSchema),
+  /** 这些集合语义上允许“无条目”；Provider 省略时统一规范化为 []，已提供条目仍走原嵌套 schema。 */
+  privateUpdates: z.array(privateUpdateSchema).default([]),
+  diceResults: z.array(diceResultSchema).default([]),
+  stateChanges: z.array(stateChangeSchema).default([]),
+  interactionRequests: z.array(interactionRequestSchema).default([]),
+  /** AI 新增世界事实（创建式：id/时间戳由服务端生成）；旧 provider 输出缺省解析为 []。 */
+  worldFactCreations: z.array(worldFactInputSchema).default([]),
+  /** AI 发起遭遇（创建式：encounter/combatant id 由服务端生成；rollInitiative 默认 true 服务端掷先攻）。 */
+  encounterStarts: z.array(encounterStartSchema).default([]),
 });
 
 export type TurnResolution = z.infer<typeof turnResolutionSchema>;

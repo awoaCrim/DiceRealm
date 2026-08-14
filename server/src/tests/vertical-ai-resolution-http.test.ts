@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { jsonHeaders, registerAndLogin, startPlatformServer } from './httpTestHarness.js';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { installHarnessFetch, jsonHeaders, registerAndLogin, startTestPlatformServer } from './httpTestHarness.js';
 import {
   ScriptedAiProvider,
   approvedPlayerIds,
@@ -7,7 +7,11 @@ import {
   type AiProviderScript,
 } from '../modules/ai-runtime/ScriptedAiProvider.js';
 
-interface Actor { userId: string; cookieHeader: string; }
+let restoreHarnessFetch: (() => void) | undefined;
+beforeAll(() => { restoreHarnessFetch = installHarnessFetch(); });
+afterAll(() => { restoreHarnessFetch?.(); });
+
+interface Actor { userId: string; cookieJar: import('./httpTestHarness.js').TestCookieJar; }
 
 /** 成功脚本：经 approvedPlayerIds 从真实 prompt 解析成员 id 构造 privateUpdates/dice/interactions。 */
 const successScript: AiProviderScript = async (prompt, hooks) => {
@@ -33,14 +37,14 @@ async function makeFullCampaign(baseUrl: string) {
   const playerA = await registerAndLogin(baseUrl, 'a@example.test');
   const playerB = await registerAndLogin(baseUrl, 'b@example.test');
   const createRes = await fetch(`${baseUrl}/api/campaigns`, {
-    method: 'POST', headers: jsonHeaders(owner.cookieHeader),
+    method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),
     body: JSON.stringify({ name: '失落矿坑', ruleset: 'dnd5e' }),
   });
   expect(createRes.status).toBe(201);
   const created = (await createRes.json()) as { campaign: { id: string }; inviteCode: string };
   for (const actor of [playerA, playerB]) {
     const joinRes = await fetch(`${baseUrl}/api/campaigns/${created.campaign.id}/join`, {
-      method: 'POST', headers: jsonHeaders(actor.cookieHeader),
+      method: 'POST', headers: jsonHeaders(actor.cookieJar.header()),
       body: JSON.stringify({ inviteCode: created.inviteCode }),
     });
     expect(joinRes.status).toBe(201);
@@ -48,15 +52,15 @@ async function makeFullCampaign(baseUrl: string) {
   const charsBase = `${baseUrl}/api/campaigns/${created.campaign.id}/characters`;
   for (const [actor, name] of [[playerA, '薇拉'], [playerB, '卡恩']] as const) {
     const createChar = await fetch(`${charsBase}`, {
-      method: 'POST', headers: jsonHeaders(actor.cookieHeader),
+      method: 'POST', headers: jsonHeaders(actor.cookieJar.header()),
       body: JSON.stringify({ name, sheet: { ac: 14 } }),
     });
     expect(createChar.status).toBe(201);
     const char = (await createChar.json()) as { character: { id: string } };
-    const submit = await fetch(`${charsBase}/${char.character.id}/submit`, { method: 'POST', headers: jsonHeaders(actor.cookieHeader) });
+    const submit = await fetch(`${charsBase}/${char.character.id}/submit`, { method: 'POST', headers: jsonHeaders(actor.cookieJar.header()) });
     expect(submit.status).toBe(200);
     const review = await fetch(`${charsBase}/${char.character.id}/review`, {
-      method: 'POST', headers: jsonHeaders(owner.cookieHeader),
+      method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),
       body: JSON.stringify({ action: 'approve' }),
     });
     expect(review.status).toBe(200);
@@ -66,12 +70,12 @@ async function makeFullCampaign(baseUrl: string) {
 
 async function lockTurn(baseUrl: string, campaignId: string, owner: Actor, playerA: Actor, playerB: Actor): Promise<{ turnId: string; aiBase: string }> {
   const turnsBase = `${baseUrl}/api/campaigns/${campaignId}/turns`;
-  const startRes = await fetch(`${turnsBase}`, { method: 'POST', headers: jsonHeaders(owner.cookieHeader) });
+  const startRes = await fetch(`${turnsBase}`, { method: 'POST', headers: jsonHeaders(owner.cookieJar.header()) });
   expect(startRes.status).toBe(201);
   const turn = (await startRes.json()) as { turn: { id: string } };
   for (const [actor, body] of [[playerA, '我搜索房间。'], [playerB, '我警戒门口。']] as const) {
     const res = await fetch(`${turnsBase}/${turn.turn.id}/actions`, {
-      method: 'POST', headers: jsonHeaders(actor.cookieHeader),
+      method: 'POST', headers: jsonHeaders(actor.cookieJar.header()),
       body: JSON.stringify({ body }),
     });
     expect(res.status).toBe(200);
@@ -81,7 +85,7 @@ async function lockTurn(baseUrl: string, campaignId: string, owner: Actor, playe
 
 describe('HTTP server-side AI vertical flow', () => {
   it('runs create → join → approve → submit → lock → resolve → archive → project with full privacy isolation', async () => {
-    const server = await startPlatformServer({ aiProvider: new ScriptedAiProvider(successScript) });
+    const server = await startTestPlatformServer({ aiProvider: new ScriptedAiProvider(successScript) });
     try {
       const { baseUrl, platformDb } = server;
       const { owner, playerA, playerB, campaignId } = await makeFullCampaign(baseUrl);
@@ -89,7 +93,7 @@ describe('HTTP server-side AI vertical flow', () => {
 
       // owner resolve（幂等 key）。
       const resolveRes = await fetch(`${aiBase}/turns/${turnId}/runs`, {
-        method: 'POST', headers: jsonHeaders(owner.cookieHeader),
+        method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),
         body: JSON.stringify({ idempotencyKey: 'vertical-1' }),
       });
       expect(resolveRes.status).toBe(201);
@@ -132,24 +136,24 @@ describe('HTTP server-side AI vertical flow', () => {
       expect(JSON.parse(interactionEvent!.payload_json).requestId).toBe(interactions[0].id);
 
       // entries 投影：A 见 public + 自己的 private + 自己 target 的 dice；不见 B 私密与 owner_only。
-      const aEntriesRes = await fetch(`${aiBase}/turns/${turnId}/entries`, { headers: { cookie: playerA.cookieHeader } });
+      const aEntriesRes = await fetch(`${aiBase}/turns/${turnId}/entries`, { headers: { cookie: playerA.cookieJar.header() } });
       const aEntriesText = await aEntriesRes.text();
       const aEntries = JSON.parse(aEntriesText) as { entries: Array<{ visibility: string; targetPlayerId: string | null }> };
       expect(aEntries.entries.filter((e) => e.visibility === 'player_private').map((e) => e.targetPlayerId))
         .toEqual([playerA.userId, playerA.userId]);
-      const bEntries = JSON.stringify(await (await fetch(`${aiBase}/turns/${turnId}/entries`, { headers: { cookie: playerB.cookieHeader } })).json());
+      const bEntries = JSON.stringify(await (await fetch(`${aiBase}/turns/${turnId}/entries`, { headers: { cookie: playerB.cookieJar.header() } })).json());
       expect(bEntries).not.toContain('暗门');
       expect(bEntries).toContain('脚步声');
       // entries DTO 不泄漏 *_json / 内部列。
       expect(aEntriesText).not.toContain('_json');
 
       // run 详情 owner 可见 context/rawDebug；player FORBIDDEN 且响应不泄漏 result/rawDebug。
-      const playerRunDetail = await fetch(`${aiBase}/runs/${run.run.id}`, { headers: { cookie: playerA.cookieHeader } });
+      const playerRunDetail = await fetch(`${aiBase}/runs/${run.run.id}`, { headers: { cookie: playerA.cookieJar.header() } });
       expect(playerRunDetail.status).toBe(403);
       const playerDetailText = await playerRunDetail.text();
       expect(playerDetailText).not.toContain('rawDebug');
       expect(playerDetailText).not.toContain('publicNarrative');
-      const ownerRunDetailRes = await fetch(`${aiBase}/runs/${run.run.id}`, { headers: { cookie: owner.cookieHeader } });
+      const ownerRunDetailRes = await fetch(`${aiBase}/runs/${run.run.id}`, { headers: { cookie: owner.cookieJar.header() } });
       expect(ownerRunDetailRes.status).toBe(200);
       const ownerRunDetailText = await ownerRunDetailRes.text();
       const ownerRunDetail = JSON.parse(ownerRunDetailText) as { run: { context: unknown; rawDebug: unknown } };
@@ -161,7 +165,7 @@ describe('HTTP server-side AI vertical flow', () => {
       // 恢复 waiting 快照 → 回合 2 恢复为 waiting（不被 supersede），不开新回合（number 仍为 2）。
       const archivesBase = `${baseUrl}/api/campaigns/${campaignId}/archives`;
       const manual = await fetch(`${archivesBase}`, {
-        method: 'POST', headers: jsonHeaders(owner.cookieHeader),
+        method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),
         body: JSON.stringify({ label: '  进洞前  ' }),
       });
       expect(manual.status).toBe(201);
@@ -169,10 +173,10 @@ describe('HTTP server-side AI vertical flow', () => {
       expect(manualArchive.archive.label).toBe('进洞前');
       // archive DTO 不泄漏 state_json / *_json。
       expect(JSON.stringify(manualArchive)).not.toContain('_json');
-      const archivesList = await (await fetch(`${archivesBase}`, { headers: { cookie: owner.cookieHeader } })).text();
+      const archivesList = await (await fetch(`${archivesBase}`, { headers: { cookie: owner.cookieJar.header() } })).text();
       expect(archivesList).not.toContain('state_json');
       expect(archivesList).not.toContain('_json');
-      const restoreRes = await fetch(`${archivesBase}/${manualArchive.archive.id}/restore`, { method: 'POST', headers: jsonHeaders(owner.cookieHeader) });
+      const restoreRes = await fetch(`${archivesBase}/${manualArchive.archive.id}/restore`, { method: 'POST', headers: jsonHeaders(owner.cookieJar.header()) });
       expect(restoreRes.status).toBe(200);
       // 恢复完成后：回合 2 仍是当前回合（waiting、不被 supersede），没有新增回合。
       const allTurns = await platformDb.query<{ number: number; status: string; superseded_at: string | null }>(
@@ -181,7 +185,7 @@ describe('HTTP server-side AI vertical flow', () => {
       expect(allTurns.map((r) => r.number)).toEqual([1, 2]);
       expect(allTurns[1].status).toBe('waiting_for_actions');
       expect(allTurns[1].superseded_at).toBeNull(); // 恢复的是当前回合，不被 supersede
-      // completed 快照恢复开新回合 MAX+1 不复用 的断言由 Task 3 archive.test.ts 与 postgres 门控用例覆盖。
+      // completed 快照恢复后新回合 MAX+1 不复用的契约由 archive.test.ts 覆盖。
     } finally {
       await server.close();
     }
@@ -194,7 +198,7 @@ describe('HTTP server-side AI vertical flow', () => {
       if (calls === 1) throw new Error('provider down');
       return successScript(prompt, hooks);
     };
-    const server = await startPlatformServer({ aiProvider: new ScriptedAiProvider(flakyScript) });
+    const server = await startTestPlatformServer({ aiProvider: new ScriptedAiProvider(flakyScript) });
     try {
       const { baseUrl, platformDb } = server;
       const { owner, playerA, playerB, campaignId } = await makeFullCampaign(baseUrl);
@@ -202,7 +206,7 @@ describe('HTTP server-side AI vertical flow', () => {
 
       // 第一次 resolve：provider throw → AI_PROVIDER_FAILED，turn=needs_owner_attention，无正式写。
       const failRes = await fetch(`${aiBase}/turns/${turnId}/runs`, {
-        method: 'POST', headers: jsonHeaders(owner.cookieHeader),
+        method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),
         body: JSON.stringify({ idempotencyKey: 'fail-1' }),
       });
       expect(failRes.status).toBe(502);
@@ -219,7 +223,7 @@ describe('HTTP server-side AI vertical flow', () => {
 
       // 同 key 重试 = idempotent replay（返回既有 failed run，不再调 provider）。
       const replayRes = await fetch(`${aiBase}/turns/${turnId}/runs`, {
-        method: 'POST', headers: jsonHeaders(owner.cookieHeader),
+        method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),
         body: JSON.stringify({ idempotencyKey: 'fail-1' }),
       });
       expect(replayRes.status).toBe(200);
@@ -229,7 +233,7 @@ describe('HTTP server-side AI vertical flow', () => {
 
       // 新 key 重试成功（attempt=2），正式写齐全且只产生一组。
       const retryRes = await fetch(`${aiBase}/turns/${turnId}/runs`, {
-        method: 'POST', headers: jsonHeaders(owner.cookieHeader),
+        method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),
         body: JSON.stringify({ idempotencyKey: 'retry-2' }),
       });
       expect(retryRes.status).toBe(201);
@@ -259,7 +263,7 @@ describe('HTTP server-side AI vertical flow', () => {
   });
 
   it('rejects invalid AI output with AI_OUTPUT_INVALID and no partial writes', async () => {
-    const server = await startPlatformServer({
+    const server = await startTestPlatformServer({
       aiProvider: new ScriptedAiProvider(
         scriptedResolution({ publicNarrative: '', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [] }),
       ),
@@ -271,7 +275,7 @@ describe('HTTP server-side AI vertical flow', () => {
 
       // 空 publicNarrative 触发 schema 校验 AI_OUTPUT_INVALID；turn=needs_owner_attention，无正式写。
       const invalidRes = await fetch(`${aiBase}/turns/${turnId}/runs`, {
-        method: 'POST', headers: jsonHeaders(owner.cookieHeader),
+        method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),
         body: JSON.stringify({ idempotencyKey: 'invalid-1' }),
       });
       expect(invalidRes.status).toBe(422);
@@ -291,6 +295,54 @@ describe('HTTP server-side AI vertical flow', () => {
       expect(runRow).toHaveLength(1);
       expect(runRow[0].status).toBe('failed');
       expect(runRow[0].error_code).toBe('AI_OUTPUT_INVALID');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('keeps domain-invalid Provider values out of HTTP and persistence while exposing safe Owner diagnostics', async () => {
+    const providerValue = `not-a-member-${'secret'.repeat(100)}`;
+    const server = await startTestPlatformServer({
+      aiProvider: new ScriptedAiProvider(scriptedResolution({
+        publicNarrative: '雨停了。',
+        privateUpdates: [{ playerId: providerValue, content: `私密正文-${providerValue}` }],
+      })),
+    });
+    try {
+      const { baseUrl, platformDb } = server;
+      const { owner, playerA, playerB, campaignId } = await makeFullCampaign(baseUrl);
+      const { turnId, aiBase } = await lockTurn(baseUrl, campaignId, owner, playerA, playerB);
+
+      const invalidRes = await fetch(`${aiBase}/turns/${turnId}/runs`, {
+        method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),
+        body: JSON.stringify({ idempotencyKey: 'invalid-domain-value' }),
+      });
+      expect(invalidRes.status).toBe(422);
+      const invalidText = await invalidRes.text();
+      expect(JSON.parse(invalidText)).toEqual({
+        error: { code: 'AI_OUTPUT_INVALID', message: 'AI 输出不符合结构化结算契约。' },
+      });
+      expect(invalidText).not.toContain(providerValue);
+
+      const runs = await platformDb.query<{ id: string; error_json: string | null; raw_debug_json: string | null }>(
+        'SELECT id, error_json, raw_debug_json FROM platform_ai_runs WHERE turn_id = ?', [turnId],
+      );
+      expect(JSON.stringify(runs)).not.toContain(providerValue);
+      expect(JSON.parse(runs[0].raw_debug_json as string)).toMatchObject({
+        diagnostic: {
+          kind: 'turn_resolution_domain_validation',
+          issues: [{ path: ['privateUpdates', 0, 'playerId'], code: 'not_campaign_member' }],
+        },
+      });
+
+      const ownerDetail = await fetch(`${aiBase}/runs/${runs[0].id}`, { headers: { cookie: owner.cookieJar.header() } });
+      expect(ownerDetail.status).toBe(200);
+      expect(await ownerDetail.json()).toMatchObject({
+        run: { rawDebug: { diagnostic: { kind: 'turn_resolution_domain_validation' } } },
+      });
+      const playerDetail = await fetch(`${aiBase}/runs/${runs[0].id}`, { headers: { cookie: playerA.cookieJar.header() } });
+      expect(playerDetail.status).toBe(403);
+      expect(await playerDetail.text()).not.toContain('rawDebug');
     } finally {
       await server.close();
     }

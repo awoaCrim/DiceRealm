@@ -1,11 +1,12 @@
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
-import type { StateChange } from '@dnd/contracts';
+import type { EncounterStartInput, StateChange, WorldFactInput } from '@dnd/contracts';
 import type { QueryExecutor } from '../../platform/database/DatabasePort.js';
 import { AppError } from '../../platform/http/AppError.js';
 import { CharacterRepository, type CharacterRow } from '../characters/CharacterRepository.js';
 import { WorldFactRepository } from '../world/WorldFactRepository.js';
 import { computeDerived } from '../characters/CharacterService.js';
+import type { CombatStateChangeApplier } from './CombatStateChangeApplier.js';
 
 /** 角色 sheet 白名单：只允许这些叶子键，禁止任意 JSON patch。 */
 const sheetPatchSchema = z.object({
@@ -32,11 +33,21 @@ const worldFactPatchSchema = z.object({
 }).strict();
 
 export class StateChangeMaterializer {
-  constructor(private readonly executor: QueryExecutor) {}
+  constructor(
+    private readonly executor: QueryExecutor,
+    private readonly combatApplier?: CombatStateChangeApplier,
+  ) {}
 
-  async applyAll(tx: QueryExecutor, campaignId: string, stateChanges: StateChange[], actorUserId: string): Promise<void> {
+  /** AI 创建式字段：世界事实新增 + 遭遇发起（均为服务端生成 id）。 */
+  async applyAll(
+    tx: QueryExecutor,
+    campaignId: string,
+    stateChanges: StateChange[],
+    actorUserId: string,
+    creations: { worldFactCreations: WorldFactInput[]; encounterStarts: EncounterStartInput[] } = { worldFactCreations: [], encounterStarts: [] },
+  ): Promise<void> {
     // 未知 kind 在写任何正式状态之前以 AI_OUTPUT_INVALID 拒绝（与 member/duplicate 校验同一原则：
-    // 绝不把非法输出拖到 DB 层）；combat 走能力门禁 STATE_CONFLICT。
+    // 绝不把非法输出拖到 DB 层）；combat 未注入 applier 时保留能力门禁 STATE_CONFLICT（安全默认）。
     for (const change of stateChanges) {
       if (change.kind !== 'character' && change.kind !== 'world' && change.kind !== 'quest' && change.kind !== 'combat') {
         throw new AppError('AI_OUTPUT_INVALID', '未知 stateChange kind。');
@@ -45,7 +56,11 @@ export class StateChangeMaterializer {
     for (const change of stateChanges) {
       switch (change.kind) {
         case 'combat':
-          throw new AppError('STATE_CONFLICT', '结构化战斗尚未启用（Phase 3 提供）。');
+          if (!this.combatApplier) {
+            throw new AppError('STATE_CONFLICT', '结构化战斗尚未启用（Phase 3 提供）。');
+          }
+          await this.combatApplier.apply(tx, campaignId, change);
+          break;
         case 'character':
           await this.applyCharacter(tx, campaignId, change, actorUserId);
           break;
@@ -57,6 +72,27 @@ export class StateChangeMaterializer {
           throw new AppError('AI_OUTPUT_INVALID', '未知 stateChange kind。');
       }
     }
+    // 创建式：世界事实插入 + 遭遇发起（combat 未注入 applier 时保留能力门禁 STATE_CONFLICT，安全默认）。
+    for (const creation of creations.worldFactCreations) {
+      await this.insertWorldFact(tx, campaignId, creation);
+    }
+    for (const start of creations.encounterStarts) {
+      if (!this.combatApplier) {
+        throw new AppError('STATE_CONFLICT', '结构化战斗尚未启用（Phase 3 提供）。');
+      }
+      await this.combatApplier.startEncounter(tx, campaignId, start);
+    }
+  }
+
+  private async insertWorldFact(tx: QueryExecutor, campaignId: string, creation: WorldFactInput): Promise<void> {
+    const facts = new WorldFactRepository(tx);
+    const knownBy = await this.validateKnownBy(tx, campaignId, creation.visibility, creation.knownBy ?? []);
+    const now = new Date().toISOString();
+    await facts.insert({
+      id: nanoid(24), campaign_id: campaignId, title: creation.title, kind: creation.kind,
+      content: creation.content, visibility: creation.visibility, known_by_json: JSON.stringify(knownBy),
+      created_at: now, updated_at: now,
+    });
   }
 
   private async applyCharacter(tx: QueryExecutor, campaignId: string, change: StateChange, actorUserId: string): Promise<void> {

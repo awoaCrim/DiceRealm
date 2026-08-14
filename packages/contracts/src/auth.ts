@@ -7,9 +7,8 @@ export const roleSchema = z.enum(['owner', 'player']);
 export type Role = z.infer<typeof roleSchema>;
 
 export const sessionSchema = z.object({
-  sessionId: z.string().min(1),
   expiresAt: z.string(),
-});
+}).strict();
 
 export type Session = z.infer<typeof sessionSchema>;
 

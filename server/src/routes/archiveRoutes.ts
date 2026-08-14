@@ -1,3 +1,4 @@
+import { jsonBodyBudget } from '../platform/http/jsonBodyBudget.js';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { manualArchiveInputSchema } from '@dnd/contracts';
@@ -22,19 +23,26 @@ export function createArchiveRouter(executor: QueryExecutor, archives: ArchiveSe
     res.json({ archives: await archives.listForCampaign(getCampaignContext(req)) });
   }));
 
-  router.post('/', asyncHandler(async (req: Request, res: Response) => {
+  router.post('/', requireRouteOwner, jsonBodyBudget('archive'), asyncHandler(async (req: Request, res: Response) => {
     const ctx = getCampaignContext(req);
     const input = manualArchiveInputSchema.parse(req.body);
     res.status(201).json({ archive: await archives.createManual(ctx, input.label) });
   }));
 
-  router.post('/:archiveId/restore', asyncHandler(async (req: Request, res: Response) => {
+  router.post('/:archiveId/restore', requireRouteOwner, asyncHandler(async (req: Request, res: Response) => {
     res.json({ result: await archives.restore(getCampaignContext(req), stringParam(req, 'archiveId')) });
   }));
 
   return router;
 }
 
+function requireRouteOwner(req: Request, _res: Response, next: import('express').NextFunction): void {
+  try {
+    const ctx = getCampaignContext(req);
+    if (ctx.role !== 'owner') throw new AppError('FORBIDDEN', '你没有权限执行此操作。');
+    next();
+  } catch (error) { next(error); }
+}
 function stringParam(req: Request, name: string): string {
   const value = req.params[name];
   if (typeof value !== 'string' || !value) throw new AppError('NOT_FOUND', '存档不存在。');

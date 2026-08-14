@@ -2,28 +2,13 @@ import type { ErrorRequestHandler, RequestHandler } from 'express';
 import { ZodError } from 'zod';
 import { isAppError } from './AppError.js';
 
-/** 新平台 API 前缀：错误统一由 errorMiddleware 处理。 */
-const PLATFORM_API_PREFIXES = ['/api/auth', '/api/campaigns'];
-
-function isPlatformRoute(originalUrl: string): boolean {
-  return PLATFORM_API_PREFIXES.some(
-    (prefix) => originalUrl === prefix || originalUrl.startsWith(`${prefix}/`),
-  );
-}
-
 /**
- * 统一错误中间件（仅限新平台 API）。
+ * 统一错误中间件：已挂载的全部平台 route 的错误都由此收敛。
  * 已知 AppError 转换为契约错误响应，其余错误收敛为安全响应，不泄漏堆栈/SQL/原始 HTML。
- * 非平台路由（旧 legacy /api/admin、/api/player、/events）直接 next(error)，
- * 交由各自既有的错误 handler 处理，避免改变旧路由的错误契约。
+ * legacy 路由已在 Phase 1 删除，不再需要 prefix 转发分支。
  */
 export const errorMiddleware: ErrorRequestHandler = (error, req, res, next) => {
   if (res.headersSent) {
-    next(error);
-    return;
-  }
-
-  if (!isPlatformRoute(req.originalUrl)) {
     next(error);
     return;
   }
@@ -35,6 +20,11 @@ export const errorMiddleware: ErrorRequestHandler = (error, req, res, next) => {
 
   if (error instanceof ZodError) {
     res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: '请求参数无效' } });
+    return;
+  }
+
+  if (typeof error === 'object' && error !== null && 'type' in error && error.type === 'entity.too.large') {
+    res.status(413).json({ error: { code: 'PAYLOAD_TOO_LARGE', message: '请求体过大。' } });
     return;
   }
 

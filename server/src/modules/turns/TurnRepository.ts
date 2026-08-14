@@ -101,7 +101,7 @@ export class TurnRepository {
     return Number(rows[0].max ?? 0);
   }
 
-  /** 条件 no-op 更新：获得 turn 行锁（Postgres 行锁；SQLite 写事务串行），未命中表示不存在。
+  /** 条件 no-op 更新：在 SQLite 写事务中触碰 turn 行，未命中表示不存在。
    *  superseded 回合不可再被提交/结算——返回 false → NOT_FOUND。 */
   async lockTurnRow(turnId: string, campaignId: string): Promise<boolean> {
     const result = await this.executor.execute(

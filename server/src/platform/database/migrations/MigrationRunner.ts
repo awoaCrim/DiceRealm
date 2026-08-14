@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { MigrationExecutor, MigrationToApply, SyncMigrationExecutor } from '../DatabasePort.js';
+import type { MigrationExecutor, MigrationToApply } from '../DatabasePort.js';
+import { isCanonicalMigrationFilename, sortMigrationFilenames } from '../../ops/migrationManifest.js';
 
 /** One migration file discovered in the migrations directory. */
 export type Migration = MigrationToApply;
@@ -23,7 +24,7 @@ const DEFAULT_MIGRATIONS_DIR = fileURLToPath(new URL('./', import.meta.url));
  * `summary_json`, `completed_at`) owned by the legacy extraction pipeline.
  * Using a separate table avoids conflicting with it and leaves it untouched.
  */
-const TRACKING_TABLE_DDL = `
+export const TRACKING_TABLE_DDL = `
   CREATE TABLE IF NOT EXISTS platform_migrations (
     version TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -31,16 +32,7 @@ const TRACKING_TABLE_DDL = `
   )
 `;
 
-/**
- * Parameterised INSERT that records an applied migration version.
- *
- * Shared by every applyMigration implementation so the tracking statement
- * cannot drift between the SQLite async adapter, the legacy sync adapter and
- * the PostgreSQL adapter (the latter rewrites the `?` placeholders to `$1..$n`
- * through `rewritePlaceholders`). The `?` placeholders are intentional: both
- * SQLite paths use the statement as-is, and the Postgres adapter already
- * rewrites `?` placeholders on its port methods.
- */
+/** Parameterised SQLite statement that records an applied migration version. */
 export const PLATFORM_MIGRATION_INSERT_SQL =
   'INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)';
 
@@ -55,9 +47,6 @@ export const PLATFORM_MIGRATION_INSERT_SQL =
  * would re-run non-idempotent DDL (e.g. 007's `ALTER TABLE ADD COLUMN`) and
  * fail with a duplicate column.
  *
- * The `run()` path targets the asynchronous `DatabasePort` adapters (SQLite
- * and PostgreSQL). `runSync()` exists for the legacy SQLite startup path
- * (`server/src/db/schema.ts`) which initialises the schema synchronously.
  * Applied versions are recorded in the dedicated `platform_migrations` table.
  */
 export class MigrationRunner {
@@ -85,28 +74,12 @@ export class MigrationRunner {
     return report;
   }
 
-  static runSync(executor: SyncMigrationExecutor, migrationsDir: string = DEFAULT_MIGRATIONS_DIR): MigrationReport {
-    executor.exec(TRACKING_TABLE_DDL);
-    const applied = new Set(executor.query<{ version: string }>('SELECT version FROM platform_migrations').map((row) => row.version));
-    const report: MigrationReport = { applied: [], skipped: [] };
-
-    for (const migration of loadMigrations(migrationsDir)) {
-      if (applied.has(migration.version)) {
-        report.skipped.push(migration.version);
-        continue;
-      }
-      executor.applyMigration(migration, new Date().toISOString());
-      report.applied.push(migration.version);
-    }
-    return report;
-  }
-
   private async appliedVersions(): Promise<Array<{ version: string }>> {
     return this.executor.query<{ version: string }>('SELECT version FROM platform_migrations');
   }
 }
 
-/** Load `.sql` files from the migrations directory, sorted by filename. */
+/** Load canonical `.sql` files from the migrations directory, sorted by filename (ASCII code-unit). */
 function loadMigrations(migrationsDir: string): Migration[] {
   let entries;
   try {
@@ -122,10 +95,10 @@ function loadMigrations(migrationsDir: string): Migration[] {
     );
   }
   const migrations = entries
-    .filter((entry) => entry.isFile() && /^[0-9].*\.sql$/i.test(entry.name))
-    .sort((a, b) => a.name.localeCompare(b.name))
+    .filter((entry) => entry.isFile() && isCanonicalMigrationFilename(entry.name))
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
     .map((entry) => ({
-      version: entry.name.match(/^[0-9]+/)?.[0] ?? entry.name,
+      version: entry.name.slice(0, 3),
       name: entry.name,
       sql: readFileSync(join(migrationsDir, entry.name), 'utf8'),
     }));
@@ -133,4 +106,13 @@ function loadMigrations(migrationsDir: string): Migration[] {
     throw new Error(`No SQL migration files found in: ${migrationsDir}`);
   }
   return migrations;
+}
+
+/** Load a single canonical migration file by exact filename (offline CLI/coordinator use). */
+export function loadMigrationFile(migrationsDir: string, filename: string): MigrationToApply {
+  return {
+    version: filename.slice(0, 3),
+    name: filename,
+    sql: readFileSync(join(migrationsDir, filename), 'utf8'),
+  };
 }

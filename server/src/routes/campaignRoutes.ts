@@ -1,16 +1,19 @@
+import { jsonBodyBudget } from '../platform/http/jsonBodyBudget.js';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { createCampaignInputSchema, campaignSettingsPatchSchema } from '@dnd/contracts';
 import type { CampaignService } from '../modules/campaigns/CampaignService.js';
+import type { QueryExecutor } from '../platform/database/DatabasePort.js';
 import { AppError } from '../platform/http/AppError.js';
 import { asyncHandler } from '../platform/http/errorMiddleware.js';
 import { getAuthContext, requireAuth } from '../platform/http/sessionMiddleware.js';
+import { resolveCampaignContext } from '../modules/campaigns/CampaignAccess.js';
 
 /**
  * 战役路由：列出、创建、查看、加入与更新设置。
  * 路由只解析请求、调用 service、返回 DTO；权限与校验在 service 内完成。
  */
-export function createCampaignRouter(campaigns: CampaignService): Router {
+export function createCampaignRouter(executor: QueryExecutor, campaigns: CampaignService): Router {
   const router = Router();
 
   router.use(requireAuth);
@@ -26,11 +29,11 @@ export function createCampaignRouter(campaigns: CampaignService): Router {
 
   router.post(
     '/',
+    jsonBodyBudget('campaigns'),
     asyncHandler(async (req: Request, res: Response) => {
       const ctx = getAuthContext(req);
       const input = createCampaignInputSchema.parse(req.body);
       const result = await campaigns.create(ctx.userId, input);
-      // 创建响应向 owner 返回一次性 raw invite code（不落库）；后续列表/详情不再返回。
       res.status(201).json({ campaign: result.campaign, inviteCode: result.inviteCode });
     }),
   );
@@ -46,6 +49,7 @@ export function createCampaignRouter(campaigns: CampaignService): Router {
 
   router.post(
     '/:campaignId/join',
+    jsonBodyBudget('campaigns'),
     asyncHandler(async (req: Request, res: Response) => {
       const ctx = getAuthContext(req);
       const inviteCode = parseInviteCode(req);
@@ -56,6 +60,8 @@ export function createCampaignRouter(campaigns: CampaignService): Router {
 
   router.patch(
     '/:campaignId/settings',
+    requireRouteOwner(executor),
+    jsonBodyBudget('campaigns'),
     asyncHandler(async (req: Request, res: Response) => {
       const ctx = getAuthContext(req);
       const input = campaignSettingsPatchSchema.parse(req.body);
@@ -65,6 +71,16 @@ export function createCampaignRouter(campaigns: CampaignService): Router {
   );
 
   return router;
+}
+
+function requireRouteOwner(executor: QueryExecutor): import('express').RequestHandler {
+  return async (req, _res, next) => {
+    try {
+      const ctx = await resolveCampaignContext(executor, getAuthContext(req), stringParam(req, 'campaignId'));
+      if (ctx.role !== 'owner') throw new AppError('FORBIDDEN', '你没有权限执行此操作。');
+      next();
+    } catch (error) { next(error); }
+  };
 }
 
 function stringParam(req: Request, name: string): string {

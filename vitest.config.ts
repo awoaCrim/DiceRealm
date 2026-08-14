@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'vitest/config';
+import { defineConfig, defaultExclude } from 'vitest/config';
 
 export default defineConfig({
   resolve: {
@@ -11,7 +11,16 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['packages/**/*.test.ts', 'server/src/tests/**/*.test.ts', 'server/src/platform/**/*.test.ts', 'server/src/modules/**/*.test.ts', 'client/src/**/*.test.tsx'],
+    include: [
+      'packages/**/*.test.ts',
+      'server/src/tests/**/*.test.ts',
+      'server/src/platform/**/*.test.ts',
+      'server/src/modules/**/*.test.ts',
+      'client/src/**/*.test.ts',
+      'client/src/**/*.test.tsx',
+    ],
+    // browser 场景仅由独立 tsx runner 执行，排除出普通 npm test。
+    exclude: [...defaultExclude, 'client/src/tests/phase4-browser-flow.test.ts'],
     globals: true,
   },
 });

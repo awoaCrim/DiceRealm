@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import { visibilitySchema } from './turn.js';
+import { visibilitySchema } from './visibility.js';
 
 /** AI Provider 与结构化结算 contract。 */
 
 export const aiPromptSchema = z.object({
   campaignId: z.string().min(1),
   audience: visibilitySchema,
-  system: z.string(),
+  /** Provider 的完整对话输入；system 指令只作为 role=system 的 message 存在，避免双份持久化。 */
   messages: z.array(
     z.object({
       role: z.enum(['system', 'user', 'assistant']),
@@ -39,11 +39,28 @@ export type AiProviderConfig = z.infer<typeof aiProviderConfigSchema>;
 /** 返回给前端的脱敏 Provider 配置，永远不包含 API Key。 */
 export const aiProviderPublicConfigSchema = z.object({
   provider: aiProviderKindSchema,
-  baseUrl: z.string().min(1).default(''),
-  model: z.string().min(1).default(''),
+  baseUrl: z.string().default(''),
+  model: z.string().default(''),
   configured: z.boolean(),
+  apiKeyConfigured: z.boolean().default(false),
+  source: z.enum(['campaign', 'environment', 'unavailable', 'injected']).default('unavailable'),
 });
 export type AiProviderPublicConfig = z.infer<typeof aiProviderPublicConfigSchema>;
+
+/** Owner WebUI Provider 表单。apiKey 是 write-only：已配置后留空表示沿用现有密钥。 */
+export const aiProviderConfigInputSchema = z.object({
+  provider: z.literal('openai-compatible'),
+  baseUrl: z.string().trim().url().refine(
+    (value) => /^https?:\/\//i.test(value),
+    'API 地址必须使用 HTTP(S)',
+  ),
+  model: z.string().trim().min(1).max(200),
+  apiKey: z.string().max(4096),
+});
+export type AiProviderConfigInput = z.infer<typeof aiProviderConfigInputSchema>;
+
+export const aiProviderTestResultSchema = z.object({ ok: z.literal(true) });
+export type AiProviderTestResult = z.infer<typeof aiProviderTestResultSchema>;
 
 /** AI run 结算生命周期：claim 置 running，成功 succeeded / 失败 failed。 */
 export const aiRunStatusSchema = z.enum(['running', 'succeeded', 'failed']);

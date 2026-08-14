@@ -4,11 +4,14 @@ client/dist/
 packages/contracts/dist/
 server/dnd.sqlite
 server/dnd.sqlite-*
+.dnd-ai-credential-key
+.dnd-instance.lock
 *.sqlite
 *.sqlite-*
 *.db
 .env
 .env.*
+!.env.example
 .claude/
 .playwright-mcp/
 .codex-tmp/
@@ -16,6 +19,9 @@ server/dnd.sqlite-*
 .playwright-cli/
 output/
 playwright-browsers/
+.pi/
+.pi-subagents/
+/NUL
 .superpowers/
 logs/dnd_mcp_server.log
 vendor/dnd-mcp/

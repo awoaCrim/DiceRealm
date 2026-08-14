@@ -6,6 +6,7 @@ import type {
   ArchiveSnapshot,
   ArchiveSnapshotCharacter,
   ArchiveSnapshotRequirement,
+  ArchiveSnapshotV2,
   TurnAction,
 } from '@dnd/contracts';
 import { archiveSnapshotSchema, manualArchiveInputSchema } from '@dnd/contracts';
@@ -16,8 +17,12 @@ import { requireOwner, type CampaignAuthContext } from '../campaigns/CampaignAcc
 import { CharacterRepository, type CharacterRow } from '../characters/CharacterRepository.js';
 import { TurnRepository, type ActionRow, type RequirementRow, type TurnRow } from '../turns/TurnRepository.js';
 import { WorldFactRepository, type WorldFactRow } from '../world/WorldFactRepository.js';
+import { CombatRepository, type CombatantRow, type EncounterRow } from '../combat/CombatRepository.js';
 import { ArchiveRepository, type ArchiveRow } from './ArchiveRepository.js';
 import { AiRunRepository } from '../ai-runtime/AiRunRepository.js';
+
+/** 恢复两阶段 position 重排安全 offset：远大于任何真实 position 数量。 */
+const POSITION_RESTORE_OFFSET = 2_000_000;
 
 /**
  * ArchiveService：owner 手动/自动存档捕获与恢复。
@@ -62,7 +67,7 @@ export class ArchiveService {
   async restore(ctx: CampaignAuthContext, archiveId: string): Promise<ArchiveRestoreResult> {
     requireOwner(ctx);
     return this.executor.transaction(async (tx) => {
-      // 1) campaign 行锁（Postgres 行锁；SQLite 写事务串行）。
+      // 1) 在 SQLite 写事务中触碰 campaign 行，建立恢复操作的串行化点。
       await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [ctx.campaignId]);
       const repo = new ArchiveRepository(tx);
       const archive = await repo.findById(archiveId);
@@ -138,14 +143,14 @@ export class ArchiveService {
     return rows.map(mapArchive);
   }
 
-  /** 快照：schemaVersion=1，含 campaignId/ruleset/characters(全部角色完整 owner current state)/active world facts/current turn+actions+requirements/watermarks。
+  /** 快照：schemaVersion=2，含 campaignId/ruleset/characters(全部角色完整 owner current state)/active world facts/current turn+actions+requirements/全部 unsuperseded encounters+combatants/watermarks。
    *  watermarks 含 outboxSequence/aiRunCampaignSequence/turnNumber（turnNumber 为捕获时 unsuperseded 历史最大
    *  turn number，供 restore 决定 turns 的 supersede 水位；setup 无回合 = 0）。 */
   private async captureSnapshot(
     tx: QueryExecutor,
     campaignId: string,
     opts: { forResolvedTurn: boolean; resolvedTurnId?: string },
-  ): Promise<ArchiveSnapshot> {
+  ): Promise<ArchiveSnapshotV2> {
     const campaign = (await tx.query<{ id: string; ruleset: string }>(
       'SELECT id, ruleset FROM campaigns WHERE id = ?', [campaignId],
     ))[0];
@@ -153,6 +158,7 @@ export class ArchiveService {
     const facts = new WorldFactRepository(tx);
     const turns = new TurnRepository(tx);
     const archiveRepo = new ArchiveRepository(tx);
+    const combatRepo = new CombatRepository(tx);
 
     // 快照角色取 campaign 全部角色（draft/pending_review/rejected/approved/archived 全保留），
     // 完整 owner current state。context builder 仍只取 approved——二者解耦。
@@ -160,7 +166,7 @@ export class ArchiveService {
     // 快照事实取 active 全量（含 public/player_private/owner_only，恢复时按原 visibility 还原）。
     const factRows = (await facts.listByCampaign(campaignId)).map(toSnapshotWorldFact);
 
-    let currentTurnSnapshot: ArchiveSnapshot['currentTurn'] = null;
+    let currentTurnSnapshot: ArchiveSnapshotV2['currentTurn'] = null;
     if (opts.forResolvedTurn && opts.resolvedTurnId) {
       // automatic：resolved turn 已 completed、entries 已写、下一回合尚未创建。
       currentTurnSnapshot = await this.turnSnapshot(tx, campaignId, opts.resolvedTurnId);
@@ -171,13 +177,28 @@ export class ArchiveService {
       }
     }
 
+    // 战斗快照：全部 unsuperseded encounters（含 completed 历史）+ 各自 unsuperseded combatants。
+    const encounterRows = await combatRepo.listAllEncountersByCampaign(campaignId);
+    const encounters: ArchiveSnapshotV2['encounters'] = [];
+    for (const encounter of encounterRows) {
+      encounters.push({
+        encounter: {
+          id: encounter.id, campaignId: encounter.campaign_id, name: encounter.name,
+          status: encounter.status, activeCombatantId: encounter.active_combatant_id,
+          round: encounter.round, createdAt: encounter.created_at, updatedAt: encounter.updated_at,
+        },
+        combatants: (await combatRepo.listAllCombatantsByEncounter(encounter.id)).map(toSnapshotCombatant),
+      });
+    }
+
     return {
-      schemaVersion: 1,
+      schemaVersion: 2,
       campaignId,
       ruleset: campaign.ruleset,
       characters: characterRows,
       worldFacts: factRows,
       currentTurn: currentTurnSnapshot,
+      encounters,
       watermarks: {
         outboxSequence: await archiveRepo.maxOutboxSequence(campaignId),
         aiRunCampaignSequence: await archiveRepo.maxAiRunSequence(campaignId),
@@ -241,6 +262,20 @@ export class ArchiveService {
     );
     const facts = new WorldFactRepository(tx);
     await facts.supersedeFactsNotIn(campaignId, snapshot.worldFacts.map((f) => f.id), archiveId, now);
+    // 战斗历史：v2 只 supersede 快照外的 encounter/combatant；v1 视为“当时尚无平台战斗”，
+    // 当前 unsuperseded 战斗全部标记为快照后历史。
+    const combat = new CombatRepository(tx);
+    if (snapshot.schemaVersion === 2) {
+      await combat.supersedeNotIn(
+        campaignId,
+        snapshot.encounters.map((e) => e.encounter.id),
+        snapshot.encounters.flatMap((e) => e.combatants.map((c) => c.id)),
+        archiveId,
+        now,
+      );
+    } else {
+      await combat.supersedeAllByCampaign(campaignId, archiveId, now);
+    }
   }
 
   /** 恢复快照状态：characters upsert + archive_restore audits；world facts upsert + 清除 superseded；currentTurn 恢复；completed 快照创建新 waiting turn（null 快照不开新回合）。 */
@@ -283,6 +318,35 @@ export class ArchiveService {
         known_by_json: JSON.stringify(snapshotFact.knownBy), created_at: snapshotFact.createdAt,
         updated_at: now,
       });
+    }
+
+    // 战斗状态（v2）：快照内 encounters/combatants upsert 并解除 superseded。
+    // 两阶段 position 重排避免 UNIQUE(encounter_id, position) 瞬时冲突：先把该 encounter
+    // 现有（含 superseded 历史）positions 整体加安全 offset，再 upsert 快照最终 0..n-1。
+    if (snapshot.schemaVersion === 2) {
+      const combat = new CombatRepository(tx);
+      for (const entry of snapshot.encounters) {
+        const enc = entry.encounter;
+        await combat.upsertRestoredEncounter({
+          id: enc.id, campaign_id: enc.campaignId, name: enc.name, status: enc.status,
+          active_combatant_id: enc.activeCombatantId, round: enc.round,
+          superseded_at: null, superseded_by_archive_id: null,
+          created_at: enc.createdAt, updated_at: now,
+        });
+        await combat.offsetAllPositionsIncludingSuperseded(enc.id, POSITION_RESTORE_OFFSET);
+        for (const combatant of entry.combatants) {
+          await combat.upsertRestoredCombatant({
+            id: combatant.id, encounter_id: combatant.encounterId, campaign_id: combatant.campaignId,
+            character_id: combatant.characterId, name: combatant.name, initiative: combatant.initiative,
+            initiative_bonus: combatant.initiativeBonus, hp_current: combatant.hpCurrent,
+            hp_max: combatant.hpMax, ac: combatant.ac,
+            conditions_json: JSON.stringify(combatant.conditions), visibility: combatant.visibility,
+            target_player_id: combatant.targetPlayerId, position: combatant.position,
+            superseded_at: null, superseded_by_archive_id: null,
+            created_at: combatant.createdAt, updated_at: now,
+          });
+        }
+      }
     }
 
     // currentTurn 恢复。
@@ -371,6 +435,18 @@ function toSnapshotWorldFact(row: WorldFactRow): ArchiveSnapshot['worldFacts'][n
     id: row.id, campaignId: row.campaign_id, title: row.title, kind: row.kind,
     content: row.content, visibility: row.visibility,
     knownBy: JSON.parse(row.known_by_json) as string[],
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+/** CombatantRow → 快照战斗员：无 superseded 字段，恢复时按快照语义 upsert。 */
+function toSnapshotCombatant(row: CombatantRow): ArchiveSnapshotV2['encounters'][number]['combatants'][number] {
+  return {
+    id: row.id, encounterId: row.encounter_id, campaignId: row.campaign_id,
+    characterId: row.character_id, name: row.name, initiative: row.initiative,
+    initiativeBonus: row.initiative_bonus, hpCurrent: row.hp_current, hpMax: row.hp_max,
+    ac: row.ac, conditions: JSON.parse(row.conditions_json) as string[],
+    visibility: row.visibility, targetPlayerId: row.target_player_id, position: row.position,
     createdAt: row.created_at, updatedAt: row.updated_at,
   };
 }

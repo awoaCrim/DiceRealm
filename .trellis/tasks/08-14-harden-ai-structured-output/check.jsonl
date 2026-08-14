@@ -1,0 +1,3 @@
+{"file": ".trellis/tasks/08-14-harden-ai-structured-output/prd.md", "reason": "Acceptance requirements and scope constraints"}
+{"file": ".trellis/tasks/08-14-harden-ai-structured-output/design.md", "reason": "Review compatibility, privacy, and fail-closed design decisions"}
+{"file": ".trellis/tasks/08-14-harden-ai-structured-output/research/live-failure-diagnosis.md", "reason": "Verify the fix addresses the observed production-like symptom"}

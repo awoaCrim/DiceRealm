@@ -1,7 +1,10 @@
 import { nanoid } from 'nanoid';
 import { campaignEventSchema, eventDefaultAudience, type CampaignEvent } from '@dnd/contracts';
-import type { QueryExecutor } from '../database/DatabasePort.js';
+import type { QueryExecutor, QueryReader } from '../database/DatabasePort.js';
 import type { EventPublisherPort } from './EventPublisherPort.js';
+
+/** Outbox 数据源：publishIn 需要写能力（QueryExecutor）；listAfter 只读（QueryReader）。 */
+type OutboxExecutor = QueryExecutor | QueryReader;
 
 export interface OutboxEventRow {
   id: string;
@@ -23,7 +26,7 @@ export interface OutboxEventRow {
  * 计数器分配 + 事件插入，与业务写同事务提交/回滚；绝不持有外部 executor 后在 tx 中绕开。
  */
 export class OutboxRepository implements EventPublisherPort {
-  constructor(private readonly executor: QueryExecutor) {}
+  constructor(private readonly executor: OutboxExecutor) {}
 
   async publishIn(tx: QueryExecutor, event: CampaignEvent): Promise<number> {
     const parsed = campaignEventSchema.parse(event); // 校验每个 variant 的 campaignId 等
@@ -37,6 +40,18 @@ export class OutboxRepository implements EventPublisherPort {
        audience.targetPlayerId, JSON.stringify(parsed), null, new Date().toISOString()],
     );
     return sequence;
+  }
+
+  /**
+   * SSE tail：只读 active（未 superseded）事件，sequence > after 升序，带 LIMIT。
+   * 生产只由 TransactionalOutboxTailReader 在 readCommitted callback 内调用，
+   * 绝不从长期持有的外层 executor 裸读（SQLite 会看到未提交事务行）。
+   */
+  async listAfter(campaignId: string, after: number, limit: number): Promise<OutboxEventRow[]> {
+    return this.executor.query<OutboxEventRow>(
+      'SELECT * FROM platform_outbox_events WHERE campaign_id = ? AND superseded_at IS NULL AND sequence > ? ORDER BY sequence ASC LIMIT ?',
+      [campaignId, after, limit],
+    );
   }
 
   /** 默认 active 列表：只含未 superseded 的事件（存档恢复覆盖的历史事件默认不可见）。 */
@@ -64,7 +79,7 @@ export class OutboxRepository implements EventPublisherPort {
 }
 
 /**
- * 每战役 sequence 原子分配：upsert 计数器 + RETURNING（SQLite >=3.35 与 Postgres 通用）。
+ * 每战役 sequence 原子分配：SQLite upsert 计数器 + RETURNING。
  * 绝不用“读取后 MAX+1”；UNIQUE(campaign_id, sequence) 仅作不变量兜底。
  * 在事务内调用：counter 与事件同事务，回滚时两者都不留。
  */

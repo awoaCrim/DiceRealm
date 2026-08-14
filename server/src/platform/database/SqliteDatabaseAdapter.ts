@@ -1,8 +1,10 @@
 import Database from 'better-sqlite3';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { AppDatabase } from '../../db/connection.js';
-import type { DatabasePort, MigrationExecutor, MigrationToApply, QueryExecutor } from './DatabasePort.js';
+import type { DatabasePort, MigrationExecutor, MigrationToApply, QueryExecutor, QueryReader } from './DatabasePort.js';
 import { MigrationRunner, PLATFORM_MIGRATION_INSERT_SQL } from './migrations/MigrationRunner.js';
+
+/** 本地驱动类型；生产组合根只接收 DatabasePort，不暴露 raw 连接。 */
+type RawSqliteConnection = Database.Database;
 
 /**
  * SQLite adapter over an existing `better-sqlite3` connection.
@@ -13,14 +15,14 @@ import { MigrationRunner, PLATFORM_MIGRATION_INSERT_SQL } from './migrations/Mig
  * helper does not await the callback's promise).
  */
 export class SqliteDatabaseAdapter implements DatabasePort, MigrationExecutor {
-  readonly raw: AppDatabase;
+  readonly raw: RawSqliteConnection;
   private readonly runner: MigrationRunner;
   /** 平台事务互斥队列尾链：新的 transaction 等待前一事务 settle（成功或失败）后再执行。 */
   private lastTransaction: Promise<unknown> = Promise.resolve();
-  /** 事务回调执行期间标记，用于检测嵌套 transaction 调用（防止队列自锁死锁）。 */
-  private readonly transactionContext = new AsyncLocalStorage<boolean>();
+  /** 队列工作上下文标记：transaction/read callback 执行期间置位，检测嵌套顶层端口调用（防队列自锁死锁）。 */
+  private readonly workContext = new AsyncLocalStorage<'transaction' | 'read'>();
 
-  constructor(raw: AppDatabase) {
+  constructor(raw: RawSqliteConnection) {
     this.raw = raw;
     raw.pragma('journal_mode = WAL');
     raw.pragma('foreign_keys = ON');
@@ -101,14 +103,39 @@ export class SqliteDatabaseAdapter implements DatabasePort, MigrationExecutor {
    * 防止回调 await 自己身后队列项造成死锁；service 应把 tx 传给内部方法而非再开事务。
    */
   async transaction<T>(work: (tx: QueryExecutor) => Promise<T>): Promise<T> {
-    if (this.transactionContext.getStore()) {
+    if (this.workContext.getStore()) {
       throw new Error(
-        'SqliteDatabaseAdapter.transaction 不支持嵌套调用：请在事务回调内使用传入的 tx，而不是再次调用同一适配器的 transaction。',
+        'SqliteDatabaseAdapter.transaction 不支持嵌套调用（transaction/readCommitted 回调内）：请在回调内使用传入的 tx/reader，而不是再次调用同一适配器的顶层端口。',
       );
     }
     const run = this.lastTransaction.then(() => this.runTransaction(work));
     this.lastTransaction = run.catch(() => undefined);
     return run;
+  }
+
+  /**
+   * 事务安全只读快照：与 write transaction 共用单一 FIFO 队列，但不执行 BEGIN IMMEDIATE，
+   * 因此读取等待已有事务 settle 后执行且不抢写锁；同步驱动调用天然串行，绝不看到未提交/回滚行。
+   * 嵌套顶层端口调用（transaction/readCommitted 内再次调用）立即抛清晰错误。
+   */
+  async readCommitted<T>(work: (reader: QueryReader) => Promise<T>): Promise<T> {
+    if (this.workContext.getStore()) {
+      throw new Error(
+        'SqliteDatabaseAdapter.readCommitted 不支持嵌套调用（transaction/readCommitted 回调内）：请在回调内使用传入的 tx/reader，而不是再次调用同一适配器的顶层端口。',
+      );
+    }
+    const run = this.lastTransaction.then(() => this.runReadCommitted(work));
+    this.lastTransaction = run.catch(() => undefined);
+    return run;
+  }
+
+  /** 单个只读快照体：直接读，不 BEGIN/COMMIT（驱动调用同步且队列已串行化）。 */
+  private async runReadCommitted<T>(work: (reader: QueryReader) => Promise<T>): Promise<T> {
+    const reader: QueryReader = {
+      query: async <R>(sql: string, params: unknown[] = []): Promise<R[]> =>
+        this.raw.prepare(sql).all(...params) as R[],
+    };
+    return this.workContext.run('read', () => work(reader));
   }
 
   /** 单个事务体：BEGIN IMMEDIATE 在受保护路径执行（失败不留下锁）；work 拒绝时回滚并保留原始错误。 */
@@ -129,7 +156,7 @@ export class SqliteDatabaseAdapter implements DatabasePort, MigrationExecutor {
       },
     };
     try {
-      const result = await this.transactionContext.run(true, () => work(tx));
+      const result = await this.workContext.run('transaction', () => work(tx));
       this.raw.exec('COMMIT');
       return result;
     } catch (error) {
@@ -149,13 +176,11 @@ export class SqliteDatabaseAdapter implements DatabasePort, MigrationExecutor {
   }
 }
 
-export interface SqliteDatabase extends DatabasePort {}
-
 /**
- * Create an SQLite adapter. When `reuseRaw` is given the existing
- * `better-sqlite3` connection is wrapped instead of opening a new file.
+ * Create an SQLite adapter over a fresh file/`:memory:` connection.
+ * Production opens one adapter and exposes it through DatabasePort; tests use
+ * `:memory:` and may inspect `raw` only for direct-driver assertions.
  */
-export function createSqliteDatabase(path?: string, options?: { reuseRaw?: AppDatabase }): SqliteDatabaseAdapter {
-  const raw = options?.reuseRaw ?? new Database(path ?? ':memory:');
-  return new SqliteDatabaseAdapter(raw);
+export function createSqliteDatabase(path?: string): SqliteDatabaseAdapter {
+  return new SqliteDatabaseAdapter(new Database(path ?? ':memory:'));
 }

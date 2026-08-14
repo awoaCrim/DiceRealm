@@ -30,7 +30,7 @@ export class TurnService {
   async startTurn(ctx: CampaignAuthContext): Promise<TurnSummary> {
     requireOwner(ctx);
     return this.executor.transaction(async (tx) => {
-      // 1) campaign 行锁：no-op 写（Postgres 行锁；SQLite 写事务串行）。
+      // 1) no-op 写触碰 campaign 行；SQLite 写事务队列保证启动新回合串行执行。
       await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [ctx.campaignId]);
       const repo = new TurnRepository(tx);
       // 2) 无未终结（进行中）回合：locked/resolving/needs_owner_attention 同样阻挡新回合，

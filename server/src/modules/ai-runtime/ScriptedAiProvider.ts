@@ -1,4 +1,4 @@
-import type { AiPrompt } from '@dnd/contracts';
+import type { AiPrompt, AiProviderPublicConfig } from '@dnd/contracts';
 import type { AiPreviewHooks, AiProviderPort } from './AiProviderPort.js';
 
 /** 测试用 Provider 脚本：返回 final output（unknown）或 throw。只应通过 CreateAppOptions.aiProvider 注入。 */
@@ -6,6 +6,15 @@ export type AiProviderScript = (input: AiPrompt, hooks: AiPreviewHooks) => Promi
 
 export class ScriptedAiProvider implements AiProviderPort {
   readonly name = 'scripted';
+  readonly model = 'scripted';
+  readonly publicConfig: AiProviderPublicConfig = {
+    provider: 'scripted',
+    baseUrl: '',
+    model: 'scripted',
+    configured: false,
+    apiKeyConfigured: false,
+    source: 'injected',
+  };
   constructor(private readonly script: AiProviderScript) {}
   stream(input: AiPrompt, hooks: AiPreviewHooks): Promise<unknown> {
     return this.script(input, hooks);

@@ -1,0 +1,6 @@
+{"file":".trellis/spec/guides/index.md","reason":"Review cross-layer behavior, reuse, and search-first changes."}
+{"file":".trellis/spec/server/backend/index.md","reason":"Review fixture-server, HTTP, realtime, persistence, and test quality."}
+{"file":".trellis/spec/server/frontend/index.md","reason":"Review frontend/server proxy integration and error handling."}
+{"file":".trellis/spec/client/frontend/index.md","reason":"Review browser routing, UI flow, query invalidation, and SSE behavior."}
+{"file":"docs/superpowers/validation/phase2-task7-ledger.md","reason":"Verify TLS trust, safety hashes, no default database access, and regression gates."}
+{"file":"docs/superpowers/plans/2026-08-12-dnd-ai-dm-v1-hardening-cutover.md","reason":"Check that fixes do not pull deferred security, migration, or administrative scope into the gameplay flow."}

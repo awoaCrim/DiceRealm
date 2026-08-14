@@ -1,0 +1,9 @@
+{"file":".trellis/spec/guides/index.md","reason":"Quality review must apply shared cross-layer and reuse checks."}
+{"file":".trellis/spec/contracts/backend/index.md","reason":"Review contract strictness and bounds against package conventions."}
+{"file":".trellis/spec/contracts/frontend/index.md","reason":"Review sensitive response DTO and client wrapper strictness."}
+{"file":".trellis/spec/server/backend/index.md","reason":"Review middleware order, body budgets, route inventory, and HTTP tests."}
+{"file":".trellis/spec/server/frontend/index.md","reason":"Review server-side frontend/API integration behavior."}
+{"file":".trellis/spec/client/frontend/index.md","reason":"Review auth token propagation and client compatibility."}
+{"file":"docs/superpowers/plans/2026-08-12-dnd-ai-dm-v1-phase2-security-foundation.md","reason":"Check security acceptance criteria and verify deferred rate limiting is not accidentally implemented."}
+{"file":"docs/superpowers/specs/2026-08-12-dnd-ai-dm-v1-decisions.md","reason":"Check exact-origin, cookie/session, and no-oracle invariants."}
+{"file":"docs/superpowers/plans/2026-08-12-dnd-ai-dm-v1-hardening-cutover.md","reason":"Check migration and future-task scope boundaries."}

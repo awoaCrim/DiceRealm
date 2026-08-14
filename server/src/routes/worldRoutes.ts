@@ -1,3 +1,4 @@
+import { jsonBodyBudget } from '../platform/http/jsonBodyBudget.js';
 import { Router } from 'express';
 import type { Request, Response } from 'express';
 import { worldFactInputSchema } from '@dnd/contracts';
@@ -20,19 +21,19 @@ export function createWorldRouter(executor: QueryExecutor, facts: WorldFactServi
     res.json({ projection: await facts.projectForCampaign(getCampaignContext(req)) });
   }));
 
-  router.post('/', asyncHandler(async (req: Request, res: Response) => {
+  router.post('/', requireRouteOwner, jsonBodyBudget('world'), asyncHandler(async (req: Request, res: Response) => {
     const ctx = getCampaignContext(req);
     const input = worldFactInputSchema.parse(req.body);
     res.status(201).json({ fact: await facts.create(ctx, input) });
   }));
 
-  router.put('/:factId', asyncHandler(async (req: Request, res: Response) => {
+  router.put('/:factId', requireRouteOwner, jsonBodyBudget('world'), asyncHandler(async (req: Request, res: Response) => {
     const ctx = getCampaignContext(req);
     const input = worldFactInputSchema.parse(req.body);
     res.json({ fact: await facts.update(ctx, stringParam(req, 'factId'), input) });
   }));
 
-  router.delete('/:factId', asyncHandler(async (req: Request, res: Response) => {
+  router.delete('/:factId', requireRouteOwner, asyncHandler(async (req: Request, res: Response) => {
     await facts.delete(getCampaignContext(req), stringParam(req, 'factId'));
     res.status(204).end();
   }));
@@ -40,11 +41,15 @@ export function createWorldRouter(executor: QueryExecutor, facts: WorldFactServi
   return router;
 }
 
+function requireRouteOwner(req: Request, _res: Response, next: import('express').NextFunction): void {
+  try {
+    const ctx = getCampaignContext(req);
+    if (ctx.role !== 'owner') throw new AppError('FORBIDDEN', '你没有权限执行此操作。');
+    next();
+  } catch (error) { next(error); }
+}
 function stringParam(req: Request, name: string): string {
   const value = req.params[name];
-  if (typeof value !== 'string' || !value) {
-    // 坏 resourceId 表示资源不存在，用 NOT_FOUND（而非 CAMPAIGN_NOT_FOUND）。
-    throw new AppError('NOT_FOUND', '世界事实不存在。');
-  }
+  if (typeof value !== 'string' || !value) throw new AppError('NOT_FOUND', '世界事实不存在。');
   return value;
 }

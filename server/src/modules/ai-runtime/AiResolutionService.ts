@@ -10,7 +10,7 @@ import { ArchiveService } from '../archives/ArchiveService.js';
 import { AiRunRepository, type AiRunRow } from './AiRunRepository.js';
 import { TurnEntryRepository } from './TurnEntryRepository.js';
 import { AiContextBuilder } from './AiContextBuilder.js';
-import { TurnResolutionValidator } from './TurnResolutionValidator.js';
+import { AiOutputValidationError, TurnResolutionValidator } from './TurnResolutionValidator.js';
 import { StateChangeMaterializer } from './StateChangeMaterializer.js';
 import type { AiProviderPort } from './AiProviderPort.js';
 
@@ -25,13 +25,29 @@ export class AiResolutionService {
     private readonly materializer: StateChangeMaterializer,
   ) {}
 
-  /** 返回既有 run（幂等 replay）或新 run；created 供路由区分 201/200。 */
+  get publicConfig(): AiProviderPort['publicConfig'] {
+    return this.provider.publicConfig;
+  }
+
+  get name(): string {
+    return this.provider.name;
+  }
+
+  get model(): string {
+    return this.provider.model;
+  }
+
   async resolveTurn(ctx: CampaignAuthContext, turnId: string, input: ResolveTurnInput): Promise<{ created: boolean; run: AiRunView }> {
     requireOwner(ctx);
     const { idempotencyKey } = input;
+    // 动态 facade 在 claim 前解析并固定本次 run 的 provider；因此 run 身份、stream 调用和
+    // 幂等 replay 使用同一实例，保存后的新配置只影响后续新 run，不会撕裂进行中的结算。
+    const runProvider = this.provider.resolveForCampaign
+      ? await this.provider.resolveForCampaign(ctx.campaignId)
+      : this.provider;
     // 1) claim tx：campaign/turn 行锁 + 幂等查重 + attempt + context 快照 + run=running + turn=resolving + preview.started。
     //    claim 结果是 discriminated union：replay 不带 prompt（不触碰 provider），claimed 带 prompt 供 provider 消费。
-    const claim = await this.claim(ctx.campaignId, turnId, idempotencyKey);
+    const claim = await this.claim(ctx.campaignId, turnId, idempotencyKey, runProvider);
     if (claim.kind === 'replay') {
       // 幂等 replay：不调用 provider、不写 entries/archive/events，直接返回既有 run。
       return { created: false, run: this.toView(claim.run) };
@@ -40,7 +56,7 @@ export class AiResolutionService {
     let finalOutput: unknown;
     try {
       // 2) provider 在 tx 外运行；每个 delta 独立短 tx publish。仅 claimed 分支持有 prompt。
-      finalOutput = await this.provider.stream(claim.prompt, {
+      finalOutput = await runProvider.stream(claim.prompt, {
         onDelta: async (delta) => {
           try {
             // delta 短 tx/publish 失败（DB 中断、outbox 写失败等）不是 provider 输出问题：
@@ -101,7 +117,7 @@ export class AiResolutionService {
    *  （含 succeeded/completed 之后的 replay），不要求 turn 仍 locked/needs_owner_attention；只有创建新 run 时才校验回合状态。
    *  返回值是 discriminated union：`{ kind:'replay'; run }` 不含 prompt（resolveTurn 分支后不触碰 provider）；
    *  `{ kind:'claimed'; run; prompt }` 持有 context 快照供 provider 消费。 */
-  private async claim(campaignId: string, turnId: string, idempotencyKey: string): Promise<{ kind: 'replay'; run: AiRunRow } | { kind: 'claimed'; run: AiRunRow; prompt: AiPrompt }> {
+  private async claim(campaignId: string, turnId: string, idempotencyKey: string, runProvider: AiProviderPort): Promise<{ kind: 'replay'; run: AiRunRow } | { kind: 'claimed'; run: AiRunRow; prompt: AiPrompt }> {
     return this.executor.transaction(async (tx) => {
       await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [campaignId]);
       const runs = new AiRunRepository(tx);
@@ -134,13 +150,13 @@ export class AiResolutionService {
       //    失败重试（新 key）在 resolveTurn 的 claim 阶段先经这里分配 attempt=2。
       const attempt = (await runs.maxAttempt(tx, turnId)) + 1;
       const campaignSequence = await runs.nextCampaignSequence(tx, campaignId);
-      // 5) context 快照：claim tx 内 capture（同 tx 读取，Postgres 行锁可见），provider 只消费该快照。
+      // 5) context 快照在 claim tx 内读取并固化，provider 只消费该快照。
       const pkg = await this.context.buildForTurn(campaignId, turnId, tx);
       const now = new Date().toISOString();
       const runId = nanoid(24);
       await runs.insertRun(tx, {
         id: runId, campaign_id: campaignId, campaign_sequence: campaignSequence, turn_id: turnId,
-        attempt, idempotency_key: idempotencyKey, provider: this.provider.name, model: this.provider.name,
+        attempt, idempotency_key: idempotencyKey, provider: runProvider.name, model: runProvider.model,
         status: 'running', context_json: JSON.stringify({ prompt: pkg.prompt, context: pkg.context }), result_json: null,
         error_code: null, error_json: null, raw_debug_json: null, started_at: now, completed_at: null,
       });
@@ -169,8 +185,11 @@ export class AiResolutionService {
       if (!run || run.status !== 'running') throw new AppError('STATE_CONFLICT', 'AI run 不在可应用状态。');
       const turn = await turns.findTurnById(turnId);
       if (!turn || turn.status !== 'resolving') throw new AppError('STATE_CONFLICT', '回合不在结算中。');
-      // 2) 白名单 state changes（combat → STATE_CONFLICT，无正式写）。actorUserId 供 character audit FK。
-      await this.materializer.applyAll(tx, campaignId, resolution.stateChanges, actorUserId);
+      // 2) 白名单 state changes + AI 创建式世界事实/遭遇（combat 能力门禁；actorUserId 供 character audit FK）。
+      await this.materializer.applyAll(tx, campaignId, resolution.stateChanges, actorUserId, {
+        worldFactCreations: resolution.worldFactCreations,
+        encounterStarts: resolution.encounterStarts,
+      });
       // 3) 写 entries 与 interaction requests。
       const now = new Date().toISOString();
       const entriesRepo = new TurnEntryRepository(tx);
@@ -212,6 +231,10 @@ export class AiResolutionService {
       if (!(await runs.markSucceeded(tx, runId, JSON.stringify(resolution), rawDebug, now))) {
         throw new AppError('STATE_CONFLICT', 'AI run 已被并发更新。');
       }
+      // 4b) owner.debug（Phase 3）：成功 formal apply 后、turn completed 前，同一事务发布
+      //     仅携带 { runId, kind: 'result' } 的 owner-only 事件；敏感正文继续由 owner-only
+      //     AI run detail 查询提供，不塞入事件。
+      await this.outbox.publishIn(tx, { type: 'owner.debug', campaignId, runId, kind: 'result' });
       // 5) turn completed。
       if (!(await turns.markCompleted(turnId, now))) {
         throw new AppError('STATE_CONFLICT', '回合已在结算中被并发修改。');
@@ -281,7 +304,12 @@ export class AiResolutionService {
         timestamp: now,
       };
       const errorJson = JSON.stringify(sanitized);
-      await runs.markFailed(tx, runId, code, errorJson, errorJson, now);
+      // AI 输出 schema/domain 校验错误只把有界的 path/code 投影写入 Owner-only rawDebug；
+      // error_json 与 HTTP 仍保持通用受控文案。绝不保存 issue message、rejected value 或 Provider 原始输出。
+      const rawDebugJson = error instanceof AiOutputValidationError
+        ? JSON.stringify({ ...sanitized, diagnostic: error.diagnostic })
+        : errorJson;
+      await runs.markFailed(tx, runId, code, errorJson, rawDebugJson, now);
       // 条件更新（仅当 turn 仍 resolving）：若并发已把 turn 改成其它状态，失败路径不写半截正式状态。
       await tx.execute(
         "UPDATE platform_turns SET status = 'needs_owner_attention', updated_at = ? WHERE id = ? AND status = 'resolving'",
