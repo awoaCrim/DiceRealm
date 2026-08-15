@@ -13,6 +13,7 @@ export default defineConfig({
     environment: 'node',
     include: [
       'packages/**/*.test.ts',
+      'scripts/**/*.test.ts',
       'server/src/tests/**/*.test.ts',
       'server/src/platform/**/*.test.ts',
       'server/src/modules/**/*.test.ts',

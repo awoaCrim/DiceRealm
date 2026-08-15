@@ -3,7 +3,7 @@
   "name": "simplify-platform-startup",
   "title": "Simplify persistence startup and credential lifecycle",
   "description": "Replace enrollment/cutover startup machinery with one data directory, explicit init, automatic transactional upgrades, and provider fault isolation.",
-  "status": "planning",
+  "status": "in_progress",
   "dev_type": null,
   "scope": null,
   "package": null,

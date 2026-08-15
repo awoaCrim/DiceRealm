@@ -2,3 +2,4 @@
 {"file": ".trellis/tasks/08-14-local-first-architecture-simplification/research/decision-log.md", "reason": "Approved local-first/reset/automatic-migration product decisions"}
 {"file": ".trellis/tasks/08-14-local-first-architecture-simplification/research/current-worktree-audit.md", "reason": "Current dirty-worktree architecture and removal inventory"}
 {"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Preserve startup, database, HTTP, SSE, and client data-flow contracts"}
+{"file": ".trellis/tasks/08-14-simplify-platform-startup/research/windows-dev-shutdown-lock.md", "reason": "Root-cause and approved dev shutdown design"}

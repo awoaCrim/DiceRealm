@@ -1,5 +1,4 @@
 import { createServer, type Server } from 'node:http';
-import { readFile } from 'node:fs/promises';
 import { afterEach, describe, expect, it } from 'vitest';
 import { waitForHttpServer } from '../../../scripts/wait-for-dev-server.js';
 
@@ -31,16 +30,5 @@ describe('dev server readiness gate', () => {
       timeoutMs: 500,
       intervalMs: 10,
     })).resolves.toBeUndefined();
-  });
-
-  it('wires the root dev command so Vite starts only after the readiness gate', async () => {
-    const packageJson = JSON.parse(await readFile(new URL('../../../package.json', import.meta.url), 'utf8')) as {
-      scripts: Record<string, string>;
-    };
-
-    expect(packageJson.scripts.dev).toContain('npm run dev:client');
-    expect(packageJson.scripts['dev:client']).toMatch(
-      /^tsx scripts\/wait-for-dev-server\.ts && npm run dev --workspace client$/,
-    );
   });
 });

@@ -44,6 +44,14 @@ Replace the enterprise-style enrollment/cutover/startup choreography with a main
 - Document backup pairing between the SQLite database and local credential key.
 - Ignore root/server SQLite sidecars, local key, and instance-lock artifacts so local data cannot be committed accidentally.
 
+### R6. Reliable local development shutdown
+
+- The repository-root `npm run dev` command must shut down the lock-owning Server gracefully on Windows Ctrl+C and allow an immediate second start against the same data directory.
+- Development orchestration must not use a Windows `taskkill /F` path, `ChildProcess.kill('SIGINT')`, or a watch supervisor that can terminate the lock owner before `RunningPlatformServer.close()` finishes.
+- The development coordinator must register shutdown handling before startup, close partially started resources on failure/signal, and wait for Vite, HTTP/SSE, SQLite, and InstanceLock cleanup before exiting.
+- Frontend Vite HMR should remain available. Automatic backend restart may be removed unless it uses an explicit application-level close handshake.
+- Do not fix this bug by blindly deleting existing locks or weakening token-checked, fail-closed lock ownership.
+
 ## Acceptance Criteria
 
 - [ ] Fresh initialization reaches a startable state through one documented data-directory flow.
@@ -53,6 +61,8 @@ Replace the enterprise-style enrollment/cutover/startup choreography with a main
 - [ ] A missing/malformed key or one corrupt provider ciphertext does not prevent server startup or non-AI campaign access.
 - [ ] Re-saving the affected campaign provider configuration restores AI availability.
 - [ ] Instance locking and graceful close remain intact.
+- [ ] On Windows, one Ctrl+C from repository-root `npm run dev` removes the instance lock and an immediate second `npm run dev` reaches readiness against the same data directory.
+- [ ] Dev shutdown and partial-startup tests prove resources close in order without using forced child-process termination; arbitrary/corrupt/foreign locks still fail closed.
 - [ ] Migration/startup/credential tests use temporary databases only.
 - [ ] Obsolete bootstrap environment variables and their negative tests/documentation are removed.
 - [ ] Production startup has no test-factory/emit/migration-directory override bag; deterministic coordinator tests use a separate test seam.

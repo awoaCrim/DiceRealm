@@ -169,10 +169,42 @@ Replace lifecycle-state matrices with observable product tests:
 - corrupt one-campaign ciphertext does not block startup or another campaign;
 - all fixtures use in-memory or temporary directories, never repository-root `dnd.sqlite`.
 
-## 11. Risks and rollback
+## 11. Development lifecycle on Windows
+
+The current repository-root process tree is unsafe for a lock-owning child on Windows:
+
+```text
+concurrently SIGINT
+  -> tree-kill
+  -> taskkill /T /F
+  -> Server dies before async close
+  -> .dnd-instance.lock remains
+```
+
+`ChildProcess.kill('SIGINT')` is not a graceful fallback on Windows, and `tsx watch` can create the same problem when it kills/restarts the backend child. Replace this tree with one repository-owned coordinator executed directly in a single Node process:
+
+```text
+node --import tsx scripts/dev.ts
+  -> load server/.env explicitly
+  -> register SIGINT/SIGTERM before startup
+  -> startPlatformServer(...)
+  -> create/start ViteDevServer programmatically
+  -> on shutdown: stop Vite intake -> close Platform Server -> exit
+```
+
+The coordinator owns both runtime handles and awaits both close paths. Backend startup must complete before Vite is exposed, preserving the current readiness intent without a polling child command. If a signal arrives during startup, the coordinator waits for the current startup step to settle and closes every resource that was created. Repeated signals do not start a second cleanup chain.
+
+The root development command must not depend on `concurrently`, `tree-kill`, workspace npm wrappers, or `tsx watch` for the lock owner's lifetime. The direct Server development command likewise runs without a force-killing watch supervisor. Vite continues to provide frontend HMR; backend edits use an orderly stop/start unless a future watcher introduces an explicit application-level shutdown handshake.
+
+This change does not weaken InstanceLock. Existing well-formed, corrupt, or foreign lock files remain fail closed under the lock policy; normal Ctrl+C correctness comes from allowing the owning process to execute `release()` rather than deleting its file externally.
+
+Tests use injected backend/Vite starters and captured signal handlers to prove startup, partial-start cleanup, close ordering, idempotency, and immediate restart against a temporary data directory. Windows validation must also exercise actual console Ctrl+C; `ChildProcess.kill('SIGINT')` is explicitly not an equivalent smoke test.
+
+## 12. Risks and rollback
 
 - Squashing requires a complete schema inventory; compare fresh baseline objects/columns/indexes/FKs/triggers against the intended final domain schema and run every repository test.
 - Version 0 must be rejected before automatic migration to avoid mutating unsupported files.
 - The single rotating automatic backup must use SQLite's backup facility while holding InstanceLock, not copy an active main file.
 - Removing persisted audit/lifecycle code must remove real dependencies rather than leave no-op compatibility adapters.
+- Replacing the dev process manager must preserve Vite proxy/HMR behavior and explicitly load the Server environment before configuration is evaluated.
 - The reset boundary is approved, so implementation rollback uses temporary fixtures and source control, not a production conversion path.

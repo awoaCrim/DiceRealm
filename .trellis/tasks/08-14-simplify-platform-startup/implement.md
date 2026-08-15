@@ -25,23 +25,28 @@
 11. [ ] Change ordinary startup to reject missing/version-0/newer DBs, automatically back up/apply pending supported migrations, then compose/listen.
 12. [ ] Ensure the entire pending migration batch and final `user_version` update are one transaction; failure rolls back the batch, prevents listening, and leaves the pre-migration backup.
 13. [ ] Keep graceful HTTP/SSE/DB/lock shutdown order.
+14. [x] Add RED dev-lifecycle tests for signal-during-startup, ordinary shutdown, partial-start failure, idempotent repeated signals, lock removal, and immediate restart using temporary data directories.
+15. [x] Replace root `concurrently` orchestration with a repository-owned `node --import tsx` coordinator that explicitly loads `server/.env`, starts the Platform Server, then starts Vite programmatically.
+16. [x] Await Vite and Platform Server cleanup before dev-process exit; do not use `taskkill /F` or `ChildProcess.kill('SIGINT')` as the graceful path on Windows.
+17. [x] Remove `tsx watch` from the lock-owning Server development command unless an explicit application-level close handshake is implemented; preserve frontend Vite HMR and document orderly backend restart.
+18. [ ] Add a Windows console-Ctrl+C smoke procedure/check proving the real root command releases the lock and starts again immediately; do not substitute a programmatic child kill.
 
 ## Credential/provider isolation
 
-14. [ ] Remove startup fingerprint binding and decrypt-all checks.
-15. [ ] Allow non-AI startup when the credential key is missing/malformed without auto-replacing it.
-16. [ ] Make selected-campaign decryption failure return a safe provider-unavailable/configuration result.
-17. [ ] Allow explicit Owner provider save to atomically create a missing key and replace that campaign's invalid configuration.
-18. [ ] Verify unrelated campaigns and non-AI routes remain usable.
+19. [ ] Remove startup fingerprint binding and decrypt-all checks.
+20. [ ] Allow non-AI startup when the credential key is missing/malformed without auto-replacing it.
+21. [ ] Make selected-campaign decryption failure return a safe provider-unavailable/configuration result.
+22. [ ] Allow explicit Owner provider save to atomically create a missing key and replace that campaign's invalid configuration.
+23. [ ] Verify unrelated campaigns and non-AI routes remain usable.
 
 ## Remove unused lifecycle/audit persistence
 
-19. [ ] Remove `platform_instance`/maintenance/session-cutover persistence and callers obsolete after the realtime child.
-20. [ ] Remove persisted security-audit modules/tables/injection/tests because current-worktree review found no product read surface.
-21. [ ] Remove obsolete lifecycle/sentinel/manifest tests and helpers, including `superseded-foundations.test.ts`, `legacy-sentinel-startup.test.ts`, `migrationManifest.test.ts`, and `phase2StartupHelpers.ts` where no retained caller remains.
-22. [ ] Add root/server SQLite sidecars, local credential key, and instance lock patterns to `.gitignore` without deleting or rewriting the user's current local files.
-23. [ ] Remove historical Phase/Task comments and create concise root/local-deployment documentation for init, start, automatic upgrade, rebuild, and backup pairing.
-24. [ ] Keep deferred CSRF/strict-body seams intact; do not implement Tasks 8/9 here.
+24. [ ] Remove `platform_instance`/maintenance/session-cutover persistence and callers obsolete after the realtime child.
+25. [ ] Remove persisted security-audit modules/tables/injection/tests because current-worktree review found no product read surface.
+26. [ ] Remove obsolete lifecycle/sentinel/manifest tests and helpers, including `superseded-foundations.test.ts`, `legacy-sentinel-startup.test.ts`, `migrationManifest.test.ts`, and `phase2StartupHelpers.ts` where no retained caller remains.
+27. [ ] Add root/server SQLite sidecars, local credential key, and instance lock patterns to `.gitignore` without deleting or rewriting the user's current local files.
+28. [ ] Remove historical Phase/Task comments and create concise root/local-deployment documentation for init, start, automatic upgrade, rebuild, backup pairing, and the no-forced-kill development lifecycle.
+29. [ ] Keep deferred CSRF/strict-body seams intact; do not implement Tasks 8/9 here.
 
 ## Validation
 
@@ -49,6 +54,8 @@
 - [ ] Fresh baseline/schema inventory tests pass.
 - [ ] Automatic upgrade, SQLite backup, and failed-migration rollback tests pass.
 - [ ] Startup missing/version-0/newer/key/lock/shutdown tests pass.
+- [x] Dev coordinator unit/integration tests pass, including cleanup during startup and immediate restart against the same temporary data directory.
+- [ ] Windows repository-root `npm run dev` survives an actual console Ctrl+C with no stale lock; a second start reaches readiness immediately.
 - [ ] Credential/provider config isolation and recovery tests pass.
 - [ ] Identity, Campaign, Character, World, Turn, Combat, Archive, Rules, AI, Outbox, and SSE focused suites pass against the new baseline.
 - [ ] `env -u NODE_TLS_REJECT_UNAUTHORIZED npm test -- --maxWorkers=1` passes.

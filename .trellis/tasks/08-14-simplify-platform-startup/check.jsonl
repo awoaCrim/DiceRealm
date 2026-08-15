@@ -2,3 +2,4 @@
 {"file": ".trellis/tasks/08-14-local-first-architecture-simplification/research/decision-log.md", "reason": "Verify implementation matches approved product decisions"}
 {"file": ".trellis/tasks/08-14-local-first-architecture-simplification/research/current-worktree-audit.md", "reason": "Verify obsolete machinery removed and retained seams preserved"}
 {"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Check cross-layer startup/realtime/contract consistency"}
+{"file": ".trellis/tasks/08-14-simplify-platform-startup/research/windows-dev-shutdown-lock.md", "reason": "Verify Windows Ctrl+C fix without weakening lock ownership"}
