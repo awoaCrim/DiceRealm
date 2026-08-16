@@ -1,0 +1,5 @@
+{"file":".trellis/spec/server/backend/runtime-contract-state-safety.md","reason":"Preserves CampaignMutationCoordinator, StateRevision/CAS, validated StateChange and proposal/resolved boundaries while adding adjudication and roll persistence."}
+{"file":".trellis/spec/server/backend/ai-structured-output.md","reason":"Defines single-call structured output, bounded diagnostics and Provider contract rules that the new Intent and Narration contracts must extend without leaking raw output."}
+{"file":".trellis/spec/server/backend/turn-entry-projection.md","reason":"Keeps Player/Owner visibility projection and per-turn entry safety intact when NarrationOutput adds new entries."}
+{"file":".trellis/spec/server/backend/schema-reset-boundary.md","reason":"Constrains migration 016 and prevents ordinary startup from guessing or applying arbitrary pending schema changes."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"The task crosses contracts, provider workflow, database records, state revision, combat and Player/Owner projections; use its data-flow and boundary checklist."}

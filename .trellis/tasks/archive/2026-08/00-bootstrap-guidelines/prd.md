@@ -21,10 +21,14 @@ the rest conversationally.
 
 ## Status (update the checkboxes as you complete each item)
 
-- [ ] Fill guidelines for @dnd/contracts
-- [ ] Fill guidelines for server
-- [ ] Fill guidelines for client
-- [ ] Add code examples
+- [x] Fill guidelines for @dnd/contracts
+- [x] Fill guidelines for server
+- [x] Fill guidelines for client
+- [x] Add code examples
+
+## Completion notes
+
+The generic scaffold files were replaced with codebase-backed guidance for the contracts, server, and client packages. Each index now points to the actual guidelines and includes development/quality checks. Examples reference current files such as `SqliteDatabaseAdapter`, `createPlatformApp`, `platformRequest`, `useTurnView`, and `TurnEntries`.
 
 ---
 

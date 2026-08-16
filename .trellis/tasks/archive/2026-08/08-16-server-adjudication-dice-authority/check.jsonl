@@ -1,0 +1,5 @@
+{"file":".trellis/spec/server/backend/runtime-contract-state-safety.md","reason":"Check stale-result rejection, mutation atomicity, validated StateChange brands and StateRevision provenance across the new mechanical flow."}
+{"file":".trellis/spec/server/backend/ai-structured-output.md","reason":"Check Provider proposal validation, bounded diagnostics, single-call transport assumptions and no raw-output leakage."}
+{"file":".trellis/spec/server/backend/turn-entry-projection.md","reason":"Check NarrationOutput projection, Player/Owner visibility and no leakage of mechanical diagnostics or private context."}
+{"file":".trellis/spec/server/backend/schema-reset-boundary.md","reason":"Check migration 016 admission, fresh/temp fixture consistency and no unsafe ordinary-startup migration behavior."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check storage-to-service-to-provider-to-entry data flow, ownership boundaries, idempotency cursors and cross-layer consistency."}
