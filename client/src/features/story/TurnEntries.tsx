@@ -1,5 +1,5 @@
 import type { TurnEntry } from '@dnd/contracts';
-import { readSheetNumber, readSheetString } from '../../../shared/lib/safeSheet';
+import { readSheetNumber, readSheetString } from '../../shared/lib/safeSheet';
 
 const ENTRY_LABEL: Record<TurnEntry['entryKind'], string> = {
   narrative: '叙事',
@@ -7,10 +7,10 @@ const ENTRY_LABEL: Record<TurnEntry['entryKind'], string> = {
   dice_result: '骰子',
 };
 
-/** 投影后的 turn entries 渲染：只在契约允许的 payload shape 下显示文本。 */
+/** 共享的 turn entry 渲染器：Player/Owner 都只渲染已知且安全的 payload shape。 */
 export function TurnEntries({ entries }: { entries: TurnEntry[] }) {
   if (entries.length === 0) {
-    return <p>暂无剧情内容。</p>;
+    return <p>本回合尚未产生剧情。</p>;
   }
   return (
     <ul className="turn-entries">
@@ -31,16 +31,15 @@ function EntryBody({ entry }: { entry: TurnEntry }) {
     return text ? <p>{text}</p> : <p>（内容暂不可用）</p>;
   }
   if (entry.entryKind === 'private_update') {
-    // 服务端契约：payload 为 { text: content }（与 narrative 同形，见 AiResolutionService）。
     const content = readSheetString(asRecord(payload), 'text');
     return content ? <p>{content}</p> : <p>（内容暂不可用）</p>;
   }
   if (entry.entryKind === 'dice_result') {
     const record = asRecord(payload);
     const formula = readSheetString(record, 'formula');
-    const total = readSheetNumber(record, 'total');
+    const total = readSheetNumber(record, 'total', Number.NaN);
     const label = readSheetString(record, 'label');
-    if (!formula) {
+    if (!formula || !Number.isFinite(total)) {
       return <p>（骰子结果暂不可用）</p>;
     }
     return (

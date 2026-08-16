@@ -16,9 +16,6 @@ export function campaignCharactersKey(campaignId: string): string[] {
   return ['campaign', campaignId, 'characters'];
 }
 
-export function campaignRuleSourcesKey(campaignId: string): string[] {
-  return ['campaign', campaignId, 'rules', 'sources'];
-}
 
 export function campaignWorldKey(campaignId: string): string[] {
   return ['campaign', campaignId, 'world'];

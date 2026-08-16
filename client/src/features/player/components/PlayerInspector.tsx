@@ -1,7 +1,7 @@
 import { useRealtimeSnapshot } from '../../../app/realtime/RealtimeBoundary';
 import { useCampaignDetail } from '../../../entities/campaign/campaignQueries';
 import { useCharacterProjection } from '../../../entities/character/characterQueries';
-import { useTurnList } from '../../../entities/turn/turnQueries';
+import { currentTurnEntry, useTurnList } from '../../../entities/turn/turnQueries';
 import { abbreviateId } from '../../../shared/lib/abbreviate';
 import { readSheetNumber, readSheetString } from '../../../shared/lib/safeSheet';
 
@@ -18,7 +18,7 @@ export function PlayerInspector({ campaignId }: { campaignId: string }) {
     projection.data?.myRejected[0] ??
     projection.data?.myPending[0];
 
-  const latest = turnList.data && turnList.data.length > 0 ? turnList.data[turnList.data.length - 1] : undefined;
+  const latest = currentTurnEntry(turnList.data ?? []);
   const progress = latest?.progress;
 
   return (

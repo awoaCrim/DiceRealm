@@ -7,10 +7,10 @@ import { MigrationRunner } from '../../platform/database/migrations/MigrationRun
 import { SecurityAuditWriter } from './SecurityAuditWriter.js';
 import { AuditMetadataError, parseAuditEvent, type SecurityAuditEvent } from './SecurityAuditEvent.js';
 import { assertAuditMetadataSafe } from './securityAuditSentinel.js';
-import { createExistingDb001_011, copyMigrations, commitMigrationsDir, commitManifestPath, tempDir } from '../../tests/phase2StartupHelpers.js';
+import { createExistingDb001_010, copyMigrations, commitMigrationsDir, commitManifestPath, tempDir } from '../../tests/phase2StartupHelpers.js';
 import { runEnrollmentCommand } from '../../platform/ops/EnrollmentCoordinator.js';
 
-/** 把 013/014 单独应用到已存在 001-012 的 DB。 */
+/** 把 013/014 单独应用到已存在当前 Phase 1 基线的 DB。 */
 async function applySecureMigrations(db: ReturnType<typeof createSqliteDatabase>): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'dnd-audit-mig-'));
   try {
@@ -48,7 +48,7 @@ describe('014 append-only audit triggers', () => {
     const dir = tempDir('dnd-audit-additive-');
     try {
       const databasePath = join(dir, 'db.sqlite');
-      createExistingDb001_011(databasePath);
+      createExistingDb001_010(databasePath);
       const db = createSqliteDatabase(databasePath);
       try {
         // legacy raw session row（001 原始形状：id=raw token）。

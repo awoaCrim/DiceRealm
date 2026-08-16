@@ -70,7 +70,7 @@ describe('combat AI adapter', () => {
     const { db, adapter, ownerCtx } = await makeFixture();
     await expect(db.transaction((tx) => adapter.apply(tx, ownerCtx.campaignId, {
       kind: 'combat', targetId: 'enc-x',
-      patch: { command: 'start_encounter', name: 'x', combatants: [publicFighter] },
+      patch: { command: 'start_encounter', name: 'x', combatants: [publicFighter] } as never,
       visibility: 'public',
     }))).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
     await db.close();
@@ -114,11 +114,11 @@ describe('combat AI adapter', () => {
     const { db, combat, adapter, ownerCtx } = await makeFixture();
     const encounter = await combat.start(ownerCtx, { name: '坏命令', combatants: [publicFighter] });
     await expect(db.transaction((tx) => adapter.apply(tx, ownerCtx.campaignId, {
-      kind: 'combat', targetId: encounter.id, patch: { command: 'apply_magic' }, visibility: 'public',
+      kind: 'combat', targetId: encounter.id, patch: { command: 'apply_magic' } as never, visibility: 'public',
     }))).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
     await expect(db.transaction((tx) => adapter.apply(tx, ownerCtx.campaignId, {
       kind: 'combat', targetId: encounter.id,
-      patch: { command: 'apply_damage', actorCombatantId: 'a', targetCombatantId: 'b', amount: 3, surprise: true },
+      patch: { command: 'apply_damage', actorCombatantId: 'a', targetCombatantId: 'b', amount: 3, surprise: true } as never,
       visibility: 'public',
     }))).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
     await db.close();

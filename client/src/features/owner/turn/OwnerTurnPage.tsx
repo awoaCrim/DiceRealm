@@ -3,11 +3,12 @@ import { useParams } from 'react-router-dom';
 import type { TurnStatus } from '@dnd/contracts';
 import { useRealtimeSnapshot } from '../../../app/realtime/RealtimeBoundary';
 import { useResolveTurn } from '../../../entities/ai/aiQueries';
-import { useStartTurn, useTurnList, useTurnView } from '../../../entities/turn/turnQueries';
+import { currentTurnEntry, useStartTurn, useTurnList, useTurnView } from '../../../entities/turn/turnQueries';
 import { abbreviateId } from '../../../shared/lib/abbreviate';
 import { PlatformHttpError } from '../../../shared/api/platformHttp';
 import { AsyncState } from '../../../shared/ui/AsyncState';
 import { OwnerAiRunPanel } from './OwnerAiRunPanel';
+import { TurnStoryHistory } from '../../story/TurnStoryHistory';
 
 const TURN_STATUS_LABEL: Record<TurnStatus, string> = {
   waiting_for_actions: '等待行动',
@@ -29,7 +30,7 @@ export function OwnerTurnPage() {
   const { campaignId } = useParams();
   const cid = campaignId ?? '';
   const turnList = useTurnList(cid);
-  const latest = turnList.data && turnList.data.length > 0 ? turnList.data[turnList.data.length - 1] : undefined;
+  const latest = currentTurnEntry(turnList.data ?? []);
   const turn = latest?.turn;
   const progress = latest?.progress;
   const view = useTurnView(cid, turn?.id);
@@ -137,6 +138,7 @@ export function OwnerTurnPage() {
         {resolveError ? <p role="alert">{resolveError}</p> : null}
       </div>
       {turn ? <OwnerAiRunPanel campaignId={cid} turnId={turn.id} /> : null}
+      {turnList.data ? <TurnStoryHistory campaignId={cid} turns={turnList.data} audience="owner" /> : null}
       {snapshot?.interactionNoticeCount ? (
         <p role="status">有 {snapshot.interactionNoticeCount} 个待确认交互提示（当前版本暂不支持回答）。</p>
       ) : null}

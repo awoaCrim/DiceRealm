@@ -5,6 +5,7 @@ import { AppError } from '../../platform/http/AppError.js';
 import { requireOwner, type CampaignAuthContext } from '../campaigns/CampaignAccess.js';
 import { canRead } from '../visibility/VisibilityPolicy.js';
 import { WorldFactRepository, type WorldFactRow } from './WorldFactRepository.js';
+import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 
 /**
  * WorldFactService：owner 写世界事实、player 只读经 VisibilityPolicy 投影。
@@ -13,9 +14,11 @@ import { WorldFactRepository, type WorldFactRow } from './WorldFactRepository.js
  */
 export class WorldFactService {
   private readonly repository: WorldFactRepository;
+  private readonly mutations: CampaignMutationCoordinator;
 
-  constructor(private readonly executor: DatabasePort) {
+  constructor(private readonly executor: DatabasePort, mutations?: CampaignMutationCoordinator) {
     this.repository = new WorldFactRepository(executor);
+    this.mutations = mutations ?? new CampaignMutationCoordinator(executor);
   }
 
   async create(ctx: CampaignAuthContext, input: WorldFactInput): Promise<WorldFact> {
@@ -35,8 +38,17 @@ export class WorldFactService {
         created_at: now,
         updated_at: now,
       };
-      await repo.insert(row);
-      return mapFact(row);
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId: ctx.campaignId,
+        mutationId: `world-fact-create:${row.id}`,
+        causeType: 'world_fact_create',
+        causeId: row.id,
+      }, async () => {
+        await repo.insert(row);
+        return mapFact(row);
+      });
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', '世界事实创建结果读取失败。');
+      return execution.result;
     });
   }
 
@@ -51,31 +63,52 @@ export class WorldFactService {
       }
       const knownBy = await this.validateKnownBy(tx, ctx.campaignId, input);
       const now = new Date().toISOString();
-      const ok = await repo.updateContent(factId, ctx.campaignId, {
-        title: input.title, kind: input.kind, content: input.content,
-        visibility: input.visibility, known_by_json: JSON.stringify(knownBy), updated_at: now,
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId: ctx.campaignId,
+        mutationId: `world-fact-update:${nanoid(24)}`,
+        causeType: 'world_fact_update',
+        causeId: factId,
+      }, async () => {
+        const ok = await repo.updateContent(factId, ctx.campaignId, {
+          title: input.title, kind: input.kind, content: input.content,
+          visibility: input.visibility, known_by_json: JSON.stringify(knownBy), updated_at: now,
+        });
+        if (!ok) {
+          throw new AppError('NOT_FOUND', '世界事实不存在。');
+        }
+        return mapFact({
+          ...existing,
+          title: input.title,
+          kind: input.kind,
+          content: input.content,
+          visibility: input.visibility,
+          known_by_json: JSON.stringify(knownBy),
+          updated_at: now,
+        });
       });
-      if (!ok) {
-        throw new AppError('NOT_FOUND', '世界事实不存在。');
-      }
-      return mapFact({
-        ...existing,
-        title: input.title,
-        kind: input.kind,
-        content: input.content,
-        visibility: input.visibility,
-        known_by_json: JSON.stringify(knownBy),
-        updated_at: now,
-      });
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', '世界事实更新结果读取失败。');
+      return execution.result;
     });
   }
 
   async delete(ctx: CampaignAuthContext, factId: string): Promise<void> {
     requireOwner(ctx);
-    const ok = await this.repository.delete(factId, ctx.campaignId);
-    if (!ok) {
-      throw new AppError('NOT_FOUND', '世界事实不存在。');
-    }
+    await this.executor.transaction(async (tx) => {
+      const repo = new WorldFactRepository(tx);
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId: ctx.campaignId,
+        mutationId: `world-fact-delete:${nanoid(24)}`,
+        causeType: 'world_fact_delete',
+        causeId: factId,
+      }, async () => {
+        const ok = await repo.delete(factId, ctx.campaignId);
+        if (!ok) {
+          throw new AppError('NOT_FOUND', '世界事实不存在。');
+        }
+        return true;
+      });
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', '世界事实删除结果读取失败。');
+    });
   }
 
   async projectForCampaign(ctx: CampaignAuthContext): Promise<WorldFactProjection> {

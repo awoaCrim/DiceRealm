@@ -139,6 +139,35 @@ describe('archives', () => {
     await db.close();
   });
 
+  it('restoring the turn-1 archive supersedes turns 2-4 and exposes only turn 1 as active', async () => {
+    const { db, turns, archives, ownerCtx, aCtx, bCtx } = await makeFixture();
+    const t1 = await turns.startTurn(ownerCtx);
+    await turns.submitAction(aCtx, t1.id, { body: 'A1' });
+    await turns.submitAction(bCtx, t1.id, { body: 'B1' });
+    const turn1Archive = await archives.createManual(ownerCtx, '回合1');
+
+    // Advance to a fourth turn; leave turn 4 live to reproduce the stale-current-turn report.
+    await db.execute("UPDATE platform_turns SET status = 'completed', completed_at = ? WHERE id = ?", [new Date().toISOString(), t1.id]);
+    const t2 = await turns.startTurn(ownerCtx);
+    await db.execute("UPDATE platform_turns SET status = 'completed', completed_at = ? WHERE id = ?", [new Date().toISOString(), t2.id]);
+    const t3 = await turns.startTurn(ownerCtx);
+    await db.execute("UPDATE platform_turns SET status = 'completed', completed_at = ? WHERE id = ?", [new Date().toISOString(), t3.id]);
+    await turns.startTurn(ownerCtx);
+
+    await archives.restore(ownerCtx, turn1Archive.id);
+
+    const allTurns = await db.query<{ number: number; superseded_at: string | null }>(
+      'SELECT number, superseded_at FROM platform_turns WHERE campaign_id = ? ORDER BY number', [ownerCtx.campaignId],
+    );
+    expect(allTurns.map((row) => row.number)).toEqual([1, 2, 3, 4]);
+    expect(allTurns.filter((row) => row.superseded_at === null).map((row) => row.number)).toEqual([1]);
+    const active = await turns.listForCampaign(ownerCtx);
+    expect(active.map((entry) => entry.turn.number)).toEqual([1]);
+    expect(active.at(-1)?.turn.number).toBe(1);
+
+    await db.close();
+  });
+
   it('restores a completed automatic snapshot: supersedes later turns and creates the next turn with MAX+1 no reuse', async () => {
     const { db, characters, turns, archives, ownerCtx, aCtx, bCtx, cCtx } = await makeFixture();
     const t1 = await turns.startTurn(ownerCtx);
@@ -159,7 +188,14 @@ describe('archives', () => {
     const t3 = await turns.startTurn(ownerCtx);
     await db.execute("UPDATE platform_turns SET status = 'completed', completed_at = ? WHERE id = ?", [new Date().toISOString(), t3.id]);
     // 恢复 completed 自动存档：t2/t3 supersede，同 tx 创建新 waiting turn number=4（不复用）。
+    const beforeRevision = await db.query<{ revision: number }>(
+      'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [t1.campaignId],
+    );
     const restored = await archives.restore(ownerCtx, auto.id);
+    const afterRevision = await db.query<{ revision: number }>(
+      'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [t1.campaignId],
+    );
+    expect(Number(afterRevision[0].revision)).toBe(Number(beforeRevision[0].revision) + 1);
     expect(restored.restoredTurnId).toBeTruthy();
     const rows = await db.query<{ id: string; number: number; status: string; superseded_at: string | null }>(
       'SELECT id, number, status, superseded_at FROM platform_turns WHERE campaign_id = ? ORDER BY number',

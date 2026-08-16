@@ -6,6 +6,7 @@ import type { DatabasePort, QueryExecutor } from '../../platform/database/Databa
 import type { EventPublisherPort } from '../../platform/events/EventPublisherPort.js';
 import { AppError } from '../../platform/http/AppError.js';
 import { requireOwner, type CampaignAuthContext } from '../campaigns/CampaignAccess.js';
+import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 import { CharacterRepository } from '../characters/CharacterRepository.js';
 import { TurnRepository, type ActionRow, type TurnRow } from './TurnRepository.js';
 
@@ -18,18 +19,27 @@ import { TurnRepository, type ActionRow, type TurnRow } from './TurnRepository.j
  */
 export class TurnService {
   private readonly repository: TurnRepository;
+  private readonly mutations: CampaignMutationCoordinator;
 
   constructor(
     private readonly executor: DatabasePort,
     private readonly outbox: EventPublisherPort,
+    mutations?: CampaignMutationCoordinator,
   ) {
     this.repository = new TurnRepository(executor);
+    this.mutations = mutations ?? new CampaignMutationCoordinator(executor);
   }
 
   /** owner 开始新回合：campaign 行锁 → 无未终结回合 → distinct approved → MAX+1（锁内安全）→ insert turn+requirements。 */
   async startTurn(ctx: CampaignAuthContext): Promise<TurnSummary> {
     requireOwner(ctx);
+    const mutationId = `turn-start:${nanoid(24)}`;
     return this.executor.transaction(async (tx) => {
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId: ctx.campaignId,
+        mutationId,
+        causeType: 'turn_start',
+      }, async () => {
       // 1) no-op 写触碰 campaign 行；SQLite 写事务队列保证启动新回合串行执行。
       await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [ctx.campaignId]);
       const repo = new TurnRepository(tx);
@@ -57,6 +67,9 @@ export class TurnService {
         await repo.insertRequirement(turnId, ctx.campaignId, playerId);
       }
       return mapSummary((await repo.findTurnById(turnId)) as TurnRow);
+      });
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', '回合创建结果读取失败。');
+      return execution.result;
     });
   }
 
@@ -70,7 +83,14 @@ export class TurnService {
       throw new AppError('FORBIDDEN', '只有玩家可以提交行动。');
     }
     const playerId = ctx.playerId;
+    const mutationId = `turn-action:${nanoid(24)}`;
     return this.executor.transaction(async (tx) => {
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId: ctx.campaignId,
+        mutationId,
+        causeType: 'turn_action_submit',
+        causeId: turnId,
+      }, async () => {
       const repo = new TurnRepository(tx);
       // 1) 条件 no-op 更新 turn 行获得锁；未命中 → NOT_FOUND。
       const lockedRow = await repo.lockTurnRow(turnId, ctx.campaignId);
@@ -131,6 +151,9 @@ export class TurnService {
       }
       // 8) service 返回在 commit 后（transaction 提交后才 resolve）。
       return this.playerView(tx, turnId, playerId);
+      });
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', '行动提交结果读取失败。');
+      return execution.result;
     });
   }
 

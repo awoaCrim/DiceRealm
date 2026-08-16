@@ -55,7 +55,7 @@ describe('phase2TempFixture lifecycle', () => {
 });
 
 describe('approved migration set', () => {
-  it('freezes the Phase 1 baseline 001-014 set (013/014 added in Task 3)', () => {
+  it('freezes the current Phase migration set', () => {
     expect(APPROVED_MIGRATION_FILENAMES).toEqual([
       '001_initial_platform.sql',
       '002_campaign_invites.sql',
@@ -67,10 +67,10 @@ describe('approved migration set', () => {
       '008_ai_runtime.sql',
       '009_combat.sql',
       '010_ai_provider_credentials.sql',
-      '011_rule_sources.sql',
       '012_platform_foundation.sql',
       '013_secure_sessions.sql',
       '014_security_audit.sql',
+      '015_campaign_state_revision.sql',
     ]);
   });
 });

@@ -8,7 +8,7 @@
 -- non-null, and authority is always the secure columns.
 --
 -- `ALTER TABLE ... ADD COLUMN` is used instead of table rebuild so existing
--- 001-011 databases keep their rows untouched.
+-- Existing baseline databases keep their rows untouched.
 
 ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'disabled'));
 ALTER TABLE users ADD COLUMN auth_revision INTEGER NOT NULL DEFAULT 0 CHECK (auth_revision >= 0);

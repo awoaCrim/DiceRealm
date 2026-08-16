@@ -51,7 +51,7 @@ describe('state change materializer', () => {
     const { db, ownerCtx, approved } = await makeFixture();
     const m = new StateChangeMaterializer(db);
     await expect(db.transaction((tx) => m.applyAll(tx, approved.campaignId, [
-      { kind: 'character', targetId: approved.id, patch: { sheet: { admin: true } }, visibility: 'public' },
+      { kind: 'character', targetId: approved.id, patch: { sheet: { admin: true } } as never, visibility: 'public' },
     ], ownerCtx.userId))).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
     await db.close();
   });

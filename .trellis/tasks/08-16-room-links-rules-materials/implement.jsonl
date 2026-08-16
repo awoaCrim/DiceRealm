@@ -1,0 +1,4 @@
+{"file":".trellis/spec/server/backend/schema-reset-boundary.md","reason":"Defines the maintained schema and the narrow, backed-up compatibility migration for the removed rule-source table."}
+{"file":".trellis/spec/server/backend/database-guidelines.md","reason":"Backend database layer context; the migration must use the existing SQLite transaction and adapter conventions."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"The migration crosses startup, SQLite persistence, credential backup, and application composition boundaries."}
+{"file":".trellis/tasks/08-16-room-links-rules-materials/research/default-rule-removal-migration.md","reason":"Records the user-approved change from rebuild-only handling to exact legacy admission with backup and atomic removal."}

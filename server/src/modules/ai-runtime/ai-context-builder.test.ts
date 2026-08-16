@@ -78,6 +78,52 @@ describe('ai context builder', () => {
     await db.close();
   });
 
+  it('filters GM-only and other actors private facts from an actor context with denial trace', async () => {
+    const db = createSqliteDatabase(':memory:');
+    await db.migrate();
+    const identity = new IdentityService(db);
+    const campaigns = new CampaignService(db);
+    const characters = new CharacterService(db);
+    const worldFacts = new WorldFactService(db);
+    const owner = await identity.register({ login: 'actor-filter-owner@example.test', password: 'correct-password' });
+    const a = await identity.register({ login: 'actor-filter-a@example.test', password: 'correct-password' });
+    const b = await identity.register({ login: 'actor-filter-b@example.test', password: 'correct-password' });
+    const created = await campaigns.create(owner.userId, { name: '秘密矿坑', ruleset: 'dnd5e' });
+    await campaigns.join({ userId: a.userId }, created.campaign.id, created.inviteCode);
+    await campaigns.join({ userId: b.userId }, created.campaign.id, created.inviteCode);
+    const ownerCtx = await resolveCampaignContext(db, { userId: owner.userId }, created.campaign.id);
+    const aCtx = await resolveCampaignContext(db, { userId: a.userId }, created.campaign.id);
+    const bCtx = await resolveCampaignContext(db, { userId: b.userId }, created.campaign.id);
+    const draft = await characters.createDraft(aCtx, { name: '调查员', sheet: { ac: 12 } });
+    await characters.submitForReview(aCtx, draft.id);
+    await characters.approve(ownerCtx, draft.id);
+    await worldFacts.create(ownerCtx, {
+      title: 'NPC 真相', kind: 'npc', content: 'NPC 是叛徒。', visibility: 'owner_only',
+    });
+    await worldFacts.create(ownerCtx, {
+      title: 'A 的认知', kind: 'lore', content: '你相信 NPC。', visibility: 'player_private', knownBy: [aCtx.playerId as string],
+    });
+    await worldFacts.create(ownerCtx, {
+      title: 'B 的认知', kind: 'lore', content: 'B 知道另一件事。', visibility: 'player_private', knownBy: [bCtx.playerId as string],
+    });
+    const turn = await new TurnService(db, new OutboxRepository(db)).startTurn(ownerCtx);
+    const pkg = await new AiContextBuilder(db).buildForTurn(created.campaign.id, turn.id, db, {
+      audience: 'actor_private', actorId: aCtx.playerId as string, actionId: 'actor-action-1',
+    });
+    const promptText = pkg.prompt.messages.map((message) => message.content).join('\\n');
+    expect(promptText).toContain('你相信 NPC');
+    expect(pkg.blocks.find((block) => block.content.includes('你相信 NPC'))?.audienceActorIds).toEqual([aCtx.playerId]);
+    expect(promptText).not.toContain('NPC 是叛徒');
+    expect(promptText).not.toContain('B 知道另一件事');
+    expect(pkg.trace.entries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ sourceRef: expect.stringMatching(/^world-fact:/), included: false, reason: 'visibility_denied' }),
+    ]));
+    const deniedSecret = pkg.trace.entries.find((entry) => entry.sourceRef.startsWith('world-fact:') && entry.included === false);
+    expect(deniedSecret?.reason).toBe('visibility_denied');
+    expect(pkg.trace.actionId).toBe('actor-action-1');
+    await db.close();
+  });
+
   it('includes an owner projection of active combat in the context', async () => {
     const db = createSqliteDatabase(':memory:');
     await db.migrate();

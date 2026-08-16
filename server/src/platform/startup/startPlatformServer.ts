@@ -3,6 +3,7 @@ import type { Server as HttpServer } from 'node:http';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AppConfig } from '../../config.js';
+import { migrateLegacyRuleSourcesDatabase } from '../../platform/database/legacyRuleSourcesMigration.js';
 import type { DatabasePort } from '../../platform/database/DatabasePort.js';
 import { createSqliteDatabase } from '../../platform/database/SqliteDatabaseAdapter.js';
 import { acquireInstanceLock, type InstanceLock } from '../../platform/ops/InstanceLock.js';
@@ -95,6 +96,7 @@ export async function defaultListen(app: express.Express, port: number, host: st
  *   → acquire InstanceLock（在 new Database 之前）
  *   → verify current runtime migration directory manifest
  *   → open one SqliteDatabaseAdapter（不执行 migrate）
+ *   → narrow legacy 011 compatibility bridge（backup, then atomic removal）
  *   → startup security gate（applied set / enrollment ready / key fingerprint / decrypt-all / session security ready）
  *   → create env fallback provider
  *   → createPlatformApp({ database, ... })
@@ -181,8 +183,19 @@ export async function startPlatformServer(options: StartPlatformServerOptions): 
     database = createDatabase(config.databasePath);
     emit('database.open');
 
-    // Phase 2：普通 startup 不执行 pending migration；由安全门按状态分流。
-    // approved 集合必须是 literal frozen 001-014（PHASE2_APPROVED_MIGRATION_FILENAMES），
+    // Compatibility bridge for databases created before rule-material removal.
+    // It runs before the security gate and before app/listener creation.
+    const legacyMigration = await migrateLegacyRuleSourcesDatabase({
+      databasePath: config.databasePath,
+      credentialKeyPath,
+      approvedMigrationFilenames: PHASE2_APPROVED_MIGRATION_FILENAMES,
+    });
+    if (legacyMigration.migrated) {
+      emit('legacy-rule-sources.migrate');
+    }
+
+    // Phase 2：普通 startup 不执行一般 pending migration；前面的 bridge 只处理已删除规则资料的精确 legacy 状态，之后仍由安全门按状态分流。
+    // approved 集合必须是 literal frozen 当前维护集合（PHASE2_APPROVED_MIGRATION_FILENAMES），
     // 不得从 manifest 派生——未来 manifest 新增 015+ 不得静默扩展 ordinary-startup 验收。
     const gate = await runStartupSecurityGate({
       db: database,

@@ -64,7 +64,7 @@ export function applyMigrationsToFileDb(databasePath: string, versions: string[]
   }
 }
 
-/** 创建精确 001-011（无 012、无 enrollment）的 existing DB。 */
-export function createExistingDb001_011(databasePath: string): void {
-  applyMigrationsToFileDb(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011']);
+/** 创建精确当前 Phase 1 基线（无 012、无 enrollment）的 existing DB。 */
+export function createExistingDb001_010(databasePath: string): void {
+  applyMigrationsToFileDb(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010']);
 }

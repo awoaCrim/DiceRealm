@@ -156,18 +156,6 @@ export async function runPhase4BrowserScenarios(
     await owner.getByRole('heading', { name: '回合与 AI 运行' }).waitFor();
     await owner.getByText('DND AI-DM · Owner').waitFor();
     await owner.getByText('烛堡之门').waitFor();
-    await clickNav(owner, ownerNav(owner), '规则资料');
-    await owner.getByRole('heading', { name: '规则资料', exact: true }).waitFor();
-    await owner.getByText('暂无规则来源').waitFor();
-    await owner.getByLabel('来源名称').fill('烛堡主持人规则');
-    await owner.getByLabel('版本').fill('1');
-    await owner.getByLabel('许可证').fill('Owner-created');
-    await owner.getByLabel('署名').fill('owner1');
-    await owner.getByLabel('SHA-256 内容哈希').fill('ab'.repeat(32));
-    await owner.getByRole('button', { name: '登记来源' }).click();
-    await owner.getByText('规则来源已登记。').waitFor();
-    await owner.getByText('烛堡主持人规则').waitFor();
-    equal(await owner.getByLabel('规则正文').count(), 0, '规则资料页不得接收规则正文');
     await clickNav(owner, ownerNav(owner), 'AI 接口');
     await owner.getByRole('heading', { name: 'AI 接口', exact: true }).waitFor();
     await owner.getByText('未配置，AI 结算会安全失败').waitFor();

@@ -207,12 +207,45 @@ describe('剧情页', () => {
       { id: 'e2', aiRunId: 'r1', turnId: 't1', campaignId: 'c1', entryKind: 'private_update', entryIndex: 1, visibility: 'player_private', targetPlayerId: 'u-2', payload: { text: '只有你知道的秘密。' }, createdAt: '2026-08-03T00:00:00.000Z' },
       { id: 'e3', aiRunId: 'r1', turnId: 't1', campaignId: 'c1', entryKind: 'dice_result', entryIndex: 2, visibility: 'public', targetPlayerId: null, payload: { formula: '1d20', total: 15, label: '侦查' }, createdAt: '2026-08-03T00:00:00.000Z' },
       { id: 'e4', aiRunId: 'r1', turnId: 't1', campaignId: 'c1', entryKind: 'narrative', entryIndex: 3, visibility: 'public', targetPlayerId: null, payload: { evil: true }, createdAt: '2026-08-03T00:00:00.000Z' },
+      { id: 'e5', aiRunId: 'r1', turnId: 't1', campaignId: 'c1', entryKind: 'dice_result', entryIndex: 4, visibility: 'public', targetPlayerId: null, payload: { formula: '1d20' }, createdAt: '2026-08-03T00:00:01.000Z' },
     ]);
     renderAt(['/campaigns/c1/player/story'], seedPlayer);
     expect(await screen.findByText('你们进入密道。')).toBeInTheDocument();
     expect(screen.getByText('只有你知道的秘密。')).toBeInTheDocument();
     expect(screen.getByText('侦查：1d20 = 15')).toBeInTheDocument();
     expect(screen.getAllByText('（内容暂不可用）').length).toBeGreaterThan(0);
+    expect(screen.getByText('（骰子结果暂不可用）')).toBeInTheDocument();
+    expect(screen.queryByText('1d20 = 0')).not.toBeInTheDocument();
+  });
+
+  it('新回合出现后仍可展开查看上一回合剧情', async () => {
+    const firstTurn = { ...turnSummary, status: 'completed' as const, completedAt: '2026-08-03T00:10:00.000Z' };
+    const secondTurn = {
+      ...turnSummary,
+      id: 't2',
+      number: 2,
+      status: 'waiting_for_actions' as const,
+      createdAt: '2026-08-03T00:20:00.000Z',
+      updatedAt: '2026-08-03T00:20:00.000Z',
+    };
+    vi.mocked(turnApi.list).mockResolvedValue([
+      { turn: firstTurn, progress: { ...progressFixture, locked: true } },
+      { turn: secondTurn, progress: progressFixture },
+    ]);
+    vi.mocked(aiApi.listEntries).mockImplementation(async (_campaignId, turnId) => turnId === 't1'
+      ? [{
+          id: 'history-entry', aiRunId: 'r1', turnId: 't1', campaignId: 'c1', entryKind: 'narrative',
+          entryIndex: 0, visibility: 'public', targetPlayerId: null, payload: { text: '上一回合的剧情仍在。' },
+          createdAt: '2026-08-03T00:10:00.000Z',
+        }]
+      : []);
+
+    renderAt(['/campaigns/c1/player/story'], seedPlayer);
+    expect(await screen.findByText('本回合尚未产生剧情。')).toBeInTheDocument();
+    const historyButton = screen.getByRole('button', { name: /第 1 回合/ });
+    await userEvent.setup().click(historyButton);
+    expect(await screen.findByText('上一回合的剧情仍在。')).toBeInTheDocument();
+    expect(aiApi.listEntries).toHaveBeenCalledWith('c1', 't1');
   });
 
   it('SSE preview 缓冲与 failed 清理', async () => {

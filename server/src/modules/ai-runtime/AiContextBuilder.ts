@@ -1,4 +1,4 @@
-import type { AiPrompt } from '@dnd/contracts';
+import type { AiPrompt, Authority, ContextBlock, ContextTrace, ContextVisibility } from '@dnd/contracts';
 import type { QueryExecutor } from '../../platform/database/DatabasePort.js';
 import { CharacterRepository } from '../characters/CharacterRepository.js';
 import { TurnRepository } from '../turns/TurnRepository.js';
@@ -33,25 +33,97 @@ const SYSTEM_INSTRUCTIONS = [
   TURN_RESOLUTION_OUTPUT_INSTRUCTIONS,
 ].join('\n');
 
+export interface AiContextBuildOptions {
+  /** Context audience is independent from persisted turn-entry Visibility. */
+  audience?: ContextVisibility;
+  /** Required when constructing an actor-specific context. */
+  actorId?: string;
+  /** Stable logical action identity; current turn is the Phase 1 aggregate. */
+  actionId?: string;
+}
+
 export interface AiContextPackage {
   prompt: AiPrompt;
   /** 结构化 owner-safe context，由 claim 写入 context_json（与 prompt 一起）供 owner 调试；不含敏感字段。 */
   context: Record<string, unknown>;
+  blocks: ContextBlock[];
+  trace: ContextTrace;
+}
+
+/**
+ * Deterministic context filtering. Permission is evaluated before rendering;
+ * a denied block can therefore never reach Provider messages.
+ */
+export function filterContextBlocks(
+  blocks: readonly ContextBlock[],
+  audience: ContextVisibility,
+  actionId: string,
+  actorId?: string,
+  actorPrivateSourceRefs?: ReadonlySet<string>,
+): { blocks: ContextBlock[]; trace: ContextTrace } {
+  const included: ContextBlock[] = [];
+  const entries = [] as ContextTrace['entries'];
+  for (const block of blocks) {
+    const allowed = isAudienceAllowed(block.visibility, audience)
+      && (block.visibility !== 'actor_private'
+        || audience === 'gm_only'
+        || Boolean(actorId && (block.audienceActorIds?.includes(actorId) || actorPrivateSourceRefs?.has(block.sourceRefs[0]))));
+    included.push(...(allowed ? [block] : []));
+    for (const sourceRef of block.sourceRefs) {
+      entries.push({
+        actionId,
+        blockId: block.id,
+        sourceRef,
+        included: allowed,
+        reason: allowed ? (block.priority === 'P0' ? 'required' : 'scope_match') : 'visibility_denied',
+        estimatedTokens: block.estimatedTokens,
+      });
+    }
+  }
+  return { blocks: included, trace: { actionId, entries } };
+}
+
+/** Pure renderer: it does not perform permission checks or read the database. */
+export function renderContextBlocks(
+  campaignId: string,
+  characters: Array<{ id: string; playerId: string; name: string }>,
+  blocks: readonly ContextBlock[],
+): AiPrompt {
+  const system = blocks.find((block) => block.type === 'system_policy');
+  const userBlocks = blocks.filter((block) => block.type !== 'system_policy');
+  return {
+    campaignId,
+    audience: 'owner_only',
+    characters,
+    messages: [
+      // If the system policy is denied for an actor-scoped context, keep the
+      // required single system message empty instead of injecting untraced
+      // policy text that was absent from ContextTrace.
+      { role: 'system', content: system?.content ?? '' },
+      { role: 'user', content: userBlocks.map((block) => block.content).join('\n') },
+    ],
+  };
 }
 
 export class AiContextBuilder {
   constructor(private readonly executor: QueryExecutor) {}
 
   /** claim tx 内调用时传入 tx，保证 context 快照与 claim 写入使用同一事务执行器。 */
-  async buildForTurn(campaignId: string, turnId: string, executor: QueryExecutor = this.executor): Promise<AiContextPackage> {
+  async buildForTurn(
+    campaignId: string,
+    turnId: string,
+    executor: QueryExecutor = this.executor,
+    options: AiContextBuildOptions = {},
+  ): Promise<AiContextPackage> {
     const campaign = (await executor.query<{ id: string; name: string; ruleset: string; status: string }>(
       'SELECT id, name, ruleset, status FROM campaigns WHERE id = ?', [campaignId],
     ))[0];
+    if (!campaign) throw new Error('campaign not found');
     const turns = new TurnRepository(executor);
     const characters = new CharacterRepository(executor);
     const facts = new WorldFactRepository(executor);
-
-    const turn = (await turns.findTurnById(turnId))!;
+    const turn = (await turns.findTurnById(turnId));
+    if (!turn) throw new Error('turn not found');
     const actions = await turns.listActionsByTurn(turnId);
     const approved = (await characters.listByCampaign(campaignId))
       .filter((row) => row.status === 'approved')
@@ -60,7 +132,7 @@ export class AiContextBuilder {
         sheet: JSON.parse(row.sheet_json) as Record<string, unknown>,
         derived: JSON.parse(row.derived_json) as Record<string, unknown>,
       }));
-    const activeFacts = (await facts.listByCampaign(campaignId)).map((row) => ({
+    const allFacts = (await facts.listByCampaign(campaignId)).map((row) => ({
       id: row.id, title: row.title, kind: row.kind, content: row.content,
       visibility: row.visibility, knownBy: JSON.parse(row.known_by_json) as string[],
     }));
@@ -86,44 +158,149 @@ export class AiContextBuilder {
       };
     }));
 
+    const audience = options.audience ?? 'gm_only';
+    const actionId = options.actionId ?? turnId;
+    const sourceBlocks: ContextBlock[] = [
+      makeBlock('system-policy', 'system_policy', SYSTEM_INSTRUCTIONS, ['system:runtime-contract'], 'system', 'server_only', 'P0'),
+      makeBlock('ruleset-policy', 'ruleset_policy', `规则集身份：${campaign.ruleset}`, [`ruleset:${safeRefPart(campaign.ruleset)}`], 'ruleset', 'campaign', 'P0'),
+      makeBlock('campaign-runtime', 'campaign_runtime', `战役：${campaign.name}（规则集 ${campaign.ruleset}）\n战役状态：${campaign.status}`, [`campaign:${campaignId}`], 'campaign', 'campaign', 'P0'),
+      makeBlock('turn-runtime', 'scene_state', `当前回合 #${turn.number}，已锁定。`, [`turn:${turnId}`], 'scene', 'party', 'P0'),
+      ...actions.map((action) => makeBlock(
+        `recent-action-${action.id}`,
+        'recent_action',
+        `玩家行动：\n- ${action.player_id}: ${action.body}`,
+        [`action:${action.id}`],
+        'actor',
+        'actor_private',
+        'P0',
+        [action.player_id],
+      )),
+      makeBlock(
+        'approved-character-roster',
+        'actor_state',
+        ['已批准角色：', ...approved.map((c) => `- ${c.name} (${c.playerId})`)].join('\n'),
+        approved.length > 0 ? approved.map((c) => `character:${c.id}`) : [`campaign:${campaignId}`],
+        'actor',
+        'party',
+        'P0',
+      ),
+      ...approved.map((character) => makeBlock(
+        `approved-character-${character.id}`,
+        'actor_state',
+        `角色状态：\n- ${character.name} (${character.playerId}): ${JSON.stringify(character.sheet)}`,
+        [`character:${character.id}`],
+        'actor',
+        'actor_private',
+        'P1',
+        [character.playerId],
+      )),
+      ...allFacts.map((fact) => makeBlock(
+        `world-fact-${fact.id}`,
+        fact.visibility === 'player_private' ? 'actor_knowledge' : 'scene_state',
+        `活跃世界事实：\n- [${fact.visibility}] ${fact.title}: ${fact.content}`,
+        [`world-fact:${fact.id}`],
+        fact.visibility === 'owner_only' ? 'gm' : 'world',
+        fact.visibility === 'owner_only' ? 'gm_only' : fact.visibility === 'player_private' ? 'actor_private' : 'public',
+        fact.visibility === 'owner_only' ? 'P1' : 'P2',
+        fact.visibility === 'player_private' ? fact.knownBy : undefined,
+      )),
+      ...combat.map((encounter) => makeBlock(
+        `encounter-${encounter.id}`,
+        'scene_state',
+        `当前战斗（owner 视角）：\n- ${encounter.name} [${encounter.status}] 回合${encounter.round} 行动者${encounter.activeCombatantId ?? '无'}: ${encounter.combatants.map((c) => `${c.name}(${c.hpCurrent}/${c.hpMax} hp, ${c.initiative ?? '未掷先攻'})`).join(', ')}`,
+        [`encounter:${encounter.id}`], 'scene', 'gm_only', 'P1',
+      )),
+      makeBlock('resolution-contract', 'resolution_contract', [
+        '请严格按照 system 消息中的完整 JSON 模板输出结构化结算。',
+        '可选世界创建 worldFactCreations：每条 { title, kind, content, visibility, knownBy }；player_private 必须给出 knownBy 为上面已批准角色里的真实成员 playerId，public/owner_only 留空。',
+        '可选战斗发起 encounterStarts：每条 { name, combatants, rollInitiative }；combatants 每项 { name, characterId, initiativeBonus, hpCurrent, hpMax, ac, conditions, visibility, targetPlayerId }；characterId 只能引用上面已批准角色列表中的 id（非玩家 NPC 为 null）；player_private 战斗员必须给出 targetPlayerId 为真实成员 playerId，public/owner_only 为 null。',
+        '所有新创建的事实/遭遇/战斗员 id 都由服务端生成：不要在输出里写任何 id；同一份结算内不得引用你刚创建的事实/遭遇/战斗员 id（stateChanges 只能指向已有的稳定 id）。',
+        '骰子（先攻/攻击/豁免/伤害）由服务端权威掷出：AI 发起遭遇时 rollInitiative 默认 true，服务端会在结算事务内掷先攻并排定行动顺序，不要输出战斗员 initiative 值。',
+      ].join('\n'), ['system:resolution-contract'], 'system', 'server_only', 'P0'),
+    ];
+    const actorPrivateRefs = new Set(
+      allFacts.filter((fact) => options.actorId && fact.knownBy.includes(options.actorId))
+        .map((fact) => `world-fact:${fact.id}`),
+    );
+    const filtered = filterContextBlocks(sourceBlocks, audience, actionId, options.actorId, actorPrivateRefs);
+    const visibleFacts = allFacts.filter((fact) => {
+      const visibility = persistedToContextVisibility(fact.visibility);
+      const actorScopedAllowed = visibility !== 'actor_private'
+        || audience === 'gm_only'
+        || Boolean(options.actorId && fact.knownBy.includes(options.actorId));
+      return isAudienceAllowed(visibility, audience) && actorScopedAllowed;
+    });
+    // Keep the long-standing owner-safe context shape for existing Owner tooling,
+    // while adding structured blocks/trace as a separate boundary.
+    const visibleActions = audience === 'gm_only'
+      ? actions
+      : actions.filter((action) => Boolean(options.actorId && action.player_id === options.actorId));
+    const visibleCharacters = audience === 'gm_only'
+      ? approved
+      : approved.filter((character) => Boolean(options.actorId && character.playerId === options.actorId));
     const context = {
       campaignId,
       ruleset: campaign.ruleset,
       campaignStatus: campaign.status,
       turn: { id: turn.id, number: turn.number, status: turn.status },
-      actions: actions.map((a) => ({ playerId: a.player_id, body: a.body })),
-      characters: approved,
-      worldFacts: activeFacts,
+      actions: visibleActions.map((a) => ({ playerId: a.player_id, body: a.body })),
+      characters: visibleCharacters,
+      worldFacts: visibleFacts,
       combat,
+      blocks: filtered.blocks,
+      trace: filtered.trace,
     };
-
-    const userContent = [
-      `战役：${campaign.name}（规则集 ${campaign.ruleset}）`,
-      `当前回合 #${turn.number}，已锁定。玩家行动：`,
-      ...actions.map((a) => `- ${a.player_id}: ${a.body}`),
-      // 人读文本里的 playerId 用于叙事可读性，不是 provider 取 id 的来源；
-      // provider/测试脚本一律读结构化 prompt.characters（见 Task 2 决策，杜绝文本解析脆弱性）。
-      '已批准角色状态：',
-      ...approved.map((c) => `- ${c.name} (${c.playerId}): ${JSON.stringify(c.sheet)}`),
-      '活跃世界事实：',
-      ...activeFacts.map((f) => `- [${f.visibility}] ${f.title}: ${f.content}`),
-      '当前战斗（owner 视角）：',
-      ...combat.map((e) => `- ${e.name} [${e.status}] 回合${e.round} 行动者${e.activeCombatantId ?? '无'}: ${e.combatants.map((c) => `${c.name}(${c.hpCurrent}/${c.hpMax} hp, ${c.initiative ?? '未掷先攻'})`).join(', ')}`),
-      '请严格按照 system 消息中的完整 JSON 模板输出结构化结算。',
-      '可选世界创建 worldFactCreations：每条 { title, kind, content, visibility, knownBy }；player_private 必须给出 knownBy 为上面已批准角色里的真实成员 playerId，public/owner_only 留空。',
-      '可选战斗发起 encounterStarts：每条 { name, combatants, rollInitiative }；combatants 每项 { name, characterId, initiativeBonus, hpCurrent, hpMax, ac, conditions, visibility, targetPlayerId }；characterId 只能引用上面已批准角色列表中的 id（非玩家 NPC 为 null）；player_private 战斗员必须给出 targetPlayerId 为真实成员 playerId，public/owner_only 为 null。',
-      '所有新创建的事实/遭遇/战斗员 id 都由服务端生成：不要在输出里写任何 id；同一份结算内不得引用你刚创建的事实/遭遇/战斗员 id（stateChanges 只能指向已有的稳定 id）。',
-      '骰子（先攻/攻击/豁免/伤害）由服务端权威掷出：AI 发起遭遇时 rollInitiative 默认 true，服务端会在结算事务内掷先攻并排定行动顺序，不要输出战斗员 initiative 值。',
-    ].join('\n');
-
-    const prompt: AiPrompt = {
-      campaignId,
-      audience: 'owner_only',
-      // 结构化成员表（id/playerId/name）：provider 与测试脚本直接读 prompt.characters，不解析人类 prompt 字符串。
-      characters: approved.map((c) => ({ id: c.id, playerId: c.playerId, name: c.name })),
-      // system 指令以唯一一条 role=system message 发送并持久化，避免 context_json 双份保存。
-      messages: [{ role: 'system', content: SYSTEM_INSTRUCTIONS }, { role: 'user', content: userContent }],
-    };
-    return { prompt, context };
+    const prompt = renderContextBlocks(campaignId, approved.map((c) => ({ id: c.id, playerId: c.playerId, name: c.name })), filtered.blocks);
+    return { prompt, context, blocks: filtered.blocks, trace: filtered.trace };
   }
 }
+
+function makeBlock(
+  id: string,
+  type: ContextBlock['type'],
+  content: string,
+  sourceRefs: string[],
+  authority: Authority,
+  visibility: ContextVisibility,
+  priority: ContextBlock['priority'],
+  audienceActorIds?: string[],
+): ContextBlock {
+  return {
+    id, type, content, sourceRefs, authority, visibility, priority,
+    ...(audienceActorIds && audienceActorIds.length > 0 ? { audienceActorIds: [...new Set(audienceActorIds)] } : {}),
+    estimatedTokens: estimateTokens(content),
+  };
+}
+
+function estimateTokens(content: string): number {
+  // Conservative bounded approximation; no provider/tokenizer dependency in Phase 1.
+  return Math.min(100000, Math.max(1, Math.ceil(content.length / 4)));
+}
+
+function safeRefPart(value: string): string {
+  return value.replace(/[^A-Za-z0-9._:-]/g, '_').slice(0, 120) || 'unknown';
+}
+
+function persistedToContextVisibility(visibility: 'public' | 'player_private' | 'owner_only'): ContextVisibility {
+  if (visibility === 'owner_only') return 'gm_only';
+  if (visibility === 'player_private') return 'actor_private';
+  return 'public';
+}
+
+function isAudienceAllowed(blockVisibility: ContextVisibility, audience: ContextVisibility): boolean {
+  // The Provider call is made by the server, so server-only policy may be
+  // included in any server-rendered actor/party context. GM-only content still
+  // remains restricted to the GM audience, while actor/party contexts fail closed.
+  if (blockVisibility === 'server_only') return true;
+  if (audience === 'gm_only' || audience === 'server_only') return audience === 'server_only'
+    ? false
+    : true;
+  if (blockVisibility === 'gm_only') return false;
+  const rank: Record<ContextVisibility, number> = {
+    actor_private: 1, party: 2, campaign: 3, public: 4,
+    server_only: 0, gm_only: 0,
+  };
+  return rank[blockVisibility] >= rank[audience];
+}
+
+export { persistedToContextVisibility };

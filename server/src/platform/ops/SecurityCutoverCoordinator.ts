@@ -31,7 +31,7 @@ export class SecurityCutoverError extends Error {
  */
 export const SECURITY_CUTOVER_ALLOWLIST: ReadonlyArray<{ name: string; sha256: string }> = [
   { name: '012_platform_foundation.sql', sha256: '3dab3ce75d06ef68f80cb6ebb5e78fb00cdf06d176ddfac544c27669ce6168e6' },
-  { name: '013_secure_sessions.sql', sha256: 'f9fdabf1a41f00502896f004162b9ec4dcfce8ee33ac5b73541bdd09e0bb68f6' },
+  { name: '013_secure_sessions.sql', sha256: '6f37f6d5ac9b11d6c2055ae367194b02454117b5beca80b5e4d0602d70947865' },
   { name: '014_security_audit.sql', sha256: 'f86b8d86853bbd9f61ced3416f971634393f738fea8a19fff7db245bcff2c7b8' },
 ];
 

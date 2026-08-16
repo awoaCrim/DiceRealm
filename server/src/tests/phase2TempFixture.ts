@@ -29,7 +29,7 @@ export function assertSafePhase2Path(path: string): void {
   }
 }
 
-/** 当前 Phase 批准的 migration 集合（与生产 frozen constant 同源；001–011 与 Phase 1 baseline 一致，012/013/014 在对应 Task 加入）。 */
+/** 当前 Phase 批准的 migration 集合（与生产 frozen constant 同源）。 */
 export const APPROVED_MIGRATION_FILENAMES: string[] = [...PHASE2_APPROVED_MIGRATION_FILENAMES];
 
 export interface Phase2TempFixture {

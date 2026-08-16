@@ -16,7 +16,7 @@ describe('database adapter', () => {
   it('creates the initial platform tables after migrate', async () => {
     const db = createSqliteDatabase(':memory:');
     await db.migrate();
-    for (const table of ['users', 'sessions', 'campaigns', 'campaign_members', 'platform_ai_provider_configs', 'platform_rule_sources', 'platform_instance', 'platform_administrators', 'platform_registration_invites', 'platform_security_audit_events']) {
+    for (const table of ['users', 'sessions', 'campaigns', 'campaign_members', 'platform_ai_provider_configs', 'platform_instance', 'platform_administrators', 'platform_registration_invites', 'platform_security_audit_events']) {
       const rows = await db.query<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
         [table],
@@ -243,51 +243,6 @@ describe('migration 010 AI Provider credentials', () => {
       await db.migrate();
       const afterSecondRun = await db.query<{ count: number }>('SELECT COUNT(*) AS count FROM platform_migrations WHERE version = ?', ['010']);
       expect(Number(afterSecondRun[0].count)).toBe(1);
-    } finally {
-      await db.close();
-    }
-  });
-});
-
-describe('migration 011 rule sources', () => {
-  it('stores immutable provenance metadata only with scope/target and dedup constraints', async () => {
-    const db = createSqliteDatabase(':memory:');
-    try {
-      await db.migrate();
-      const columns = await db.query<{ name: string }>('PRAGMA table_info(platform_rule_sources)');
-      expect(columns.map((column) => column.name)).toEqual([
-        'id', 'source_name', 'version', 'license', 'attribution', 'content_hash',
-        'scope', 'campaign_id', 'user_id', 'created_by_user_id', 'created_at',
-      ]);
-      expect(columns.map((column) => column.name)).not.toContain('content');
-
-      const now = '2026-08-10T00:00:00.000Z';
-      await db.execute('INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)', ['u11', 'user11', 'hash']);
-      await db.execute('INSERT INTO campaigns (id, owner_id, name, ruleset, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)', ['c11', 'u11', '战役11', 'dnd5e', 'active', now, now]);
-      const hash = 'ab'.repeat(32);
-      await db.execute(
-        'INSERT INTO platform_rule_sources (id, source_name, version, license, attribution, content_hash, scope, campaign_id, user_id, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        ['rs11', 'Open Reference', '1', 'CC-BY-4.0', 'Example Author', hash, 'campaign', 'c11', null, 'u11', now],
-      );
-      await expect(db.execute(
-        'INSERT INTO platform_rule_sources (id, source_name, version, license, attribution, content_hash, scope, campaign_id, user_id, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        ['rs11-duplicate', 'Open Reference', '1', 'CC-BY-4.0', 'Example Author', 'cd'.repeat(32), 'campaign', 'c11', null, 'u11', now],
-      )).rejects.toThrow(/UNIQUE/i);
-      await expect(db.execute(
-        'INSERT INTO platform_rule_sources (id, source_name, version, license, attribution, content_hash, scope, campaign_id, user_id, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        ['rs11-duplicate-hash', 'Renamed Reference', '2', 'CC-BY-4.0', 'Example Author', hash, 'campaign', 'c11', null, 'u11', now],
-      )).rejects.toThrow(/UNIQUE/i);
-      await expect(db.execute(
-        'INSERT INTO platform_rule_sources (id, source_name, version, license, attribution, content_hash, scope, campaign_id, user_id, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        ['rs11-bad-pair', 'Bad', '1', 'CC0', 'Example', 'cd'.repeat(32), 'campaign', null, 'u11', 'u11', now],
-      )).rejects.toThrow(/CHECK/i);
-      await expect(db.execute(
-        'INSERT INTO platform_rule_sources (id, source_name, version, license, attribution, content_hash, scope, campaign_id, user_id, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        ['rs11-bad-hash', 'Bad hash', '1', 'CC0', 'Example', 'not-sha256', 'user', null, 'u11', 'u11', now],
-      )).rejects.toThrow(/CHECK/i);
-
-      const versions = await db.query<{ version: string }>('SELECT version FROM platform_migrations WHERE version = ?', ['011']);
-      expect(versions).toEqual([{ version: '011' }]);
     } finally {
       await db.close();
     }

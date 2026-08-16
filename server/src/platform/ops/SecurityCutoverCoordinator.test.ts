@@ -11,7 +11,7 @@ import { createSensitiveSnapshot } from './OfflineBackupPrimitives.js';
 import { PlatformInstanceStore } from './PlatformInstanceStore.js';
 import { createCredentialCipher, loadCredentialCipher } from '../../modules/ai-runtime/CredentialKeyStore.js';
 import { CredentialCipher } from '../../modules/ai-runtime/CredentialCipher.js';
-import { commitMigrationsDir, commitManifestPath, createExistingDb001_011, copyMigrations, tempDir, applyMigrationsToFileDb } from '../../tests/phase2StartupHelpers.js';
+import { commitMigrationsDir, commitManifestPath, createExistingDb001_010, copyMigrations, tempDir, applyMigrationsToFileDb } from '../../tests/phase2StartupHelpers.js';
 import { captureLegacySnapshot, makeLegacyFixture } from '../../tests/phase2LegacySentinel.js';
 
 const COMMITTED_MIGRATIONS_DIR = commitMigrationsDir();
@@ -25,13 +25,13 @@ interface CutoverFixture {
   cleanup(): void;
 }
 
-/** 建 existing 001-011 DB（可选 legacy fixture）+ users/campaigns/sessions/ciphertext，并 enroll。 */
+/** 建 current Phase 1 baseline DB（可选 legacy fixture）+ users/campaigns/sessions/ciphertext，并 enroll。 */
 async function buildEnrolledPending(options: { legacy?: boolean; sessionCount?: number; crashWindow?: boolean } = {}): Promise<CutoverFixture> {
   const dir = tempDir('dnd-cutover-');
   const databasePath = join(dir, 'db.sqlite');
   const keyPath = join(dir, '.dnd-ai-credential-key');
   const backupDir = join(dir, 'backup');
-  createExistingDb001_011(databasePath);
+  createExistingDb001_010(databasePath);
   if (options.crashWindow) {
     // M1 crash 窗口：012 已应用但无 platform_instance 行（enroll 必须能安全恢复）。
     applyMigrationsToFileDb(databasePath, ['012']);
@@ -240,7 +240,7 @@ describe('SecurityCutoverCoordinator full cutover', () => {
 });
 
 describe('SecurityCutoverCoordinator crash resume', () => {
-  it('full recovery: crash-window 001-012 DB enrolls as a fresh attempt and completes cutover to ready', async () => {
+  it('full recovery: crash-window baseline + 012 DB enrolls as a fresh attempt and completes cutover to ready', async () => {
     const fixture = await buildEnrolledPending({ sessionCount: 2, crashWindow: true });
     try {
       const result = await runSecurityCutover({
@@ -552,7 +552,7 @@ describe('SecurityCutoverCoordinator crash resume', () => {
     const dir = tempDir('dnd-cutover-unenrolled-');
     try {
       const databasePath = join(dir, 'db.sqlite');
-      createExistingDb001_011(databasePath);
+      createExistingDb001_010(databasePath);
       await expect(runSecurityCutover({
         databasePath,
         keyPath: join(dir, '.dnd-ai-credential-key'),

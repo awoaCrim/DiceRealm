@@ -66,16 +66,16 @@ function applyMigrations(databasePath: string, versions: string[]): void {
   }
 }
 
-/** 创建一个 001-011 existing DB（无 012，无 enrollment）。 */
-function createExistingDb001_011(dir: string): string {
+/** 创建一个当前 Phase 1 基线 existing DB（无 012，无 enrollment）。 */
+function createExistingDb001_010(dir: string): string {
   const databasePath = join(dir, 'db.sqlite');
-  applyMigrations(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011']);
+  applyMigrations(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010']);
   return databasePath;
 }
 
-/** 通过 enroll（existing 001-011 → 只应用 012）创建 enrolled-pending（session security pending）DB。 */
+/** 通过 enroll（existing current Phase 1 baseline → 只应用 012）创建 enrolled-pending（session security pending）DB。 */
 async function createEnrolledPendingDb(dir: string): Promise<{ databasePath: string; keyPath: string }> {
-  const databasePath = createExistingDb001_011(dir);
+  const databasePath = createExistingDb001_010(dir);
   const keyPath = join(dir, '.dnd-ai-credential-key');
   await runEnrollmentCommand({
     command: 'enroll',
@@ -87,7 +87,7 @@ async function createEnrolledPendingDb(dir: string): Promise<{ databasePath: str
   return { databasePath, keyPath };
 }
 
-/** 通过 coordinator init 创建 secure-ready（001-014 + session ready）DB。 */
+/** 通过 coordinator init 创建 secure-ready（current approved migration set + session ready）DB。 */
 async function createReadyDb(dir: string): Promise<{ databasePath: string; keyPath: string }> {
   const databasePath = join(dir, 'db.sqlite');
   const keyPath = join(dir, '.dnd-ai-credential-key');
@@ -133,10 +133,10 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
     }
   });
 
-  it('fails before app with an enrollment hint for an existing 001-011 DB, closing DB and releasing the lock', async () => {
+  it('fails before app with an enrollment hint for an existing current Phase 1 baseline DB, closing DB and releasing the lock', async () => {
     const dir = tempDir('dnd-startup-unenrolled-');
     try {
-      const databasePath = createExistingDb001_011(dir);
+      const databasePath = createExistingDb001_010(dir);
       let closeCalls = 0;
       const opts = baseOptions({ host: '127.0.0.1', port: 0, databasePath }, {
         createDatabase: (path) => {
@@ -171,7 +171,7 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
     }
   });
 
-  it('fails with a security-cutover hint for an enrolled 001-012 DB (session security pending)', async () => {
+  it('fails with a security-cutover hint for an enrolled baseline + 012 DB (session security pending)', async () => {
     const dir = tempDir('dnd-startup-pending-');
     try {
       const { databasePath, keyPath } = await createEnrolledPendingDb(dir);
@@ -328,14 +328,14 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
     }
   });
 
-  it('rejects an ordinary startup DB with a future 015 applied even when the manifest includes it (frozen 001-014 acceptance)', async () => {
+  it('rejects an ordinary startup DB with a future 016 applied even when the manifest includes it (frozen current approved migration set acceptance)', async () => {
     const dir = tempDir('dnd-startup-frozen-');
     try {
-      // 运行时迁移目录：001-014 committed 副本 + 未来 015 + 匹配 manifest（15 项）。
+      // 运行时迁移目录：current approved migration set committed 副本 + 未来 016 + 匹配 manifest（16 项）。
       const migrationsDir = join(dir, 'migrations');
       mkdirSync(migrationsDir, { recursive: true });
-      copyMigrations(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014'], migrationsDir);
-      writeFileSync(join(migrationsDir, '015_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
+      copyMigrations(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015'], migrationsDir);
+      writeFileSync(join(migrationsDir, '016_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
       const names = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
       const manifest = {
         format: 1,
@@ -346,14 +346,14 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
       };
       writeFileSync(join(migrationsDir, 'migrations.manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
 
-      // DB：001-014 committed 应用 + 015 手工应用（已应用集合 = 15）。
+      // DB：current approved migration set committed 应用 + 016 手工应用（已应用集合 = 16）。
       const databasePath = join(dir, 'db.sqlite');
-      applyMigrations(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014']);
+      applyMigrations(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015']);
       const raw = new Database(databasePath);
       raw.exec('BEGIN');
-      raw.exec(readFileSync(join(migrationsDir, '015_future_phase.sql'), 'utf8'));
+      raw.exec(readFileSync(join(migrationsDir, '016_future_phase.sql'), 'utf8'));
       raw.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)')
-        .run('015', '015_future_phase.sql', new Date().toISOString());
+        .run('016', '016_future_phase.sql', new Date().toISOString());
       raw.exec('COMMIT');
       raw.close();
 
@@ -364,12 +364,12 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
     }
   });
 
-  it('gives an exact-set diagnostic (never a security-cutover hint) when 12 applied migrations are not exactly 001-012', async () => {
+  it('gives an exact-set diagnostic (never a security-cutover hint) for an incomplete or foreign applied migration set', async () => {
     const dir = tempDir('dnd-startup-badset-');
     try {
-      // 12 个已应用迁移但缺 012、含 013（集合异常，不是 enrollment 后 pending）。
+      // 11 个已应用迁移但缺 012、含 013（集合异常，不是 enrollment 后 pending）。
       const databasePath = join(dir, 'db.sqlite');
-      applyMigrations(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '013']);
+      applyMigrations(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '013']);
       const keyPath = join(dir, '.dnd-ai-credential-key');
       const opts = baseOptions({ host: '127.0.0.1', port: 0, databasePath }, { credentialKeyPath: keyPath });
       let message = '';
@@ -381,6 +381,91 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
       expect(message).toMatch(/已应用迁移集合异常/);
       expect(message).not.toMatch(/security-cutover/);
       expect(existsSync(join(dir, '.dnd-instance.lock'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('automatically removes the exact legacy rule-source state before the security gate and listening', async () => {
+    const dir = tempDir('dnd-startup-legacy-rule-sources-');
+    try {
+      const { databasePath, keyPath } = await createReadyDb(dir);
+      const raw = new Database(databasePath);
+      raw.exec(`
+        CREATE TABLE platform_rule_sources (
+          id TEXT PRIMARY KEY,
+          source_name TEXT NOT NULL,
+          version TEXT NOT NULL,
+          license TEXT NOT NULL,
+          attribution TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          scope TEXT NOT NULL,
+          campaign_id TEXT,
+          user_id TEXT,
+          created_by_user_id TEXT,
+          created_at TEXT NOT NULL
+        )
+      `);
+      raw.prepare('INSERT INTO platform_rule_sources (id, source_name, version, license, attribution, content_hash, scope, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run('legacy-source', 'PHB', '2024', 'CC', 'Author', 'a'.repeat(64), 'platform', '2026-08-16T00:00:00.000Z');
+      raw.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run('011', '011_rule_sources.sql', '2026-08-16T00:00:00.000Z');
+      raw.close();
+
+      const opts = baseOptions({ host: '127.0.0.1', port: 0, databasePath }, { credentialKeyPath: keyPath });
+      const running = await startPlatformServer(opts);
+      await running.close();
+      const events = (opts as unknown as { events: string[] }).events;
+      expect(events.indexOf('legacy-rule-sources.migrate')).toBeGreaterThan(events.indexOf('database.open'));
+      expect(events.indexOf('legacy-rule-sources.migrate')).toBeLessThan(events.indexOf('security.verify'));
+      expect(events).toContain('listen');
+
+      const live = new Database(databasePath, { readonly: true });
+      try {
+        expect(live.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'platform_rule_sources'").get()).toBeUndefined();
+        expect(live.prepare("SELECT version FROM platform_migrations WHERE version = '011'").get()).toBeUndefined();
+      } finally {
+        live.close();
+      }
+
+      const backupRoot = join(dir, 'backups');
+      const backupNames = readdirSync(backupRoot).filter((name) => name.startsWith('.dnd-rule-sources-migration-backup-'));
+      expect(backupNames).toHaveLength(1);
+      const backup = new Database(join(backupRoot, backupNames[0], 'database.sqlite'), { readonly: true });
+      try {
+        expect(backup.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'platform_rule_sources'").get()).toEqual({ name: 'platform_rule_sources' });
+        expect(backup.prepare("SELECT version FROM platform_migrations WHERE version = '011'").get()).toEqual({ version: '011' });
+      } finally {
+        backup.close();
+      }
+      expect(existsSync(join(dir, '.dnd-instance.lock'))).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed before listening when the legacy marker has no matching rule-source table', async () => {
+    const dir = tempDir('dnd-startup-legacy-rule-sources-invalid-');
+    try {
+      const { databasePath, keyPath } = await createReadyDb(dir);
+      const raw = new Database(databasePath);
+      raw.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)')
+        .run('011', '011_rule_sources.sql', '2026-08-16T00:00:00.000Z');
+      raw.close();
+
+      let listenCalls = 0;
+      const opts = baseOptions({ host: '127.0.0.1', port: 0, databasePath }, {
+        credentialKeyPath: keyPath,
+        listen: async () => {
+          listenCalls += 1;
+          return { stopAccepting: async () => undefined, destroyConnections: async () => undefined };
+        },
+      });
+      await expect(startPlatformServer(opts)).rejects.toThrow(/platform_rule_sources/);
+      expect(listenCalls).toBe(0);
+      expect((opts as unknown as { events: string[] }).events).not.toContain('listen');
+      expect(existsSync(join(dir, '.dnd-instance.lock'))).toBe(false);
+      expect(existsSync(join(dir, 'backups'))).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

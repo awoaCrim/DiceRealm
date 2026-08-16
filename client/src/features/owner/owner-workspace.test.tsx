@@ -50,10 +50,6 @@ vi.mock('../../api/world/worldApi', () => ({
   update: vi.fn(),
   remove: vi.fn(),
 }));
-vi.mock('../../api/rules/rulesApi', () => ({
-  list: vi.fn(),
-  register: vi.fn(),
-}));
 vi.mock('../../api/combat/combatApi', () => ({
   list: vi.fn(),
   get: vi.fn(),
@@ -77,7 +73,6 @@ import * as turnApi from '../../api/turns/turnApi';
 import * as aiApi from '../../api/ai/aiApi';
 import * as characterApi from '../../api/characters/characterApi';
 import * as worldApi from '../../api/world/worldApi';
-import * as rulesApi from '../../api/rules/rulesApi';
 import * as combatApi from '../../api/combat/combatApi';
 import * as archiveApi from '../../api/archives/archiveApi';
 
@@ -190,6 +185,7 @@ beforeEach(() => {
   vi.mocked(aiApi.testProviderConfig).mockResolvedValue({ ok: true });
   vi.mocked(aiApi.listCampaignRuns).mockResolvedValue([]);
   vi.mocked(aiApi.getRunDetail).mockResolvedValue(runDetailFixture);
+  vi.mocked(aiApi.listEntries).mockResolvedValue([]);
   vi.mocked(characterApi.getProjection).mockResolvedValue({
     myDrafts: [],
     myPending: [],
@@ -199,12 +195,6 @@ beforeEach(() => {
     approvedSummaries: [],
   });
   vi.mocked(worldApi.getProjection).mockResolvedValue({ facts: [] });
-  vi.mocked(rulesApi.list).mockResolvedValue([]);
-  vi.mocked(rulesApi.register).mockResolvedValue({
-    id: 'rs-1', sourceName: 'Open Reference', version: '1', license: 'CC-BY-4.0',
-    attribution: 'Example Author', contentHash: 'ab'.repeat(32), scope: 'campaign',
-    campaignId: 'c1', createdAt: '2026-08-10T00:00:00.000Z',
-  });
   vi.mocked(combatApi.list).mockResolvedValue([]);
   vi.mocked(combatApi.get).mockResolvedValue(emptyEncounter);
   vi.mocked(archiveApi.list).mockResolvedValue([]);
@@ -252,9 +242,6 @@ describe('Owner 工作区 Shell', () => {
     await clickNav('存档');
     expect(await screen.findByRole('heading', { name: '存档' })).toBeInTheDocument();
 
-    await clickNav('规则资料');
-    expect(await screen.findByRole('heading', { name: '规则资料' })).toBeInTheDocument();
-
     await clickNav('AI 接口');
     expect(await screen.findByRole('heading', { name: 'AI 接口' })).toBeInTheDocument();
 
@@ -263,36 +250,64 @@ describe('Owner 工作区 Shell', () => {
   });
 });
 
-describe('规则资料', () => {
-  it('显示来源元数据并登记战役来源，不提供规则正文输入', async () => {
-    vi.mocked(rulesApi.list).mockResolvedValue([
-      {
-        id: 'platform-source', sourceName: 'Open Reference', version: '2024.1',
-        license: 'CC-BY-4.0', attribution: 'Example Author', contentHash: 'ab'.repeat(32),
-        scope: 'platform', campaignId: null, createdAt: '2026-08-10T00:00:00.000Z',
-      },
+describe('DM 剧情', () => {
+  it('直接显示当前回合剧情，并可展开上一回合历史', async () => {
+    const firstTurn = { ...turnSummary, status: 'completed' as const, completedAt: '2026-08-03T00:10:00.000Z' };
+    const secondTurn = {
+      ...turnSummary,
+      id: 't2',
+      number: 2,
+      status: 'completed' as const,
+      completedAt: '2026-08-03T00:20:00.000Z',
+      updatedAt: '2026-08-03T00:20:00.000Z',
+    };
+    vi.mocked(turnApi.list).mockResolvedValue([
+      { turn: firstTurn, progress: { requiredPlayerIds: ['u-2'], submittedPlayerIds: ['u-2'], locked: true } },
+      { turn: secondTurn, progress: { requiredPlayerIds: ['u-2'], submittedPlayerIds: ['u-2'], locked: true } },
     ]);
-    renderAt(['/campaigns/c1/owner/rules'], seedSession);
-    expect(await screen.findByText('Open Reference')).toBeInTheDocument();
-    expect(screen.getByText('CC-BY-4.0')).toBeInTheDocument();
-    expect(screen.queryByLabelText('规则正文')).not.toBeInTheDocument();
+    vi.mocked(aiApi.listEntries).mockImplementation(async (_campaignId, turnId) => turnId === 't1'
+      ? [{
+          id: 'owner-history-entry', aiRunId: 'r1', turnId: 't1', campaignId: 'c1', entryKind: 'narrative',
+          entryIndex: 0, visibility: 'public', targetPlayerId: null, payload: { text: 'DM 可以回看上一回合。' },
+          createdAt: '2026-08-03T00:10:00.000Z',
+        }]
+      : [
+          {
+            id: 'owner-current-entry', aiRunId: 'r2', turnId: 't2', campaignId: 'c1', entryKind: 'private_update',
+            entryIndex: 0, visibility: 'player_private', targetPlayerId: 'u-2', payload: { text: 'DM 可以看到私密结果。' },
+            createdAt: '2026-08-03T00:20:00.000Z',
+          },
+          {
+            id: 'owner-current-narrative', aiRunId: 'r2', turnId: 't2', campaignId: 'c1', entryKind: 'narrative',
+            entryIndex: 1, visibility: 'public', targetPlayerId: null, payload: { text: '队伍抵达石桥。' },
+            createdAt: '2026-08-03T00:20:01.000Z',
+          },
+          {
+            id: 'owner-current-dice', aiRunId: 'r2', turnId: 't2', campaignId: 'c1', entryKind: 'dice_result',
+            entryIndex: 2, visibility: 'public', targetPlayerId: null, payload: { formula: '1d20', total: 18, label: '察觉' },
+            createdAt: '2026-08-03T00:20:02.000Z',
+          },
+        ]);
 
-    const userEv = userEvent.setup();
-    await userEv.type(screen.getByLabelText('来源名称'), 'Campaign Notes');
-    await userEv.type(screen.getByLabelText('版本'), '1');
-    await userEv.type(screen.getByLabelText('许可证'), 'Owner-created');
-    await userEv.type(screen.getByLabelText('署名'), 'alice');
-    await userEv.type(screen.getByLabelText('SHA-256 内容哈希'), 'cd'.repeat(32));
-    await userEv.click(screen.getByRole('button', { name: '登记来源' }));
-    await waitFor(() => expect(rulesApi.register).toHaveBeenCalledWith('c1', {
-      sourceName: 'Campaign Notes', version: '1', license: 'Owner-created',
-      attribution: 'alice', contentHash: 'cd'.repeat(32), scope: 'campaign',
-    }));
-    expect(await screen.findByText('规则来源已登记。')).toBeInTheDocument();
+    renderAt(['/campaigns/c1/owner/turn'], seedSession);
+    expect(await screen.findByText('DM 可以看到私密结果。')).toBeInTheDocument();
+    expect(screen.getByText('队伍抵达石桥。')).toBeInTheDocument();
+    expect(screen.getByText('察觉：1d20 = 18')).toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole('button', { name: /第 1 回合/ }));
+    expect(await screen.findByText('DM 可以回看上一回合。')).toBeInTheDocument();
   });
 });
 
 describe('回合与 AI 运行', () => {
+  it('按回合号选择当前回合，而不是依赖服务端列表返回顺序', async () => {
+    const turn2 = { ...turnSummary, id: 't2', number: 2 };
+    vi.mocked(turnApi.list).mockResolvedValue([
+      { turn: turn2, progress: { requiredPlayerIds: ['u-2'], submittedPlayerIds: [], locked: false } },
+      { turn: turnSummary, progress: { requiredPlayerIds: ['u-2'], submittedPlayerIds: [], locked: false } },
+    ]);
+    renderAt(['/campaigns/c1/owner/turn'], seedSession);
+    expect(await screen.findByRole('heading', { name: '第 2 回合 · 等待行动' })).toBeInTheDocument();
+  });
   it('AI 接口可测试并保存写入式密钥，AI 日志详情仍按需请求', async () => {
     vi.mocked(aiApi.getProviderStatus).mockResolvedValue({
       provider: 'openai-compatible',
@@ -843,7 +858,8 @@ describe('存档', () => {
       { id: 'a1', campaignId: 'c1', kind: 'manual', turnId: null, label: '开局前', version: 1, superseded: false, createdByUserId: 'u-1', createdAt: '2026-08-03T00:00:00.000Z' },
     ]);
     const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-    renderAt(['/campaigns/c1/owner/archives'], seedSession);
+    const { qc } = renderAt(['/campaigns/c1/owner/archives'], seedSession);
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
     const userEv = userEvent.setup();
     await userEv.type(await screen.findByLabelText('存档说明'), '开局前存档');
     await userEv.click(screen.getByRole('button', { name: '创建存档' }));
@@ -853,5 +869,8 @@ describe('存档', () => {
     await userEv.click(screen.getByRole('button', { name: '恢复' }));
     await waitFor(() => expect(confirmSpy).toHaveBeenCalled());
     await waitFor(() => expect(archiveApi.restore).toHaveBeenCalledWith('c1', 'a1'));
+    await waitFor(() => {
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: campaignTurnsKey('c1') });
+    });
   });
 });

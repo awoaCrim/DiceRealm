@@ -13,6 +13,7 @@ import { AiContextBuilder } from './AiContextBuilder.js';
 import { AiOutputValidationError, TurnResolutionValidator } from './TurnResolutionValidator.js';
 import { StateChangeMaterializer } from './StateChangeMaterializer.js';
 import type { AiProviderPort } from './AiProviderPort.js';
+import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 
 export class AiResolutionService {
   constructor(
@@ -23,6 +24,7 @@ export class AiResolutionService {
     private readonly context: AiContextBuilder,
     private readonly validator: TurnResolutionValidator,
     private readonly materializer: StateChangeMaterializer,
+    private readonly mutations: CampaignMutationCoordinator = new CampaignMutationCoordinator(executor),
   ) {}
 
   get publicConfig(): AiProviderPort['publicConfig'] {
@@ -146,26 +148,36 @@ export class AiResolutionService {
         }
         throw new AppError('STATE_CONFLICT', '当前回合状态不允许结算。');
       }
-      // 4) attempt 单调分配（turn/campaign 锁内安全）。attempt 从 0 起：同 turn 首个 run attempt=1；
-      //    失败重试（新 key）在 resolveTurn 的 claim 阶段先经这里分配 attempt=2。
-      const attempt = (await runs.maxAttempt(tx, turnId)) + 1;
-      const campaignSequence = await runs.nextCampaignSequence(tx, campaignId);
-      // 5) context 快照在 claim tx 内读取并固化，provider 只消费该快照。
-      const pkg = await this.context.buildForTurn(campaignId, turnId, tx);
-      const now = new Date().toISOString();
+      // Claim is itself an authoritative mutation: locked -> resolving advances
+      // the independent state head exactly once. The context is built after that
+      // transition and records the post-claim revision.
       const runId = nanoid(24);
-      await runs.insertRun(tx, {
-        id: runId, campaign_id: campaignId, campaign_sequence: campaignSequence, turn_id: turnId,
-        attempt, idempotency_key: idempotencyKey, provider: runProvider.name, model: runProvider.model,
-        status: 'running', context_json: JSON.stringify({ prompt: pkg.prompt, context: pkg.context }), result_json: null,
-        error_code: null, error_json: null, raw_debug_json: null, started_at: now, completed_at: null,
+      const claimMutation = await this.mutations.mutateIn(tx, {
+        campaignId,
+        mutationId: `ai-claim:${runId}`,
+        causeType: 'ai_claim',
+        causeId: turnId,
+      }, async ({ stateRevision }) => {
+        const attempt = (await runs.maxAttempt(tx, turnId)) + 1;
+        const campaignSequence = await runs.nextCampaignSequence(tx, campaignId);
+        const now = new Date().toISOString();
+        if (!(await turns.markResolving(turnId, now))) {
+          throw new AppError('STATE_CONFLICT', '回合已不在结算许可状态。');
+        }
+        const pkg = await this.context.buildForTurn(campaignId, turnId, tx, { actionId: turnId });
+        await runs.insertRun(tx, {
+          id: runId, campaign_id: campaignId, campaign_sequence: campaignSequence, turn_id: turnId,
+          attempt, idempotency_key: idempotencyKey, provider: runProvider.name, model: runProvider.model,
+          status: 'running', context_json: JSON.stringify({ prompt: pkg.prompt, context: pkg.context, stateRevision }), result_json: null,
+          error_code: null, error_json: null, raw_debug_json: null, started_at: now, completed_at: null,
+          expected_state_revision: stateRevision, applied_state_revision: null,
+        });
+        await this.outbox.publishIn(tx, { type: 'ai.preview.started', campaignId, runId });
+        const created = (await runs.findById(runId)) as AiRunRow;
+        return { run: created, prompt: pkg.prompt };
       });
-      if (!(await turns.markResolving(turnId, now))) {
-        throw new AppError('STATE_CONFLICT', '回合已不在结算许可状态。');
-      }
-      await this.outbox.publishIn(tx, { type: 'ai.preview.started', campaignId, runId });
-      const created = (await runs.findById(runId)) as AiRunRow;
-      return { kind: 'claimed', run: created, prompt: pkg.prompt };
+      if (!claimMutation.result) throw new AppError('INTERNAL_ERROR', 'AI claim 结果读取失败。');
+      return { kind: 'claimed', run: claimMutation.result.run, prompt: claimMutation.result.prompt };
     });
   }
 
@@ -185,6 +197,17 @@ export class AiResolutionService {
       if (!run || run.status !== 'running') throw new AppError('STATE_CONFLICT', 'AI run 不在可应用状态。');
       const turn = await turns.findTurnById(turnId);
       if (!turn || turn.status !== 'resolving') throw new AppError('STATE_CONFLICT', '回合不在结算中。');
+      // Legacy runs have no fixed input revision and are audit/display only.
+      if (run.expected_state_revision === null || run.expected_state_revision === undefined) {
+        throw new AppError('STATE_CONFLICT', '旧版 AI 结算不能正式应用。');
+      }
+      await this.mutations.mutateIn(tx, {
+        campaignId,
+        expectedRevision: run.expected_state_revision,
+        mutationId: `ai-formal:${runId}`,
+        causeType: 'ai_formal_apply',
+        causeId: runId,
+      }, async ({ stateRevision }) => {
       // 2) 白名单 state changes + AI 创建式世界事实/遭遇（combat 能力门禁；actorUserId 供 character audit FK）。
       await this.materializer.applyAll(tx, campaignId, resolution.stateChanges, actorUserId, {
         worldFactCreations: resolution.worldFactCreations,
@@ -228,7 +251,7 @@ export class AiResolutionService {
       }
       // 4) run succeeded/result/debug（2B 只存 raw_debug_json，不 emit owner.debug）。
       const rawDebug = JSON.stringify({ resolution });
-      if (!(await runs.markSucceeded(tx, runId, JSON.stringify(resolution), rawDebug, now))) {
+      if (!(await runs.markSucceeded(tx, runId, JSON.stringify(resolution), rawDebug, now, stateRevision))) {
         throw new AppError('STATE_CONFLICT', 'AI run 已被并发更新。');
       }
       // 4b) owner.debug（Phase 3）：成功 formal apply 后、turn completed 前，同一事务发布
@@ -252,9 +275,11 @@ export class AiResolutionService {
       await this.archives.createAutomatic(tx, campaignId, turnId, actorUserId, automaticArchiveId);
       // 10) create 下一 waiting turn + requirements（同 tx；绝不嵌套 TurnService.transaction）。
       await this.createNextTurn(tx, campaignId);
-      // 11) commit（async callback resolve 后由 adapter COMMIT）。
+      // 11) The enclosing coordinator/transaction commits head, ledger and all
+      //    formal writes atomically. Archive/outbox retain their own sequences.
       // 注：自动存档的 turnNumber watermark 在 createAutomatic 内由 maxActiveTurnNumber 读取——
       //    此时 next turn 尚未插入，因此快照 turnNumber 是 resolved turn 的 number（正确）。
+      });
     });
   }
 
@@ -282,7 +307,8 @@ export class AiResolutionService {
   private async fail(campaignId: string, turnId: string, runId: string, code: string, error: unknown): Promise<void> {
     await this.executor.transaction(async (tx) => {
       const runs = new AiRunRepository(tx);
-      const turns = new TurnRepository(tx);
+      const existing = await runs.findById(runId);
+      if (!existing || existing.status !== 'running') return;
       const now = new Date().toISOString();
       // 持久化结构是严格白名单：AppError（我们自己的受控消息）原样保留 name/message；
       // 非 AppError（provider/网络/未知 DB/formal-apply）只写固定脱敏文案，绝不持久化原始
@@ -309,13 +335,24 @@ export class AiResolutionService {
       const rawDebugJson = error instanceof AiOutputValidationError
         ? JSON.stringify({ ...sanitized, diagnostic: error.diagnostic })
         : errorJson;
-      await runs.markFailed(tx, runId, code, errorJson, rawDebugJson, now);
-      // 条件更新（仅当 turn 仍 resolving）：若并发已把 turn 改成其它状态，失败路径不写半截正式状态。
-      await tx.execute(
-        "UPDATE platform_turns SET status = 'needs_owner_attention', updated_at = ? WHERE id = ? AND status = 'resolving'",
-        [now, turnId],
-      );
-      await this.outbox.publishIn(tx, { type: 'ai.preview.failed', campaignId, runId, code });
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId,
+        mutationId: `ai-fail:${runId}`,
+        causeType: 'ai_failure',
+        causeId: runId,
+      }, async () => {
+        if (!(await runs.markFailed(tx, runId, code, errorJson, rawDebugJson, now))) {
+          throw new AppError('STATE_CONFLICT', 'AI run 已被并发更新。');
+        }
+        // 条件更新（仅当 turn 仍 resolving）：若并发已把 turn 改成其它状态，失败路径不写半截正式状态。
+        await tx.execute(
+          "UPDATE platform_turns SET status = 'needs_owner_attention', updated_at = ? WHERE id = ? AND status = 'resolving'",
+          [now, turnId],
+        );
+        await this.outbox.publishIn(tx, { type: 'ai.preview.failed', campaignId, runId, code });
+        return true;
+      });
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', 'AI 失败结果读取失败。');
     });
   }
   private toView(row: AiRunRow): AiRunView {

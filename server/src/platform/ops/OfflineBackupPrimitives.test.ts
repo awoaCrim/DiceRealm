@@ -12,12 +12,12 @@ import {
   SensitiveBackupError,
   verifySensitiveSnapshot,
 } from './OfflineBackupPrimitives.js';
-import { createExistingDb001_011, applyMigrationsToFileDb, commitMigrationsDir, tempDir } from '../../tests/phase2StartupHelpers.js';
+import { createExistingDb001_010, applyMigrationsToFileDb, commitMigrationsDir, tempDir } from '../../tests/phase2StartupHelpers.js';
 
 function buildSourceDb(dir: string): { databasePath: string; keyPath: string; databaseId: string; keyFingerprint: string } {
   const databasePath = join(dir, 'db.sqlite');
   const keyPath = join(dir, '.dnd-ai-credential-key');
-  createExistingDb001_011(databasePath);
+  createExistingDb001_010(databasePath);
   const cipher = createCredentialCipher({ keyPath });
   // 一条 provider ciphertext + legacy session rows。
   const raw = new Database(databasePath);
@@ -56,7 +56,7 @@ describe('OfflineBackupPrimitives create+verify', () => {
       expect(manifest.sensitive).toBe(true);
       expect(manifest.databaseId).toBe(src.databaseId);
       expect(manifest.migrations).toContain('001_initial_platform.sql');
-      expect(manifest.migrations.length).toBe(11);
+      expect(manifest.migrations.length).toBe(10);
       // manifest 有 database.sqlite + key copy 两个文件条目。
       expect(manifest.files.some((f) => f.name === 'database.sqlite')).toBe(true);
       expect(manifest.files.some((f) => f.name === '.dnd-ai-credential-key')).toBe(true);
@@ -159,7 +159,7 @@ describe('OfflineBackupPrimitives create+verify', () => {
     try {
       const databasePath = join(dir, 'db.sqlite');
       const keyPath = join(dir, '.dnd-ai-credential-key');
-      createExistingDb001_011(databasePath);
+      createExistingDb001_010(databasePath);
       const cipher = createCredentialCipher({ keyPath });
       const raw = new Database(databasePath);
       raw.pragma('journal_mode = WAL');
@@ -199,7 +199,7 @@ describe('OfflineBackupPrimitives create+verify', () => {
     try {
       const databasePath = join(dir, 'db.sqlite');
       const keyPath = join(dir, '.dnd-ai-credential-key');
-      createExistingDb001_011(databasePath);
+      createExistingDb001_010(databasePath);
       const cipher = createCredentialCipher({ keyPath });
       const raw = new Database(databasePath);
       raw.pragma('journal_mode = WAL');

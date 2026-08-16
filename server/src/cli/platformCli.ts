@@ -94,7 +94,7 @@ export async function runPlatformCli(argv: string[], io: CliIo): Promise<void> {
       io.stdout(`maintenance: ${result.maintenanceState ?? 'n/a'}`);
     } else if (command === 'init') {
       io.stdout(`databaseId: ${result.databaseId}`);
-      io.stdout('fresh instance ready (001-014 secure-ready)');
+      io.stdout('fresh instance ready (secure-ready)');
     } else if (command === 'enroll' || command === 'resume') {
       io.stdout(`databaseId: ${result.databaseId}`);
     } else if (command === 'rollback') {

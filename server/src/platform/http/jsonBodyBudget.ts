@@ -1,7 +1,7 @@
 import express from 'express';
 
 export const BODY_BUDGETS = {
-  auth: '16kb', campaigns: '32kb', characters: '256kb', world: '64kb', turn: '64kb', archive: '64kb', combat: '64kb', rules: '64kb', ai: '8kb', aiProvider: '16kb',
+  auth: '16kb', campaigns: '32kb', characters: '256kb', world: '64kb', turn: '64kb', archive: '64kb', combat: '64kb', ai: '8kb', aiProvider: '16kb',
 } as const;
 
 /** Attach only to routes that consume JSON, after authentication/role checks. */

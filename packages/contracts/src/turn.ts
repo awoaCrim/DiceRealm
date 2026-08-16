@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { visibilitySchema, type Visibility } from './visibility.js';
 import { worldFactInputSchema } from './world.js';
 import { encounterStartSchema } from './combat.js';
+import { stateChangeSchema, type StateChange } from './runtime.js';
 
 export { visibilitySchema };
 export type { Visibility };
@@ -43,18 +44,8 @@ export const diceResultSchema = z.object({
 
 export type DiceResult = z.infer<typeof diceResultSchema>;
 
-export const stateChangeKindSchema = z.enum(['character', 'world', 'combat', 'quest']);
-
-export type StateChangeKind = z.infer<typeof stateChangeKindSchema>;
-
-export const stateChangeSchema = z.object({
-  kind: stateChangeKindSchema,
-  targetId: z.string().min(1),
-  patch: z.record(z.string(), z.unknown()),
-  visibility: visibilitySchema,
-});
-
-export type StateChange = z.infer<typeof stateChangeSchema>;
+export { stateChangeSchema };
+export type { StateChange };
 
 export const interactionRequestSchema = z.object({
   id: z.string().min(1),

@@ -13,6 +13,7 @@ import type { DatabasePort } from '../../platform/database/DatabasePort.js';
 import { AppError } from '../../platform/http/AppError.js';
 import { requireOwner, type CampaignAuthContext } from '../campaigns/CampaignAccess.js';
 import { CharacterRepository, type CharacterAuditRow, type CharacterRow } from './CharacterRepository.js';
+import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 
 /**
  * 派生值计算：从 sheet 计算关键派生值并带来源列表。
@@ -32,9 +33,11 @@ export function computeDerived(sheet: Record<string, unknown>): CharacterDerived
  */
 export class CharacterService {
   private readonly repository: CharacterRepository;
+  private readonly mutations: CampaignMutationCoordinator;
 
-  constructor(private readonly executor: DatabasePort) {
+  constructor(private readonly executor: DatabasePort, mutations?: CampaignMutationCoordinator) {
     this.repository = new CharacterRepository(executor);
+    this.mutations = mutations ?? new CampaignMutationCoordinator(executor);
   }
 
   async createDraft(ctx: CampaignAuthContext, input: CharacterDraftInput): Promise<CharacterDraft> {
@@ -58,11 +61,20 @@ export class CharacterService {
       created_at: now,
       updated_at: now,
     };
-    // insert + audit 同一事务。
+    // insert + audit + revision 同一事务。
     await this.executor.transaction(async (tx) => {
       const repo = new CharacterRepository(tx);
-      await repo.insert(row);
-      await repo.insertAudit(this.auditRow(ctx, row, 'create', null));
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId: ctx.campaignId,
+        mutationId: `character-create:${row.id}`,
+        causeType: 'character_create',
+        causeId: row.id,
+      }, async () => {
+        await repo.insert(row);
+        await repo.insertAudit(this.auditRow(ctx, row, 'create', null));
+        return true;
+      });
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', '角色创建结果读取失败。');
     });
     return mapDraft(row);
   }
@@ -187,7 +199,14 @@ export class CharacterService {
       if (!expectedStatuses.includes(row.status)) {
         throw new AppError('STATE_CONFLICT', '当前角色状态不允许该操作。');
       }
-      return this.commitTransition(repo, ctx, row, buildUpdated, action);
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId: ctx.campaignId,
+        mutationId: `character-${action}:${nanoid(24)}`,
+        causeType: `character_${action}`,
+        causeId: characterId,
+      }, async () => this.commitTransition(repo, ctx, row, buildUpdated, action));
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', '角色变更结果读取失败。');
+      return execution.result;
     });
   }
 
@@ -209,7 +228,14 @@ export class CharacterService {
       if (!expectedStatuses.includes(row.status)) {
         throw new AppError('STATE_CONFLICT', '当前角色状态不允许该操作。');
       }
-      return this.commitTransition(repo, ctx, row, buildUpdated, action);
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId: ctx.campaignId,
+        mutationId: `character-${action}:${nanoid(24)}`,
+        causeType: `character_${action}`,
+        causeId: characterId,
+      }, async () => this.commitTransition(repo, ctx, row, buildUpdated, action));
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', '角色变更结果读取失败。');
+      return execution.result;
     });
   }
 

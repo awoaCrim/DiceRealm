@@ -1,6 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { TurnListEntry } from '@dnd/contracts';
 import * as turnApi from '../../api/turns/turnApi';
 import { campaignTurnKey, campaignTurnsKey } from '../../shared/lib/queryKeys';
+
+/** Select the active turn by domain sequence rather than response array position. */
+export function currentTurnEntry(entries: readonly TurnListEntry[]): TurnListEntry | undefined {
+  return entries.reduce<TurnListEntry | undefined>(
+    (current, entry) => !current || entry.turn.number > current.turn.number ? entry : current,
+    undefined,
+  );
+}
 
 /** 回合列表（owner/player 均可读；不含 action 正文）。 */
 export function useTurnList(campaignId?: string) {

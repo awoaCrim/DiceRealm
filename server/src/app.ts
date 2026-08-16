@@ -41,8 +41,6 @@ import { CombatRepository } from './modules/combat/CombatRepository.js';
 import { AiProviderConfigService } from './modules/ai-runtime/AiProviderConfigService.js';
 import { CampaignScopedAiProvider } from './modules/ai-runtime/CampaignScopedAiProvider.js';
 import type { CredentialCipher } from './modules/ai-runtime/CredentialCipher.js';
-import { RulesService } from './modules/rules/RulesService.js';
-import { createRulesRouter } from './routes/rulesRoutes.js';
 
 /**
  * 平台唯一组合根。`database` 必填且只能是 `DatabasePort`；
@@ -177,9 +175,6 @@ function composePlatformApp(
   // 结构化战斗：HTTP 写命令 owner-only；players 只读投影；AI 经 CombatAiAdapter 同端口。
   const combat = new CombatService(database, new OutboxRepository(database));
   app.use('/api/campaigns/:campaignId/combat', createCombatRouter(database, combat));
-  // 规则资料仅登记不可变来源/版本/许可证/署名/哈希元数据，不接收或存储规则正文。
-  const rules = new RulesService(database);
-  app.use('/api/campaigns/:campaignId/rules', createRulesRouter(database, rules));
   // Shared runtime: requests bind the authoritative session tuple before headers are flushed.
   app.use('/api/campaigns/:campaignId/events', createEventRouter(database, realtimeRuntime, {
     pollIntervalMs: testOptions.realtimePollIntervalMs,

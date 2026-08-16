@@ -20,6 +20,8 @@ export interface AiRunRow {
   completed_at: string | null;
   superseded_at: string | null;
   superseded_by_archive_id: string | null;
+  expected_state_revision: number | null;
+  applied_state_revision: number | null;
 }
 
 export interface AiRunInsertRow {
@@ -39,6 +41,8 @@ export interface AiRunInsertRow {
   raw_debug_json: string | null;
   started_at: string;
   completed_at: string | null;
+  expected_state_revision?: number | null;
+  applied_state_revision?: number | null;
 }
 
 export class AiRunRepository {
@@ -70,12 +74,12 @@ export class AiRunRepository {
       `INSERT INTO platform_ai_runs
         (id, campaign_id, campaign_sequence, turn_id, attempt, idempotency_key,
          provider, model, status, context_json, result_json, error_code, error_json,
-         raw_debug_json, started_at, completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         raw_debug_json, started_at, completed_at, expected_state_revision, applied_state_revision)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [row.id, row.campaign_id, row.campaign_sequence, row.turn_id, row.attempt,
        row.idempotency_key, row.provider, row.model, row.status, row.context_json,
        row.result_json, row.error_code, row.error_json, row.raw_debug_json,
-       row.started_at, row.completed_at],
+       row.started_at, row.completed_at, row.expected_state_revision ?? null, row.applied_state_revision ?? null],
     );
   }
 
@@ -118,11 +122,19 @@ export class AiRunRepository {
   }
 
   /** 条件成功：仅当仍为 running 时置 succeeded（防并发重复应用）。 */
-  async markSucceeded(tx: QueryExecutor, runId: string, resultJson: string, rawDebugJson: string, completedAt: string): Promise<boolean> {
+  async markSucceeded(tx: QueryExecutor, runId: string, resultJson: string, rawDebugJson: string, completedAt: string, appliedStateRevision?: number): Promise<boolean> {
     const result = await tx.execute(
-      `UPDATE platform_ai_runs SET status = 'succeeded', result_json = ?, raw_debug_json = ?, completed_at = ?
+      `UPDATE platform_ai_runs SET status = 'succeeded', result_json = ?, raw_debug_json = ?, completed_at = ?, applied_state_revision = ?
        WHERE id = ? AND status = 'running'`,
-      [resultJson, rawDebugJson, completedAt, runId],
+      [resultJson, rawDebugJson, completedAt, appliedStateRevision ?? null, runId],
+    );
+    return result.changes === 1;
+  }
+
+  async setExpectedStateRevision(tx: QueryExecutor, runId: string, expectedStateRevision: number): Promise<boolean> {
+    const result = await tx.execute(
+      "UPDATE platform_ai_runs SET expected_state_revision = ? WHERE id = ? AND status = 'running' AND expected_state_revision IS NULL",
+      [expectedStateRevision, runId],
     );
     return result.changes === 1;
   }

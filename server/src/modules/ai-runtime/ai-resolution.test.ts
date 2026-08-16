@@ -15,6 +15,7 @@ import { TurnResolutionValidator } from './TurnResolutionValidator.js';
 import { StateChangeMaterializer } from './StateChangeMaterializer.js';
 import { ScriptedAiProvider, scriptedResolution, approvedPlayerIds } from './ScriptedAiProvider.js';
 import { AiResolutionService } from './AiResolutionService.js';
+import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 import type { AiProviderPort } from './AiProviderPort.js';
 import { CombatService } from '../combat/CombatService.js';
 import { CombatAiAdapter } from '../combat/CombatAiAdapter.js';
@@ -112,6 +113,16 @@ describe('ai resolution service', () => {
       'SELECT number, status FROM platform_turns WHERE campaign_id = ? AND number = 2', [turn.campaignId],
     );
     expect(next).toEqual([{ number: 2, status: 'waiting_for_actions' }]);
+    const revisionRun = await db.query<{ expected_state_revision: number | null; applied_state_revision: number | null }>(
+      'SELECT expected_state_revision, applied_state_revision FROM platform_ai_runs WHERE id = ?', [run.id],
+    );
+    expect(revisionRun[0].expected_state_revision).not.toBeNull();
+    expect(revisionRun[0].applied_state_revision).toBe((revisionRun[0].expected_state_revision as number) + 1);
+    const revisions = await db.query<{ cause_type: string }>(
+      'SELECT cause_type FROM platform_campaign_state_revisions WHERE campaign_id = ? ORDER BY revision', [turn.campaignId],
+    );
+    expect(revisions.map((entry) => entry.cause_type)).toContain('ai_claim');
+    expect(revisions.map((entry) => entry.cause_type)).toContain('ai_formal_apply');
     // outbox 事件：preview.started → deltas → turn.resolved + owner.debug（Phase 3）。
     const events = await db.query<{ event_type: string; payload_json: string }>(
       'SELECT event_type, payload_json FROM platform_outbox_events WHERE campaign_id = ? ORDER BY sequence', [turn.campaignId],
@@ -128,6 +139,49 @@ describe('ai resolution service', () => {
     expect(debugPayload.runId).toBeTruthy();
     expect(JSON.stringify(debugPayload)).not.toContain('publicNarrative');
     expect(JSON.stringify(debugPayload)).not.toContain('raw_debug');
+    await db.close();
+  });
+
+  it('rejects a provider result when another authoritative mutation advances the head', async () => {
+    let calls = 0;
+    let releaseProvider: (() => void) | null = null;
+    const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve; });
+    const { db, service, ownerCtx, turn } = await makeFixture(
+      new ScriptedAiProvider(async (input, hooks) => {
+        calls += 1;
+        await providerGate;
+        const [pa, pb] = approvedPlayerIds(input);
+        return scriptedResolution(validResolution(pa, pb))(input, hooks);
+      }),
+    );
+    const pending = service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'stale-result' });
+    await vi.waitFor(() => expect(calls).toBe(1));
+    const coordinator = new CampaignMutationCoordinator(db);
+    await coordinator.run({
+      campaignId: turn.campaignId,
+      mutationId: 'competing-runtime-mutation',
+      causeType: 'test_competing_mutation',
+    }, async ({ tx }) => {
+      await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [turn.campaignId]);
+      return true;
+    });
+    releaseProvider!();
+    await expect(pending).rejects.toMatchObject({ code: 'STALE_STATE_REVISION' });
+
+    const run = await db.query<{ status: string; expected_state_revision: number | null; applied_state_revision: number | null; error_code: string | null }>(
+      'SELECT status, expected_state_revision, applied_state_revision, error_code FROM platform_ai_runs WHERE turn_id = ?', [turn.id],
+    );
+    expect(run).toEqual([expect.objectContaining({ status: 'failed', error_code: 'STALE_STATE_REVISION', applied_state_revision: null })]);
+    expect(run[0].expected_state_revision).not.toBeNull();
+    expect(await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id])).toHaveLength(0);
+    expect(await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).toHaveLength(0);
+    const turns = await db.query<{ status: string }>('SELECT status FROM platform_turns WHERE id = ?', [turn.id]);
+    expect(turns[0].status).toBe('needs_owner_attention');
+    const formal = await db.query<{ count: number }>(
+      "SELECT COUNT(*) AS count FROM platform_campaign_state_revisions WHERE campaign_id = ? AND cause_type = 'ai_formal_apply'",
+      [turn.campaignId],
+    );
+    expect(Number(formal[0].count)).toBe(0);
     await db.close();
   });
 

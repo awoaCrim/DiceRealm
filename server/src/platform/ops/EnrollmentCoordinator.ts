@@ -86,7 +86,7 @@ export async function runEnrollmentCommand(options: EnrollmentCoordinatorOptions
       assertPathAbsent(databasePath);
       assertPathAbsent(keyPath);
       database = openDatabase(databasePath);
-      // init：只应用 literal Phase 批准集合 001-014（frozen），
+      // init：只应用 literal 当前批准集合（frozen），
       // 不因 manifest 未来新增 015+ 而静默扩展（015+ 需未来显式 hash-bound allowlist）。
       await database.exec(TRACKING_TABLE_DDL);
       const freshApplied = await appliedMigrationVersions(database);
@@ -109,11 +109,13 @@ export async function runEnrollmentCommand(options: EnrollmentCoordinatorOptions
 
     // ---- command-specific guards ----
     if (options.command === 'enroll') {
-      const PHASE1_VERSIONS = ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011'];
+      const phase1Versions = PHASE2_APPROVED_MIGRATION_FILENAMES
+        .map((filename) => filename.slice(0, 3))
+        .filter((version) => Number(version) < 12);
       // M1 crash 窗口：012 已应用但无 platform_instance 行 → 允许以 fresh enrollment 安全恢复（跳过 012 重放）。
-      const crashWindowVersions = [...PHASE1_VERSIONS, '012'];
-      if (!isAppliedSet(applied, PHASE1_VERSIONS) && !isAppliedSet(applied, crashWindowVersions)) {
-        throw new EnrollmentError('enroll 只接受精确应用 001-011 或 crash 窗口 001-012（无 platform_instance 行）的 existing 数据库。');
+      const crashWindowVersions = [...phase1Versions, '012'];
+      if (!isAppliedSet(applied, phase1Versions) && !isAppliedSet(applied, crashWindowVersions)) {
+        throw new EnrollmentError('enroll 只接受精确应用当前 Phase 1 基线或 crash 窗口（基线 + 012）的 existing 数据库。');
       }
       if (instance !== null) {
         throw new EnrollmentError('数据库已存在 platform_instance 行，请使用 enroll-resume / enroll-rollback / status。');
@@ -153,7 +155,7 @@ export async function runEnrollmentCommand(options: EnrollmentCoordinatorOptions
 
       if (options.command === 'enroll') {
         // key disposition 通过后才应用 012（wrong/missing key 不得修改 DB）。
-        // M1 crash 窗口（001-012 已应用）：跳过 012 重放（tracking 行 PRIMARY KEY 防重，DDL 幂等）。
+        // M1 crash 窗口（当前 Phase 1 基线 + 012 已应用）：跳过 012 重放（tracking 行 PRIMARY KEY 防重，DDL 幂等）。
         if (!applied.includes('012')) {
           await database.applyMigration(loadMigrationFile(options.migrationsDir, '012_platform_foundation.sql'), now());
         }

@@ -12,6 +12,7 @@ import { AppError } from '../../platform/http/AppError.js';
 import { requireOwner, type CampaignAuthContext } from '../campaigns/CampaignAccess.js';
 import { canRead } from '../visibility/VisibilityPolicy.js';
 import { CombatRepository, type CombatantRow, type EncounterRow } from './CombatRepository.js';
+import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 
 export interface CombatCommandPort {
   applyIn(
@@ -39,13 +40,16 @@ const POSITION_REORDER_OFFSET = 1_000_000;
  */
 export class CombatService implements CombatCommandPort {
   private readonly repository: CombatRepository;
+  private readonly mutations: CampaignMutationCoordinator;
 
   constructor(
     private readonly executor: DatabasePort,
     private readonly outbox: EventPublisherPort,
     private readonly random: () => number = Math.random,
+    mutations?: CampaignMutationCoordinator,
   ) {
     this.repository = new CombatRepository(executor);
+    this.mutations = mutations ?? new CampaignMutationCoordinator(executor);
   }
 
   /** owner 创建 preparation encounter；同战役最多一个未完成 encounter。 */
@@ -53,8 +57,16 @@ export class CombatService implements CombatCommandPort {
     requireOwner(ctx);
     const parsed = startEncounterInputSchema.parse(input);
     return this.executor.transaction(async (tx) => {
-      await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [ctx.campaignId]);
-      return this.createIn(tx, ctx.campaignId, parsed);
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId: ctx.campaignId,
+        mutationId: `combat-start:${nanoid(24)}`,
+        causeType: 'combat_start',
+      }, async () => {
+        await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [ctx.campaignId]);
+        return this.createIn(tx, ctx.campaignId, parsed);
+      });
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', '遭遇创建结果读取失败。');
+      return execution.result;
     });
   }
 
@@ -94,9 +106,18 @@ export class CombatService implements CombatCommandPort {
   async execute(ctx: CampaignAuthContext, encounterId: string, command: CombatCommand): Promise<Encounter> {
     requireOwner(ctx);
     return this.executor.transaction(async (tx) => {
-      await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [ctx.campaignId]);
-      const encounter = await this.applyCommand(tx, ctx.campaignId, encounterId, command);
-      return this.loadOwnerView(tx, ctx.campaignId, encounter.id);
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId: ctx.campaignId,
+        mutationId: `combat-command:${nanoid(24)}`,
+        causeType: 'combat_command',
+        causeId: encounterId,
+      }, async () => {
+        await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [ctx.campaignId]);
+        const encounter = await this.applyCommand(tx, ctx.campaignId, encounterId, command);
+        return this.loadOwnerView(tx, ctx.campaignId, encounter.id);
+      });
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', '战斗命令结果读取失败。');
+      return execution.result;
     });
   }
 

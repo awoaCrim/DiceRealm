@@ -6,7 +6,6 @@ const OWNER_NAV = [
   { to: 'world', label: '世界' },
   { to: 'combat', label: '战斗' },
   { to: 'archives', label: '存档' },
-  { to: 'rules', label: '规则资料' },
   { to: 'ai-provider', label: 'AI 接口' },
   { to: 'ai-logs', label: 'AI 日志' },
 ] as const;

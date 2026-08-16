@@ -9,15 +9,15 @@ import { StartupSecurityError } from '../platform/startup/StartupSecurityGate.js
 import { runEnrollmentCommand } from '../platform/ops/EnrollmentCoordinator.js';
 import { fileURLToPath } from 'node:url';
 import { captureLegacySnapshot, makeLegacyFixture } from './phase2LegacySentinel.js';
-import { createExistingDb001_011, commitMigrationsDir, commitManifestPath, tempDir } from './phase2StartupHelpers.js';
+import { createExistingDb001_010, commitMigrationsDir, commitManifestPath, tempDir } from './phase2StartupHelpers.js';
 
 describe('legacy sentinel startup (Phase 2 fail-closed)', () => {
   it('leaves existing legacy schema and rows byte-identical when startup fails closed on an unenrolled DB', async () => {
     const dir = tempDir('dnd-sentinel-existing-');
     try {
       const databasePath = join(dir, 'db.sqlite');
-      // 1) 手工建 legacy fixture + 001-011 平台迁移（无 012，无 enrollment）。
-      createExistingDb001_011(databasePath);
+      // 1) 手工建 legacy fixture + 当前 Phase 1 基线（无 012，无 enrollment）。
+      createExistingDb001_010(databasePath);
       const fixtureRaw = new Database(databasePath);
       fixtureRaw.pragma('foreign_keys = ON');
       makeLegacyFixture(fixtureRaw);

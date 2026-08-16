@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import type { TurnStatus } from '@dnd/contracts';
-import { useSubmitAction, useTurnList, useTurnView } from '../../../entities/turn/turnQueries';
+import { currentTurnEntry, useSubmitAction, useTurnList, useTurnView } from '../../../entities/turn/turnQueries';
 import { AsyncState } from '../../../shared/ui/AsyncState';
 
 const TURN_STATUS_LABEL: Record<TurnStatus, string> = {
@@ -21,7 +21,7 @@ export function PlayerActionComposer() {
   const { campaignId } = useParams();
   const cid = campaignId ?? '';
   const turnList = useTurnList(cid);
-  const latest = turnList.data && turnList.data.length > 0 ? turnList.data[turnList.data.length - 1] : undefined;
+  const latest = currentTurnEntry(turnList.data ?? []);
   const turn = latest?.turn;
   const progress = latest?.progress;
   const view = useTurnView(cid, turn?.id);

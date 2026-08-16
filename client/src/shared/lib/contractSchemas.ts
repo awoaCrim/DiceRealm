@@ -17,7 +17,6 @@ import {
   characterReviewSchema,
   createCampaignResultSchema,
   encounterSchema,
-  ruleSourceSchema,
   sessionSchema,
   turnEntrySchema,
   turnListEntrySchema,
@@ -110,14 +109,6 @@ export type AiRunDetailEnvelope = z.infer<typeof aiRunDetailEnvelopeSchema>;
 
 export const turnEntryListEnvelopeSchema = z.object({ entries: z.array(turnEntrySchema) });
 export type TurnEntryListEnvelope = z.infer<typeof turnEntryListEnvelopeSchema>;
-
-/* ===== rules ===== */
-
-export const ruleSourceListEnvelopeSchema = z.object({ sources: z.array(ruleSourceSchema) });
-export type RuleSourceListEnvelope = z.infer<typeof ruleSourceListEnvelopeSchema>;
-
-export const ruleSourceEnvelopeSchema = z.object({ source: ruleSourceSchema });
-export type RuleSourceEnvelope = z.infer<typeof ruleSourceEnvelopeSchema>;
 
 /* ===== world ===== */
 

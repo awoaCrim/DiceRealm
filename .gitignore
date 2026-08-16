@@ -9,6 +9,7 @@ server/dnd.sqlite-*
 *.sqlite
 *.sqlite-*
 *.db
+**/backups/
 .env
 .env.*
 !.env.example

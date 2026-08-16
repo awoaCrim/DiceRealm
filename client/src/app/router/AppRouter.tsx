@@ -12,7 +12,6 @@ import { OwnerCharactersPage } from '../../features/owner/characters/OwnerCharac
 import { OwnerWorldPage } from '../../features/owner/world/OwnerWorldPage';
 import { OwnerCombatPage } from '../../features/owner/combat/OwnerCombatPage';
 import { OwnerArchivesPage } from '../../features/owner/archives/OwnerArchivesPage';
-import { OwnerRulesPage } from '../../features/owner/rules/OwnerRulesPage';
 import { OwnerAiProviderPage } from '../../features/owner/ai/OwnerAiProviderPage';
 import { OwnerAiLogsPage } from '../../features/owner/ai/OwnerAiLogsPage';
 import { PlayerWorkspacePage } from '../../features/player/PlayerWorkspacePage';
@@ -98,7 +97,6 @@ export function createAppRoutes(): RouteObject[] {
         { path: 'world', element: <OwnerWorldPage /> },
         { path: 'combat', element: <OwnerCombatPage /> },
         { path: 'archives', element: <OwnerArchivesPage /> },
-        { path: 'rules', element: <OwnerRulesPage /> },
         { path: 'ai-provider', element: <OwnerAiProviderPage /> },
         { path: 'ai-logs', element: <OwnerAiLogsPage /> },
       ],

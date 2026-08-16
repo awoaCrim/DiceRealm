@@ -20,6 +20,7 @@ import { WorldFactRepository, type WorldFactRow } from '../world/WorldFactReposi
 import { CombatRepository, type CombatantRow, type EncounterRow } from '../combat/CombatRepository.js';
 import { ArchiveRepository, type ArchiveRow } from './ArchiveRepository.js';
 import { AiRunRepository } from '../ai-runtime/AiRunRepository.js';
+import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 
 /** 恢复两阶段 position 重排安全 offset：远大于任何真实 position 数量。 */
 const POSITION_RESTORE_OFFSET = 2_000_000;
@@ -34,12 +35,14 @@ const POSITION_RESTORE_OFFSET = 2_000_000;
  */
 export class ArchiveService {
   private readonly repository: ArchiveRepository;
+  private readonly mutations: CampaignMutationCoordinator;
 
   constructor(
     private readonly executor: DatabasePort,
     private readonly outbox: EventPublisherPort,
   ) {
     this.repository = new ArchiveRepository(executor);
+    this.mutations = new CampaignMutationCoordinator(executor);
   }
 
   /** owner 手动存档：label 必填 trimmed；current turn resolving → STATE_CONFLICT；无 turn/setup、waiting、locked、needs_owner_attention、completed 均允许。 */
@@ -103,6 +106,12 @@ export class ArchiveService {
         throw new AppError('STATE_CONFLICT', '结算中的回合快照无法恢复。');
       }
       const now = new Date().toISOString();
+      const execution = await this.mutations.mutateIn(tx, {
+        campaignId: ctx.campaignId,
+        mutationId: `archive-restore:${archive.id}`,
+        causeType: 'archive_restore',
+        causeId: archive.id,
+      }, async () => {
       // 4) 先 supersede 旧历史（被恢复 archive 的 version 作为 archives 超水位）。
       await this.supersedeHistory(tx, ctx.campaignId, archive.id, archive.version, snapshot, now);
       // 5) 恢复快照状态。
@@ -117,6 +126,14 @@ export class ArchiveService {
       // 返回 DTO 前重读：确保 archive.superseded=false（选中 checkpoint 已重新激活）。
       const restoredArchive = (await repo.findById(archive.id)) as ArchiveRow;
       return { archive: mapArchive(restoredArchive), restoredTurnId };
+      });
+      if (execution.replayed) {
+        const replayedArchive = await repo.findById(archive.id);
+        if (!replayedArchive) throw new AppError('INTERNAL_ERROR', '存档恢复结果读取失败。');
+        return { archive: mapArchive(replayedArchive), restoredTurnId: archive.turn_id };
+      }
+      if (!execution.result) throw new AppError('INTERNAL_ERROR', '存档恢复结果读取失败。');
+      return execution.result;
     });
   }
 

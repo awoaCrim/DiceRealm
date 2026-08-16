@@ -24,7 +24,7 @@ function isErrno(error: unknown, code: string): error is NodeJS.ErrnoException {
 }
 
 /**
- * 启动 credential fail-closed 门。必须在 001-011 migration 之后、listener 之前运行。
+ * 启动 credential fail-closed 门。必须在当前基础 migration 之后、listener 之前运行。
  *
  * 固定算法：
  * 1. 查询 `platform_ai_provider_configs` 全部 `(campaign_id, encrypted_api_key)`，按 campaign_id 稳定排序。

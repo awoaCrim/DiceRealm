@@ -24,8 +24,8 @@ export interface StartupSecurityGateResult {
  * 执行 sensitive backup、执行未批准的 pending migration。
  *
  * 固定检查：
- * 1. applied migration 必须精确等于当前 Phase 批准集合；001-011 → 提示 enrollment；
- *    001-012 → 提示 security-cutover；012-014 但 pending/cleaning → 拒绝。
+ * 1. applied migration 必须精确等于当前 Phase 批准集合；001-010 → 提示 enrollment；
+ *    001-010 + 012 → 提示 security-cutover；完整集合但 pending/cleaning → 拒绝。
  * 2. platform_instance 必须存在且 enrollment_state=ready。
  * 3. 本地 key 指纹必须等于 singleton 记录的 credential_key_fingerprint。
  * 4. 全部 Provider ciphertext 必须用该 key 逐行解密成功。
@@ -34,7 +34,7 @@ export interface StartupSecurityGateResult {
 export async function runStartupSecurityGate(options: {
   db: DatabasePort;
   keyPath: string;
-  /** 当前 Phase 批准的全部迁移文件名（Task 2：001-012；Task 4 起：001-014）。 */
+  /** 当前维护基线批准的全部迁移文件名。 */
   approvedMigrationFilenames: string[];
 }): Promise<StartupSecurityGateResult> {
   const { db, keyPath, approvedMigrationFilenames } = options;
@@ -48,22 +48,23 @@ export async function runStartupSecurityGate(options: {
   }
 
   // 已应用集合的分流诊断必须按 membership 判断，不能只看数量：
-  // 12 个已应用但非精确 001-012（如缺 012、含 013）绝不能得到 security-cutover 提示。
+  // 应用集合不完整或含未批准迁移时，绝不能得到 security-cutover 提示。
   const phaseVersions = expectedVersions;
-  const baseVersions = phaseVersions.slice(0, 11); // 001-011
+  const baseVersions = phaseVersions.filter((version) => Number(version) < 12);
   const hasFullBase = baseVersions.every((version) => appliedSet.has(version));
   const hasForeign = applied.some((version) => !phaseVersions.includes(version));
-  if (applied.length < 12) {
+  const enrolledVersionCount = baseVersions.length + 1;
+  if (applied.length < enrolledVersionCount) {
     if (!hasFullBase || hasForeign) {
-      throw new StartupSecurityError(`已应用迁移集合异常（${applied.length} 个）：缺少完整 Phase 1 001-011。普通启动不执行未批准的迁移。`);
+      throw new StartupSecurityError(`已应用迁移集合异常（${applied.length} 个）：缺少完整 Phase 1 基线。普通启动不执行未批准的迁移。`);
     }
     throw new StartupSecurityError('数据库尚未 enrollment：请先运行 platform enroll。');
   }
-  if (applied.length === 12) {
+  if (applied.length === enrolledVersionCount) {
     if (hasFullBase && appliedSet.has('012')) {
       throw new StartupSecurityError('数据库已 enrollment 但尚未完成 session security cutover：请先运行 platform security-cutover。');
     }
-    throw new StartupSecurityError('已应用迁移集合异常：12 个已应用迁移但并非精确 001-012。普通启动不执行未批准的迁移。');
+    throw new StartupSecurityError(`已应用迁移集合异常：${enrolledVersionCount} 个已应用迁移但并非精确基线 + 012。普通启动不执行未批准的迁移。`);
   }
   if (!expectedVersions.every((version) => appliedSet.has(version)) || appliedSet.size !== expectedVersions.length) {
     throw new StartupSecurityError('已应用迁移与当前 Phase 批准集合不一致：普通启动不执行未批准的迁移。');

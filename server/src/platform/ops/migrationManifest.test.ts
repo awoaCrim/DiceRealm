@@ -56,7 +56,6 @@ describe('migrationManifest canonical contract', () => {
   it('matches only canonical three-digit prefixed SQL filenames', () => {
     expect(isCanonicalMigrationFilename('001_initial_platform.sql')).toBe(true);
     expect(isCanonicalMigrationFilename('010_ai_provider_credentials.sql')).toBe(true);
-    expect(isCanonicalMigrationFilename('011_rule_sources.sql')).toBe(true);
     for (const bad of [
       '001.sql',
       '1_initial.sql',
@@ -133,8 +132,7 @@ describe('migrationManifest vs build helper contract', () => {
       migrationsDir: COMMITTED_MIGRATIONS_DIR,
       manifestPath: COMMITTED_MANIFEST_PATH,
     });
-    // Phase 2 Task 0：manifest 测试改为断言“当前 approved set”（001–011 baseline）；
-    // 012/013/014 在对应 Task 通过 APPENDED_APPROVED_MIGRATIONS 加入，避免中间 Task 假绿。
+    // manifest 测试断言当前 approved set，避免迁移目录与维护集合漂移。
     expect(report.files.length).toBe(APPROVED_MIGRATION_FILENAMES.length);
     expect(report.files.map((file) => file.name)).toEqual([...APPROVED_MIGRATION_FILENAMES].sort());
   });
@@ -220,7 +218,7 @@ describe('migrationManifest vs build helper contract', () => {
 
 
 describe('migrationManifest verification', () => {
-  it('verifies the committed source migrations directory (001-011) against the committed manifest', () => {
+  it('verifies the committed source migrations directory against the committed manifest', () => {
     const report = verifyMigrationManifest({
       migrationsDir: COMMITTED_MIGRATIONS_DIR,
       manifestPath: COMMITTED_MANIFEST_PATH,

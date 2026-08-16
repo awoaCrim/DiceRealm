@@ -286,7 +286,6 @@ describe('Task 7 HTTPS HTTP matrix', () => {
         post(`${server.baseUrl}/api/campaigns/${campaign}/turns/missing/actions`, player.cookieJar.header(), commonOversize),
         post(`${server.baseUrl}/api/campaigns/${campaign}/archives`, owner.cookieJar.header(), commonOversize),
         post(`${server.baseUrl}/api/campaigns/${campaign}/combat`, owner.cookieJar.header(), commonOversize),
-        post(`${server.baseUrl}/api/campaigns/${campaign}/rules/sources`, owner.cookieJar.header(), commonOversize),
       ]);
       for (const response of commonBudgetResponses) {
         expect(response.status).toBe(413);

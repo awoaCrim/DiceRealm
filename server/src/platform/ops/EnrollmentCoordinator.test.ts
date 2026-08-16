@@ -46,12 +46,12 @@ function migrationsSubset(versions: string[]): { dir: string; manifestPath: stri
   return { dir, manifestPath };
 }
 
-/** 用 raw better-sqlite3 手工应用 001-011（与 MigrationRunner 相同 schema+tracking 原子语义）。 */
-async function createExistingDb001_011(databasePath: string): Promise<void> {
+/** 用 raw better-sqlite3 手工应用 current Phase 1 baseline（与 MigrationRunner 相同 schema+tracking 原子语义）。 */
+async function createExistingDb001_010(databasePath: string): Promise<void> {
   const raw = new Database(databasePath);
   raw.exec('CREATE TABLE IF NOT EXISTS platform_migrations (version TEXT PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)');
   const insert = raw.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)');
-  const { dir } = migrationsSubset(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011']);
+  const { dir } = migrationsSubset(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010']);
   try {
     for (const name of readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {
       const sql = readFileSync(join(dir, name), 'utf8');
@@ -84,12 +84,12 @@ function opts(dir: string, databasePath: string, keyPath: string, command: 'enro
 }
 
 describe('EnrollmentCoordinator enroll', () => {
-  it('enrolls an existing 001-011 DB: applies only 012, creates a generated key, marks ready', async () => {
+  it('enrolls an existing current Phase 1 baseline DB: applies only 012, creates a generated key, marks ready', async () => {
     const dir = tempDir('dnd-enroll-ok-');
     try {
       const databasePath = join(dir, 'existing.sqlite');
       const keyPath = join(dir, '.dnd-ai-credential-key');
-      await createExistingDb001_011(databasePath);
+      await createExistingDb001_010(databasePath);
 
       const result = await runEnrollmentCommand(opts(dir, databasePath, keyPath, 'enroll'));
       expect(result.enrollmentState).toBe('ready');
@@ -103,7 +103,7 @@ describe('EnrollmentCoordinator enroll', () => {
       const raw = new Database(databasePath, { readonly: true });
       try {
         const versions = raw.prepare('SELECT version FROM platform_migrations ORDER BY version').all().map((r) => (r as { version: string }).version);
-        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012']);
+        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012']);
         const instance = new PlatformInstanceStore();
         const row = (await instance.read({ query: async <R>(sql: string, p?: unknown[]) => raw.prepare(sql).all(...(p ?? [])) as R[] }))!;
         expect(row.credential_key_fingerprint).toBe(loadCredentialCipher({ keyPath }).fingerprint());
@@ -120,7 +120,7 @@ describe('EnrollmentCoordinator enroll', () => {
     try {
       const databasePath = join(dir, 'existing.sqlite');
       const keyPath = join(dir, '.dnd-ai-credential-key');
-      await createExistingDb001_011(databasePath);
+      await createExistingDb001_010(databasePath);
       const preexisting = createCredentialCipher({ keyPath });
       const result = await runEnrollmentCommand(opts(dir, databasePath, keyPath, 'enroll'));
       expect(result.keyOrigin).toBe('preexisting');
@@ -138,7 +138,7 @@ describe('EnrollmentCoordinator enroll', () => {
     try {
       const databasePath = join(dir, 'existing.sqlite');
       const keyPath = join(dir, '.dnd-ai-credential-key');
-      await createExistingDb001_011(databasePath);
+      await createExistingDb001_010(databasePath);
       // 手工写一条密文（先建 key 加密，再删除 key）。010 的 campaign_id 有 FK，需要先建 user/campaign。
       const tempKey = join(dir, 'temp.key');
       const cipher = createCredentialCipher({ keyPath: tempKey });
@@ -180,27 +180,27 @@ describe('EnrollmentCoordinator enroll', () => {
     try {
       const databasePath = join(dir, 'existing.sqlite');
       const keyPath = join(dir, '.dnd-ai-credential-key');
-      await createExistingDb001_011(databasePath);
+      await createExistingDb001_010(databasePath);
       await runEnrollmentCommand(opts(dir, databasePath, keyPath, 'enroll'));
       // 已应用 012（或已存在行）时 enroll 必须拒绝。
-      await expect(runEnrollmentCommand(opts(dir, databasePath, keyPath, 'enroll'))).rejects.toThrow(/只接受精确应用 001-011|已存在 platform_instance/);
+      await expect(runEnrollmentCommand(opts(dir, databasePath, keyPath, 'enroll'))).rejects.toThrow(/只接受精确应用 current Phase 1 baseline|已存在 platform_instance/);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 });
 
-/** 构建含未来 015 迁移（001-014 副本 + 015 + 匹配 manifest）的临时迁移目录。 */
-function migrationsWith015(): { dir: string; manifestPath: string } {
-  const dir = tempDir('dnd-enroll-mig15-');
-  const names = ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014']
+/** 构建含未来 016 迁移（current approved migration set 副本 + 016 + 匹配 manifest）的临时迁移目录。 */
+function migrationsWithFuture016(): { dir: string; manifestPath: string } {
+  const dir = tempDir('dnd-enroll-mig16-');
+  const names = ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015']
     .map((version) => readdirSync(COMMITTED_MIGRATIONS_DIR).find((name) => name.startsWith(`${version}_`))!)
     .sort();
   for (const name of names) {
     cpSync(join(COMMITTED_MIGRATIONS_DIR, name), join(dir, name));
   }
-  writeFileSync(join(dir, '015_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
-  const allNames = [...names, '015_future_phase.sql'].sort();
+  writeFileSync(join(dir, '016_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
+  const allNames = [...names, '016_future_phase.sql'].sort();
   const manifest = {
     format: 1,
     files: allNames.map((name) => ({
@@ -214,7 +214,7 @@ function migrationsWith015(): { dir: string; manifestPath: string } {
 }
 
 describe('EnrollmentCoordinator init (final secure-ready contract)', () => {
-  it('creates a fresh DB with 001-014, enrolls ready, session security ready, and the normal server gate accepts it', async () => {
+  it('creates a fresh DB with current approved migration set, enrolls ready, session security ready, and the normal server gate accepts it', async () => {
     const dir = tempDir('dnd-init-');
     try {
       const databasePath = join(dir, 'fresh.sqlite');
@@ -245,7 +245,7 @@ describe('EnrollmentCoordinator init (final secure-ready contract)', () => {
         const admins = raw.prepare('SELECT COUNT(*) AS c FROM platform_administrators').get() as { c: number };
         expect(admins.c).toBe(0);
         const versions = raw.prepare('SELECT version FROM platform_migrations ORDER BY version').all().map((r) => (r as { version: string }).version);
-        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014']);
+        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015']);
       } finally {
         raw.close();
       }
@@ -254,10 +254,10 @@ describe('EnrollmentCoordinator init (final secure-ready contract)', () => {
     }
   });
 
-  it('init applies exactly the frozen 001-014 set and never silently applies a future 015 from the manifest', async () => {
+  it('init applies exactly the frozen current approved migration set and never silently applies a future 016 from the manifest', async () => {
     const dir = tempDir('dnd-init-frozen-');
     try {
-      const { dir: migrationsDir, manifestPath } = migrationsWith015();
+      const { dir: migrationsDir, manifestPath } = migrationsWithFuture016();
       const databasePath = join(dir, 'fresh.sqlite');
       const keyPath = join(dir, '.dnd-ai-credential-key');
       const result = await runEnrollmentCommand({
@@ -271,11 +271,11 @@ describe('EnrollmentCoordinator init (final secure-ready contract)', () => {
       });
       expect(result.enrollmentState).toBe('ready');
       expect(result.sessionSecurityState).toBe('ready');
-      // 015 不得被静默应用（即使 manifest/迁移目录已含 015）。
+      // 016 不得被静默应用（即使 manifest/迁移目录已含 016）。
       const raw = new Database(databasePath, { readonly: true });
       try {
         const versions = raw.prepare('SELECT version FROM platform_migrations ORDER BY version').all().map((r) => (r as { version: string }).version);
-        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012', '013', '014']);
+        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015']);
         const future = raw.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type = 'table' AND name = 'future_phase_table'").get() as { c: number };
         expect(future.c).toBe(0);
       } finally {
@@ -300,15 +300,15 @@ describe('EnrollmentCoordinator init (final secure-ready contract)', () => {
 });
 
 describe('EnrollmentCoordinator crash window (012 applied, no singleton row)', () => {
-  /** 精确应用 001-012（无 platform_instance 行）的 crash-window DB。 */
+  /** 精确应用当前 Phase 1 基线 + 012（无 platform_instance 行）的 crash-window DB。 */
   async function createCrashWindowDb(dir: string, extraVersions: string[] = []): Promise<string> {
     const databasePath = join(dir, 'crash.sqlite');
-    await createExistingDb001_011(databasePath);
+    await createExistingDb001_010(databasePath);
     await applyMigrationsToFileDb(databasePath, ['012', ...extraVersions]);
     return databasePath;
   }
 
-  it('enroll safely resumes a crash window (exactly 001-012 applied, no singleton row): skips 012 re-apply and reaches ready+pending', async () => {
+  it('enroll safely resumes a crash window (exactly baseline + 012 applied, no singleton row): skips 012 re-apply and reaches ready+pending', async () => {
     const dir = tempDir('dnd-enroll-crash-');
     try {
       const databasePath = await createCrashWindowDb(dir);
@@ -321,11 +321,11 @@ describe('EnrollmentCoordinator crash window (012 applied, no singleton row)', (
       expect(result.createdKey).toBe(true);
       expect(result.databaseId).toBe(DATABASE_ID);
 
-      // 012 未被重放（无重复 tracking 行），版本集合仍精确为 001-012。
+      // 012 未被重放（无重复 tracking 行），版本集合仍精确为当前 Phase 1 基线 + 012。
       const raw = new Database(databasePath, { readonly: true });
       try {
         const versions = raw.prepare('SELECT version FROM platform_migrations ORDER BY version').all().map((r) => (r as { version: string }).version);
-        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '011', '012']);
+        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012']);
         const instance = new PlatformInstanceStore();
         const row = (await instance.read({ query: async <R>(sql: string, p?: unknown[]) => raw.prepare(sql).all(...(p ?? [])) as R[] }))!;
         expect(row.credential_key_fingerprint).toBe(loadCredentialCipher({ keyPath }).fingerprint());
@@ -353,13 +353,13 @@ describe('EnrollmentCoordinator crash window (012 applied, no singleton row)', (
     }
   });
 
-  it('enroll fails closed on a contradictory applied set (001-012 + 013, no singleton row)', async () => {
+  it('enroll fails closed on a contradictory applied set (baseline + 012 + 013, no singleton row)', async () => {
     const dir = tempDir('dnd-enroll-crash-contra-');
     try {
       const databasePath = await createCrashWindowDb(dir, ['013']);
       const keyPath = join(dir, '.dnd-ai-credential-key');
       await expect(runEnrollmentCommand(opts(dir, databasePath, keyPath, 'enroll')))
-        .rejects.toThrow(/只接受精确应用 001-011 或 crash 窗口 001-012/);
+        .rejects.toThrow(/当前 Phase 1 基线或 crash 窗口/);
       // fail closed：无 key 被创建。
       expect(existsSync(keyPath)).toBe(false);
     } finally {
@@ -512,7 +512,7 @@ describe('EnrollmentCoordinator status', () => {
     try {
       const databasePath = join(dir, 'db.sqlite');
       const keyPath = join(dir, '.dnd-ai-credential-key');
-      await createExistingDb001_011(databasePath);
+      await createExistingDb001_010(databasePath);
       await expect(runEnrollmentCommand(opts(dir, databasePath, keyPath, 'status'))).rejects.toThrow(EnrollmentError);
     } finally {
       rmSync(dir, { recursive: true, force: true });
