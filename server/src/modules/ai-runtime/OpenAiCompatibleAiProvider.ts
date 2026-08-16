@@ -76,7 +76,7 @@ export function extractJsonObjectCandidate(text: string): Record<string, unknown
 
 /**
  * 真实 OpenAI-compatible Provider 端口适配器：只做协议适配，绝不持有 DB tx、不应用领域状态。
- * stream 返回结构化 unknown（JSON object），由应用层 turnResolutionSchema parse；
+ * stream 返回结构化 unknown（JSON object），由应用层 AiResolutionProposal schema/域校验解析；
  * preview 只发送已解析对象中的非空 publicNarrative，绝不把完整 JSON 广播到公开预览。
  */
 export class OpenAiCompatibleAiProvider implements AiProviderPort {

@@ -23,10 +23,8 @@ const successScript: AiProviderScript = async (prompt, hooks) => {
       { playerId: pa, content: '你发现墙上有暗门。' },
       { playerId: pb, content: '你听见远处传来脚步声。' },
     ],
-    diceResults: [
-      { id: 'd1', formula: '1d20+2', total: 17, visibility: 'public', targetPlayerId: null },
-      { id: 'd2', formula: '1d20', total: 5, visibility: 'player_private', targetPlayerId: pa },
-    ],
+    // Dice are resolved by the server, never authored by the Provider.
+    diceResults: [],
     stateChanges: [],
     interactionRequests: [{ id: 'i1', targetPlayerId: pa, prompt: '暗门似乎虚掩，你要推开吗？' }],
   };
@@ -135,12 +133,12 @@ describe('HTTP server-side AI vertical flow', () => {
       const interactionEvent = events.find((e) => e.event_type === 'interaction.requested');
       expect(JSON.parse(interactionEvent!.payload_json).requestId).toBe(interactions[0].id);
 
-      // entries 投影：A 见 public + 自己的 private + 自己 target 的 dice；不见 B 私密与 owner_only。
+      // entries 投影：A 见 public + 自己的 private_update；不见 B 私密与 Provider-authored dice（骰子由服务端处理）。
       const aEntriesRes = await fetch(`${aiBase}/turns/${turnId}/entries`, { headers: { cookie: playerA.cookieJar.header() } });
       const aEntriesText = await aEntriesRes.text();
       const aEntries = JSON.parse(aEntriesText) as { entries: Array<{ visibility: string; targetPlayerId: string | null }> };
       expect(aEntries.entries.filter((e) => e.visibility === 'player_private').map((e) => e.targetPlayerId))
-        .toEqual([playerA.userId, playerA.userId]);
+        .toEqual([playerA.userId]);
       const bEntries = JSON.stringify(await (await fetch(`${aiBase}/turns/${turnId}/entries`, { headers: { cookie: playerB.cookieJar.header() } })).json());
       expect(bEntries).not.toContain('暗门');
       expect(bEntries).toContain('脚步声');
@@ -247,7 +245,7 @@ describe('HTTP server-side AI vertical flow', () => {
       const runs = await platformDb.query<{ status: string }>('SELECT status FROM platform_ai_runs WHERE turn_id = ?', [turnId]);
       expect(runs).toHaveLength(2);
       const entries = await platformDb.query<{ ai_run_id: string }>('SELECT ai_run_id FROM platform_turn_entries WHERE turn_id = ?', [turnId]);
-      expect(entries).toHaveLength(5);
+      expect(entries).toHaveLength(3);
       expect(entries.every((e) => e.ai_run_id === retry.run.id)).toBe(true);
       // 失败回合（fail-1 的 run）error_json/raw_debug 为严格白名单脱敏结构，原始 provider 文本/secret 不落库。
       const failed = await platformDb.query<{ error_json: string | null }>("SELECT error_json FROM platform_ai_runs WHERE turn_id = ? AND status = 'failed'", [turnId]);

@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import type { AiPrompt, AiRunView, ResolveTurnInput, TurnResolution } from '@dnd/contracts';
+import type { AiPrompt, AiRunView, ResolveTurnInput, ResolvedOutcome } from '@dnd/contracts';
 import type { DatabasePort, QueryExecutor } from '../../platform/database/DatabasePort.js';
 import type { EventPublisherPort } from '../../platform/events/EventPublisherPort.js';
 import { AppError } from '../../platform/http/AppError.js';
@@ -181,13 +181,13 @@ export class AiResolutionService {
     });
   }
 
-  private async validateAndParse(campaignId: string, output: unknown): Promise<TurnResolution> {
+  private async validateAndParse(campaignId: string, output: unknown): Promise<ResolvedOutcome> {
     // schema parse + 规则/可见性校验统一在 validator 内；任一失败 → AI_OUTPUT_INVALID。
     return this.validator.validate(campaignId, output);
   }
 
   /** formal apply tx：白名单 state changes → entries/requests → run succeeded → turn completed → 正式事件 → 自动存档 → 下一回合。 */
-  private async applyFormal(campaignId: string, turnId: string, runId: string, resolution: TurnResolution, actorUserId: string): Promise<void> {
+  private async applyFormal(campaignId: string, turnId: string, runId: string, resolution: ResolvedOutcome, actorUserId: string): Promise<void> {
     await this.executor.transaction(async (tx) => {
       await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [campaignId]);
       const turns = new TurnRepository(tx);
@@ -227,15 +227,6 @@ export class AiResolutionService {
           id: nanoid(24), ai_run_id: runId, turn_id: turnId, campaign_id: campaignId,
           entry_kind: 'private_update', entry_index: index++, visibility: 'player_private',
           target_player_id: update.playerId, payload_json: JSON.stringify({ text: update.content }), created_at: now,
-        });
-      }
-      for (const dice of resolution.diceResults) {
-        await entriesRepo.insertEntry(tx, {
-          id: nanoid(24), ai_run_id: runId, turn_id: turnId, campaign_id: campaignId,
-          entry_kind: 'dice_result', entry_index: index++, visibility: dice.visibility,
-          target_player_id: dice.targetPlayerId,
-          // payload 保留 { id, formula, total }：id 与 provider 输出一致，供前端/dice 投影稳定引用。
-          payload_json: JSON.stringify({ id: dice.id, formula: dice.formula, total: dice.total }), created_at: now,
         });
       }
       const interactionIds: Array<{ requestId: string; targetPlayerId: string }> = [];

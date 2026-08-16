@@ -21,7 +21,7 @@ const TURN_RESOLUTION_OUTPUT_INSTRUCTIONS = [
   '必须包含以下完整顶层模板；除 publicNarrative 外，没有条目时使用空数组 []：',
   TURN_RESOLUTION_JSON_TEMPLATE,
   'privateUpdates 每项为 { playerId, content }。',
-  'diceResults 每项为 { id, formula, total, visibility, targetPlayerId }。',
+  'diceResults 必须始终为 []；骰子、先攻、攻击、豁免与伤害由服务端权威计算，Provider 提供任何 diceResults 条目都会被拒绝。',
   'stateChanges 每项为 { kind, targetId, patch, visibility }，只能修改上下文中已有的稳定 id。',
   'interactionRequests 每项为 { id, targetPlayerId, prompt }。',
 ].join('\n');
@@ -215,7 +215,7 @@ export class AiContextBuilder {
         '可选世界创建 worldFactCreations：每条 { title, kind, content, visibility, knownBy }；player_private 必须给出 knownBy 为上面已批准角色里的真实成员 playerId，public/owner_only 留空。',
         '可选战斗发起 encounterStarts：每条 { name, combatants, rollInitiative }；combatants 每项 { name, characterId, initiativeBonus, hpCurrent, hpMax, ac, conditions, visibility, targetPlayerId }；characterId 只能引用上面已批准角色列表中的 id（非玩家 NPC 为 null）；player_private 战斗员必须给出 targetPlayerId 为真实成员 playerId，public/owner_only 为 null。',
         '所有新创建的事实/遭遇/战斗员 id 都由服务端生成：不要在输出里写任何 id；同一份结算内不得引用你刚创建的事实/遭遇/战斗员 id（stateChanges 只能指向已有的稳定 id）。',
-        '骰子（先攻/攻击/豁免/伤害）由服务端权威掷出：AI 发起遭遇时 rollInitiative 默认 true，服务端会在结算事务内掷先攻并排定行动顺序，不要输出战斗员 initiative 值。',
+        'diceResults 必须始终为空数组 []；骰子（先攻/攻击/豁免/伤害）由服务端权威掷出，Provider 不得生成 formula/total。AI 发起遭遇时 rollInitiative 默认 true，服务端会在结算事务内掷先攻并排定行动顺序，不要输出战斗员 initiative 值。',
       ].join('\n'), ['system:resolution-contract'], 'system', 'server_only', 'P0'),
     ];
     const actorPrivateRefs = new Set(

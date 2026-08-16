@@ -32,7 +32,7 @@ describe('state change materializer', () => {
   it('applies a whitelisted character patch and recomputes derived with an audit', async () => {
     const { db, ownerCtx, approved } = await makeFixture();
     const m = new StateChangeMaterializer(db);
-    await db.transaction((tx) => m.applyAll(tx, approved.campaignId, [
+    await db.transaction((tx) => m.applyProposals(tx, approved.campaignId, [
       { kind: 'character', targetId: approved.id, patch: { sheet: { hpCurrent: 7 } }, visibility: 'public' },
     ], ownerCtx.userId));
     const row = await db.query<{ sheet_json: string; derived_json: string }>(
@@ -47,10 +47,24 @@ describe('state change materializer', () => {
     await db.close();
   });
 
+  it('rejects an unvalidated proposal at the formal materializer seam', async () => {
+    const { db, ownerCtx, approved } = await makeFixture();
+    const m = new StateChangeMaterializer(db);
+    const proposal = {
+      kind: 'character', targetId: approved.id,
+      patch: { sheet: { hpCurrent: 1 } }, visibility: 'public',
+    };
+    await expect(db.transaction((tx) => m.applyAll(tx, approved.campaignId, [proposal] as never, ownerCtx.userId)))
+      .rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
+    const row = await db.query<{ sheet_json: string }>('SELECT sheet_json FROM platform_characters WHERE id = ?', [approved.id]);
+    expect(JSON.parse(row[0].sheet_json)).toMatchObject({ hpCurrent: 10 });
+    await db.close();
+  });
+
   it('rejects a character patch with an unknown sheet key', async () => {
     const { db, ownerCtx, approved } = await makeFixture();
     const m = new StateChangeMaterializer(db);
-    await expect(db.transaction((tx) => m.applyAll(tx, approved.campaignId, [
+    await expect(db.transaction((tx) => m.applyProposals(tx, approved.campaignId, [
       { kind: 'character', targetId: approved.id, patch: { sheet: { admin: true } } as never, visibility: 'public' },
     ], ownerCtx.userId))).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
     await db.close();
@@ -59,10 +73,10 @@ describe('state change materializer', () => {
   it('applies a world patch and rejects a player_private knownBy that is not a member', async () => {
     const { db, fact, ownerCtx } = await makeFixture();
     const m = new StateChangeMaterializer(db);
-    await db.transaction((tx) => m.applyAll(tx, fact.campaignId, [
+    await db.transaction((tx) => m.applyProposals(tx, fact.campaignId, [
       { kind: 'world', targetId: fact.id, patch: { content: '钥匙在井里。', visibility: 'public' }, visibility: 'public' },
     ], ownerCtx.userId));
-    await expect(db.transaction((tx) => m.applyAll(tx, fact.campaignId, [
+    await expect(db.transaction((tx) => m.applyProposals(tx, fact.campaignId, [
       { kind: 'world', targetId: fact.id, patch: { visibility: 'player_private', knownBy: ['ghost'] }, visibility: 'player_private' },
     ], ownerCtx.userId))).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
     await db.close();
@@ -71,7 +85,7 @@ describe('state change materializer', () => {
   it('gates combat state changes with STATE_CONFLICT when no applier is injected and writes nothing', async () => {
     const { db, ownerCtx, approved } = await makeFixture();
     const m = new StateChangeMaterializer(db);
-    await expect(db.transaction((tx) => m.applyAll(tx, approved.campaignId, [
+    await expect(db.transaction((tx) => m.applyProposals(tx, approved.campaignId, [
       { kind: 'combat', targetId: 'enc-1', patch: { hpCurrent: 1 }, visibility: 'public' },
     ], ownerCtx.userId))).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
     const entries = await db.query<{ count: number }>(
@@ -93,7 +107,7 @@ describe('state change materializer', () => {
       },
     };
     const m = new StateChangeMaterializer(db, applier);
-    await db.transaction((tx) => m.applyAll(tx, approved.campaignId, [
+    await db.transaction((tx) => m.applyProposals(tx, approved.campaignId, [
       { kind: 'combat', targetId: 'enc-9', patch: { command: 'advance_turn' }, visibility: 'public' },
     ], ownerCtx.userId));
     expect(applied).toEqual([`${approved.campaignId}:enc-9`]);
@@ -103,7 +117,7 @@ describe('state change materializer', () => {
   it('inserts world fact creations with server-generated ids and knownBy rules', async () => {
     const { db, ownerCtx, aCtx } = await makeFixture();
     const m = new StateChangeMaterializer(db);
-    await db.transaction((tx) => m.applyAll(tx, ownerCtx.campaignId, [], ownerCtx.userId, {
+    await db.transaction((tx) => m.applyProposals(tx, ownerCtx.campaignId, [], ownerCtx.userId, {
       worldFactCreations: [
         { title: '烛堡密道', kind: 'location', content: '石墙后藏着通道。', visibility: 'public', knownBy: [] },
         { title: '影印暗记', kind: 'lore', content: '只有甲知道。', visibility: 'player_private', knownBy: [aCtx.playerId as string] },
@@ -128,7 +142,7 @@ describe('state change materializer', () => {
   it('rejects a world fact creation with a non-member player_private knownBy as AI_OUTPUT_INVALID and writes nothing', async () => {
     const { db, ownerCtx } = await makeFixture();
     const m = new StateChangeMaterializer(db);
-    await expect(db.transaction((tx) => m.applyAll(tx, ownerCtx.campaignId, [], ownerCtx.userId, {
+    await expect(db.transaction((tx) => m.applyProposals(tx, ownerCtx.campaignId, [], ownerCtx.userId, {
       worldFactCreations: [
         { title: '私密', kind: 'lore', content: 'x', visibility: 'player_private', knownBy: ['ghost'] },
       ],
@@ -142,7 +156,7 @@ describe('state change materializer', () => {
   it('gates encounter starts with STATE_CONFLICT when no combat applier is injected and writes nothing', async () => {
     const { db, ownerCtx } = await makeFixture();
     const m = new StateChangeMaterializer(db);
-    await expect(db.transaction((tx) => m.applyAll(tx, ownerCtx.campaignId, [], ownerCtx.userId, {
+    await expect(db.transaction((tx) => m.applyProposals(tx, ownerCtx.campaignId, [], ownerCtx.userId, {
       worldFactCreations: [],
       encounterStarts: [{
         name: '伏击',
@@ -168,7 +182,7 @@ describe('state change materializer', () => {
       },
     };
     const m = new StateChangeMaterializer(db, applier);
-    await db.transaction((tx) => m.applyAll(tx, ownerCtx.campaignId, [], ownerCtx.userId, {
+    await db.transaction((tx) => m.applyProposals(tx, ownerCtx.campaignId, [], ownerCtx.userId, {
       worldFactCreations: [],
       encounterStarts: [{ name: '伏击', combatants: [{ name: '哥布林', characterId: null, initiativeBonus: 2, hpCurrent: 9, hpMax: 9, ac: 13, conditions: [], visibility: 'public', targetPlayerId: null }] }],
     }));
@@ -179,7 +193,7 @@ describe('state change materializer', () => {
   it('rejects an unknown state change kind with AI_OUTPUT_INVALID and writes nothing', async () => {
     const { db, ownerCtx, approved } = await makeFixture();
     const m = new StateChangeMaterializer(db);
-    await expect(db.transaction((tx) => m.applyAll(tx, approved.campaignId, [
+    await expect(db.transaction((tx) => m.applyProposals(tx, approved.campaignId, [
       { kind: 'banana', targetId: 'x', patch: {}, visibility: 'public' },
     ] as never, ownerCtx.userId))).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
     await db.close();

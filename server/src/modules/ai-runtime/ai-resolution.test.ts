@@ -67,10 +67,8 @@ const validResolution = (playerA: string, playerB: string) => ({
     { playerId: playerA, content: '你发现墙上有暗门。' },
     { playerId: playerB, content: '你听见远处有脚步声。' },
   ],
-  diceResults: [
-    { id: 'd1', formula: '1d20+2', total: 17, visibility: 'public', targetPlayerId: null },
-    { id: 'd2', formula: '1d20', total: 5, visibility: 'player_private', targetPlayerId: playerA },
-  ],
+  // Dice are server-owned; the Provider proposal must leave this collection empty.
+  diceResults: [],
   stateChanges: [],
   interactionRequests: [],
 });
@@ -103,7 +101,7 @@ describe('ai resolution service', () => {
     const entries = await db.query<{ entry_kind: string; visibility: string; target_player_id: string | null }>(
       'SELECT entry_kind, visibility, target_player_id FROM platform_turn_entries WHERE turn_id = ? ORDER BY entry_index', [turn.id],
     );
-    expect(entries.map((e) => e.entry_kind)).toEqual(['narrative', 'private_update', 'private_update', 'dice_result', 'dice_result']);
+    expect(entries.map((e) => e.entry_kind)).toEqual(['narrative', 'private_update', 'private_update']);
     const archives = await db.query<{ kind: string; label: string | null }>(
       'SELECT kind, label FROM platform_archives WHERE campaign_id = ?', [turn.campaignId],
     );
@@ -229,7 +227,7 @@ describe('ai resolution service', () => {
     const runs = await db.query<{ id: string }>('SELECT id FROM platform_ai_runs WHERE turn_id = ?', [turn.id]);
     expect(runs).toHaveLength(1);
     const entries = await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id]);
-    expect(entries).toHaveLength(5);
+    expect(entries).toHaveLength(3);
     const archives = await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId]);
     expect(archives).toHaveLength(1);
     await db.close();
@@ -275,7 +273,7 @@ describe('ai resolution service', () => {
     expect(replay.run.status).toBe('succeeded');
     // 始终只有一组 runs/entries/archive/events。
     expect((await db.query('SELECT id FROM platform_ai_runs WHERE turn_id = ?', [turn.id])).length).toBe(1);
-    expect((await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id])).length).toBe(5);
+    expect((await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id])).length).toBe(3);
     expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).length).toBe(1);
     await db.close();
   });
@@ -468,6 +466,30 @@ describe('ai resolution service', () => {
     const turnRow = await db.query<{ status: string }>('SELECT status FROM platform_turns WHERE id = ?', [turn.id]);
     expect(turnRow[0].status).toBe('needs_owner_attention');
     expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).length).toBe(0);
+    await db.close();
+  });
+
+  it('rejects Provider dice results before formal apply and writes no formal state', async () => {
+    const { db, service, ownerCtx, turn } = await makeFixture(
+      new ScriptedAiProvider(scriptedResolution({
+        publicNarrative: 'Provider 试图直接决定骰点。',
+        privateUpdates: [],
+        diceResults: [{ id: 'provider-die', formula: '1d20+999', total: 1000, visibility: 'public', targetPlayerId: null }],
+        stateChanges: [],
+        interactionRequests: [],
+      })),
+    );
+    await expect(service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'provider-dice-rejected' }))
+      .rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
+    const run = await db.query<{ status: string; error_code: string | null; raw_debug_json: string | null }>(
+      'SELECT status, error_code, raw_debug_json FROM platform_ai_runs WHERE turn_id = ?', [turn.id],
+    );
+    expect(run[0].status).toBe('failed');
+    expect(run[0].error_code).toBe('AI_OUTPUT_INVALID');
+    expect(run[0].raw_debug_json).toContain('provider_dice_results_not_allowed');
+    expect(await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id])).toHaveLength(0);
+    expect(await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).toHaveLength(0);
+    expect(await db.query('SELECT id FROM platform_turns WHERE campaign_id = ? AND number = 2', [turn.campaignId])).toHaveLength(0);
     await db.close();
   });
 

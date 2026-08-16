@@ -10,7 +10,7 @@ export interface AiPreviewHooks {
   onDelta(delta: AiPreviewDelta): Promise<void>;
 }
 
-/** Provider 端口：stream 返回 final output（unknown），由应用层 turnResolutionSchema parse。绝不持有 DB tx。
+/** Provider 端口：stream 返回 Provider-facing AiResolutionProposal（unknown），由应用层 schema/域校验解析。绝不持有 DB tx。
  *  name 标识 Provider 种类（unavailable/scripted/openai-compatible）；model 记录真实模型名
  *  （platform_ai_runs.model 落库值，OpenAI 兼容 Provider 应为配置的上游模型名）。 */
 export interface AiProviderPort {

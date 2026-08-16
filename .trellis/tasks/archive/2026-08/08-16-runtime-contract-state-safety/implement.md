@@ -89,6 +89,15 @@
 - [x] Verify no Worldbook persistence, vector/reranker dependency, multi-model orchestration, rules registry, or LOTM content was introduced.
 - [x] Review migration behavior on fresh fixture, maintained existing fixture, and malformed/ambiguous database states before requesting final task review.
 
+## Review follow-up — proposal and mechanical authority boundary
+
+- [x] Reject non-empty Provider `diceResults` with controlled `AI_OUTPUT_INVALID`; keep only the empty-array transport shape and remove Provider dice writes from formal apply.
+- [x] Introduce distinct `AiResolutionProposal` / `ProposedStateChange` and shape-only `resolvedOutcomeSchema` / `ResolvedOutcome` seams.
+- [x] Make formal `StateChangeMaterializer.applyAll()` and combat adapters require runtime-validated state-change values; preserve a guarded compatibility seam for existing direct callers.
+- [x] Add regression coverage for dice rejection, no formal writes after invalid output, unbranded formal parsing, and unvalidated materializer/combat calls.
+- [x] Update the runtime code-spec with the proposal/resolved contract and server-owned dice boundary.
+- [x] Defer GM/player narration-context split, full Rules/Dice adjudication, NarrativeRound, Worldbook, retrieval, and multi-model orchestration to the next task.
+
 ## Validation scenario
 
 Use a temporary campaign fixture:

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { campaignEventSchema, turnResolutionSchema } from './index';
+import {
+  aiResolutionProposalSchema,
+  campaignEventSchema,
+  isValidatedStateChange,
+  resolvedOutcomeSchema,
+  turnResolutionSchema,
+} from './index';
 
 describe('shared contracts', () => {
   it('accepts a structured turn resolution', () => {
@@ -14,12 +20,33 @@ describe('shared contracts', () => {
     expect(result.privateUpdates[0].playerId).toBe('player-1');
   });
 
+  it('keeps Provider proposals separate from the formal resolved outcome seam', () => {
+    const formal = resolvedOutcomeSchema.parse({
+      publicNarrative: '服务端已确认。',
+      privateUpdates: [],
+      diceResults: [],
+      stateChanges: [{
+        kind: 'character', targetId: 'character-1',
+        patch: { sheet: { hpCurrent: 7 } }, visibility: 'public',
+      }],
+      interactionRequests: [],
+    });
+    expect(formal.diceResults).toEqual([]);
+    // Shape parsing alone must not mint the server-only validation brand.
+    expect(isValidatedStateChange(formal.stateChanges[0])).toBe(false);
+    expect(() => resolvedOutcomeSchema.parse({
+      publicNarrative: 'Provider 不得提交骰点。',
+      diceResults: [{ id: 'd', formula: '1d20', total: 20, visibility: 'public', targetPlayerId: null }],
+      stateChanges: [],
+    })).toThrow();
+  });
+
   it('rejects an event without a visibility-safe event type', () => {
     expect(() => campaignEventSchema.parse({ type: 'database.row_dump' })).toThrow();
   });
 
-  it('accepts a structured dice result with visibility', () => {
-    const result = turnResolutionSchema.parse({
+  it('accepts a structured dice proposal for schema compatibility (formal validation rejects it)', () => {
+    const result = aiResolutionProposalSchema.parse({
       publicNarrative: '剑刃劈开空气。',
       privateUpdates: [],
       diceResults: [

@@ -4,7 +4,9 @@ import {
   encounterStartSchema,
   startEncounterInputSchema,
   type EncounterStartInput,
-  type StateChange,
+  isValidatedStateChange,
+  type ProposedStateChange,
+  type ValidatedStateChange,
 } from '@dnd/contracts';
 import type { QueryExecutor } from '../../platform/database/DatabasePort.js';
 import { AppError } from '../../platform/http/AppError.js';
@@ -63,7 +65,10 @@ export class CombatAiAdapter implements CombatStateChangeApplier {
     }
   }
 
-  async apply(tx: QueryExecutor, campaignId: string, change: StateChange): Promise<void> {
+  async apply(tx: QueryExecutor, campaignId: string, change: ProposedStateChange): Promise<void> {
+    if (!isValidatedStateChange(change)) {
+      throw new AppError('AI_OUTPUT_INVALID', 'stateChanges 尚未完成服务端校验。');
+    }
     if (change.kind !== 'combat') {
       throw new AppError('AI_OUTPUT_INVALID', 'CombatAiAdapter 只接受 combat stateChange。');
     }

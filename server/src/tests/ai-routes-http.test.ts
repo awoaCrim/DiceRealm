@@ -29,10 +29,8 @@ describe('HTTP ai routes', () => {
             { playerId: pa, content: '你发现暗门。' },
             { playerId: pb, content: '你听见脚步。' },
           ],
-          diceResults: [
-            { id: 'd1', formula: '1d20+2', total: 17, visibility: 'public', targetPlayerId: null },
-            { id: 'd2', formula: '1d20', total: 5, visibility: 'player_private', targetPlayerId: pa },
-          ],
+          // Dice are resolved by the server, never authored by the Provider.
+          diceResults: [],
           stateChanges: [],
           interactionRequests: [],
         };
@@ -105,9 +103,9 @@ describe('HTTP ai routes', () => {
       const nextTurn = await platformDb.query<{ number: number; status: string }>('SELECT number, status FROM platform_turns WHERE campaign_id = ? AND number = 2', [createBody.campaign.id]);
       expect(nextTurn).toEqual([{ number: 2, status: 'waiting_for_actions' }]);
 
-      // entries 投影：A 只见 public + 自己的 private（private_update + player_private dice 两条）；B 只见 public + 自己的 private。
+      // entries 投影：A 只见 public + 自己的 private_update；B 只见 public + 自己的 private_update。
       const aEntries = (await (await fetch(`${aiBase}/turns/${turn.turn.id}/entries`, { headers: { cookie: playerA.cookieJar.header() } })).json()) as { entries: Array<{ entryKind: string; visibility: string; targetPlayerId: string | null }> };
-      expect(aEntries.entries.filter((e) => e.visibility === 'player_private')).toHaveLength(2);
+      expect(aEntries.entries.filter((e) => e.visibility === 'player_private')).toHaveLength(1);
       const bText = JSON.stringify(await (await fetch(`${aiBase}/turns/${turn.turn.id}/entries`, { headers: { cookie: playerB.cookieJar.header() } })).json());
       expect(bText).not.toContain('暗门');
       expect(bText).toContain('脚步');

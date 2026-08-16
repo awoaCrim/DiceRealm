@@ -1,5 +1,5 @@
-import type { TurnResolution } from '@dnd/contracts';
-import { turnResolutionSchema } from '@dnd/contracts';
+import type { ProposedStateChange, ResolvedOutcome } from '@dnd/contracts';
+import { aiResolutionProposalSchema, markStateChangeValidated, resolvedOutcomeSchema } from '@dnd/contracts';
 import type { QueryExecutor } from '../../platform/database/DatabasePort.js';
 import { AppError } from '../../platform/http/AppError.js';
 import { WorldFactRepository } from '../world/WorldFactRepository.js';
@@ -55,12 +55,19 @@ function domainValidationError(path: Array<string | number>, code: string): AiOu
 export class TurnResolutionValidator {
   constructor(private readonly executor: QueryExecutor) {}
 
-  async validate(campaignId: string, output: unknown): Promise<TurnResolution> {
-    const parsed = turnResolutionSchema.safeParse(output);
+  async validate(campaignId: string, output: unknown): Promise<ResolvedOutcome> {
+    const parsed = aiResolutionProposalSchema.safeParse(output);
     if (!parsed.success) {
       throw new AiOutputValidationError(projectSchemaIssues(parsed.error.issues));
     }
-    const resolution = parsed.data;
+    const proposal = parsed.data;
+    // Dice are mechanical authority. A Provider may omit the collection for
+    // compatibility, but it may never author a dice result that reaches formal
+    // entries or combat state. Keep this as a controlled domain rejection so
+    // no provider-supplied formula/total can become game fact.
+    if (proposal.diceResults.length > 0) {
+      throw domainValidationError(['diceResults'], 'provider_dice_results_not_allowed');
+    }
     const memberIds = new Set(
       (await this.executor.query<{ user_id: string }>(
         "SELECT user_id FROM campaign_members WHERE campaign_id = ? AND role = 'player'", [campaignId],
@@ -68,42 +75,49 @@ export class TurnResolutionValidator {
     );
     // 在 SQL 之前拒绝重复 id：diceResults / interactionRequests 的 id 必须是唯一条目身份，
     // 重复会让条目身份不唯一，映射 AI_OUTPUT_INVALID，绝不能把 DB 唯一约束错误误报为 AI_PROVIDER_FAILED。
-    const diceIds = resolution.diceResults.map((d) => d.id);
+    const diceIds = proposal.diceResults.map((d) => d.id);
     if (new Set(diceIds).size !== diceIds.length) {
       throw domainValidationError(['diceResults'], 'duplicate_id');
     }
-    const interactionIds = resolution.interactionRequests.map((i) => i.id);
+    const interactionIds = proposal.interactionRequests.map((i) => i.id);
     if (new Set(interactionIds).size !== interactionIds.length) {
       throw domainValidationError(['interactionRequests'], 'duplicate_id');
     }
     // 一次性最多发起一个遭遇：同战役未完成遭遇不变量由 formal apply 内的 STATE_CONFLICT 保证，
     // 但同一次结算请求多个新遭遇无论如何都违反该语义 → 直接拒绝。
-    if (resolution.encounterStarts.length > 1) {
+    if (proposal.encounterStarts.length > 1) {
       throw domainValidationError(['encounterStarts'], 'too_many_items');
     }
-    for (const [index, update] of resolution.privateUpdates.entries()) {
+    for (const [index, update] of proposal.privateUpdates.entries()) {
       if (!memberIds.has(update.playerId)) {
         throw domainValidationError(['privateUpdates', index, 'playerId'], 'not_campaign_member');
       }
     }
-    for (const [index, dice] of resolution.diceResults.entries()) {
+    for (const [index, dice] of proposal.diceResults.entries()) {
       if (dice.visibility === 'player_private' && dice.targetPlayerId && !memberIds.has(dice.targetPlayerId)) {
         throw domainValidationError(['diceResults', index, 'targetPlayerId'], 'not_campaign_member');
       }
     }
-    for (const [index, interaction] of resolution.interactionRequests.entries()) {
+    for (const [index, interaction] of proposal.interactionRequests.entries()) {
       if (!memberIds.has(interaction.targetPlayerId)) {
         throw domainValidationError(['interactionRequests', index, 'targetPlayerId'], 'not_campaign_member');
       }
     }
-    await this.validateStateChangeTargets(campaignId, resolution);
-    return resolution;
+    await this.validateStateChangeTargets(campaignId, proposal.stateChanges);
+    // Parse the formal shape only after all server/domain checks pass, then add
+    // the opaque runtime brand at this server-owned seam. The exported formal
+    // schema itself never manufactures ValidatedStateChange values.
+    const formal = resolvedOutcomeSchema.parse({ ...proposal, diceResults: [] });
+    return {
+      ...formal,
+      stateChanges: formal.stateChanges.map(markStateChangeValidated),
+    };
   }
 
-  private async validateStateChangeTargets(campaignId: string, resolution: TurnResolution): Promise<void> {
+  private async validateStateChangeTargets(campaignId: string, stateChanges: readonly ProposedStateChange[]): Promise<void> {
     const characters = new CharacterRepository(this.executor);
     const facts = new WorldFactRepository(this.executor);
-    for (const [index, change] of resolution.stateChanges.entries()) {
+    for (const [index, change] of stateChanges.entries()) {
       if (change.kind === 'character') {
         const row = await characters.findById(change.targetId);
         if (!row || row.campaign_id !== campaignId) {

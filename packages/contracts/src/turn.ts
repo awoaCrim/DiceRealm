@@ -2,7 +2,11 @@ import { z } from 'zod';
 import { visibilitySchema, type Visibility } from './visibility.js';
 import { worldFactInputSchema } from './world.js';
 import { encounterStartSchema } from './combat.js';
-import { stateChangeSchema, type StateChange } from './runtime.js';
+import {
+  stateChangeSchema,
+  type StateChange,
+  type ValidatedStateChange,
+} from './runtime.js';
 
 export { visibilitySchema };
 export type { Visibility };
@@ -69,7 +73,27 @@ export const turnResolutionSchema = z.object({
   encounterStarts: z.array(encounterStartSchema).default([]),
 });
 
-export type TurnResolution = z.infer<typeof turnResolutionSchema>;
+/** Provider-facing output: every state change and dice result is still a proposal. */
+export const aiResolutionProposalSchema = turnResolutionSchema;
+export type AiResolutionProposal = z.infer<typeof aiResolutionProposalSchema>;
+
+/**
+ * Server-facing formal outcome schema. It is intentionally a different
+ * runtime schema from the Provider proposal: Provider-authored dice cannot
+ * parse here. It intentionally does not brand state changes: campaign
+ * ownership/visibility/domain checks remain the validator's job, and only that
+ * server validator may create the formal branded outcome.
+ */
+export const resolvedOutcomeSchema = aiResolutionProposalSchema.extend({ diceResults: z.tuple([]) });
+
+/** Formal result after schema + server/domain validation. */
+export type ResolvedOutcome = Omit<AiResolutionProposal, 'diceResults' | 'stateChanges'> & {
+  diceResults: [];
+  stateChanges: ValidatedStateChange[];
+};
+
+/** Backward-compatible name for the Provider proposal contract. */
+export type TurnResolution = AiResolutionProposal;
 
 export const turnActionInputSchema = z.object({
   body: z.string().trim().min(1),

@@ -57,15 +57,20 @@ export type StateRevision = z.infer<typeof stateRevisionSchema>;
 
 export const actionIntentSchema = z.object({ actionId: z.string().min(1), campaignId: z.string().min(1), actorId: z.string().min(1), input: z.string().min(1) }).strict();
 export type ActionIntent = z.infer<typeof actionIntentSchema>;
-export const resolvedOutcomeSchema = z.object({ summary: z.string().min(1), facts: z.array(z.string().min(1)).default([]) }).strict();
-export type ResolvedOutcome = z.infer<typeof resolvedOutcomeSchema>;
+/**
+ * Generic runtime summary contract. This is not the formal AI turn outcome;
+ * the turn module owns the ResolvedOutcome contract.
+ */
+export const runtimeOutcomeSchema = z.object({ summary: z.string().min(1), facts: z.array(z.string().min(1)).default([]) }).strict();
+export type RuntimeOutcome = z.infer<typeof runtimeOutcomeSchema>;
+
 export const narrativeOutputSchema = z.object({
   publicNarrative: z.string().min(1),
   privateUpdates: z.array(z.object({ playerId: z.string().min(1), content: z.string() }).strict()).default([]),
 }).strict();
 export type NarrativeOutput = z.infer<typeof narrativeOutputSchema>;
 
-const characterPatch = z.object({
+export const characterPatchSchema = z.object({
   name: z.string().trim().min(1).optional(),
   sheet: z.object({
     hpCurrent: z.number().int().optional(), hpMax: z.number().int().optional(), ac: z.number().int().optional(),
@@ -73,7 +78,7 @@ const characterPatch = z.object({
     conditions: z.array(z.string()).optional(), inventory: z.array(z.string()).optional(),
   }).strict().optional(),
 }).strict();
-const worldPatch = z.object({
+export const worldPatchSchema = z.object({
   title: z.string().trim().min(1).optional(), content: z.string().optional(), visibility: visibilitySchema.optional(), knownBy: z.array(z.string().min(1)).optional(),
 }).strict();
 const combatCommandPatch = z.discriminatedUnion('command', [
@@ -115,12 +120,35 @@ const combatPatch = z.union([
   combatCommandPatch,
   z.object({ hpCurrent: z.number().int() }).strict(),
 ]);
-export const characterStateChangeSchema = z.object({ kind: z.literal('character'), targetId: z.string().min(1), patch: characterPatch, visibility: visibilitySchema }).strict();
-export const worldStateChangeSchema = z.object({ kind: z.literal('world'), targetId: z.string().min(1), patch: worldPatch, visibility: visibilitySchema }).strict();
-export const questStateChangeSchema = z.object({ kind: z.literal('quest'), targetId: z.string().min(1), patch: worldPatch, visibility: visibilitySchema }).strict();
+export const characterStateChangeSchema = z.object({ kind: z.literal('character'), targetId: z.string().min(1), patch: characterPatchSchema, visibility: visibilitySchema }).strict();
+export const worldStateChangeSchema = z.object({ kind: z.literal('world'), targetId: z.string().min(1), patch: worldPatchSchema, visibility: visibilitySchema }).strict();
+export const questStateChangeSchema = z.object({ kind: z.literal('quest'), targetId: z.string().min(1), patch: worldPatchSchema, visibility: visibilitySchema }).strict();
 export const combatStateChangeSchema = z.object({ kind: z.literal('combat'), targetId: z.string().min(1), patch: combatPatch, visibility: visibilitySchema }).strict();
 export const stateChangeSchema = z.discriminatedUnion('kind', [characterStateChangeSchema, worldStateChangeSchema, questStateChangeSchema, combatStateChangeSchema]);
 export type StateChange = z.infer<typeof stateChangeSchema>;
+
+/**
+ * A StateChange emitted by the Provider is a proposal only. It becomes
+ * authoritative only after the server has checked its schema, campaign
+ * ownership, and domain constraints.
+ */
+export const proposedStateChangeSchema = stateChangeSchema;
+export type ProposedStateChange = z.infer<typeof proposedStateChangeSchema>;
+
+const validatedStateChangeBrand = Symbol('validatedStateChangeBrand');
+export type ValidatedStateChange = ProposedStateChange & {
+  readonly [validatedStateChangeBrand]: true;
+};
+
+/** Internal boundary helper: only call after all server/domain checks pass. */
+export function markStateChangeValidated(change: ProposedStateChange): ValidatedStateChange {
+  return { ...change, [validatedStateChangeBrand]: true } as ValidatedStateChange;
+}
+
+/** Runtime guard used by materializers to fail closed if a proposal crosses the seam. */
+export function isValidatedStateChange(change: unknown): change is ValidatedStateChange {
+  return Boolean(change && typeof change === 'object' && (change as Record<PropertyKey, unknown>)[validatedStateChangeBrand] === true);
+}
 
 export function contextVisibilityFromPersisted(visibility: z.infer<typeof visibilitySchema>): ContextVisibility {
   if (visibility === 'owner_only') return 'gm_only';

@@ -1,36 +1,22 @@
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
-import type { EncounterStartInput, StateChange, WorldFactInput } from '@dnd/contracts';
+import {
+  characterPatchSchema,
+  isValidatedStateChange,
+  markStateChangeValidated,
+  proposedStateChangeSchema,
+  worldPatchSchema,
+  type EncounterStartInput,
+  type ProposedStateChange,
+  type ValidatedStateChange,
+  type WorldFactInput,
+} from '@dnd/contracts';
 import type { QueryExecutor } from '../../platform/database/DatabasePort.js';
 import { AppError } from '../../platform/http/AppError.js';
 import { CharacterRepository, type CharacterRow } from '../characters/CharacterRepository.js';
 import { WorldFactRepository } from '../world/WorldFactRepository.js';
 import { computeDerived } from '../characters/CharacterService.js';
 import type { CombatStateChangeApplier } from './CombatStateChangeApplier.js';
-
-/** 角色 sheet 白名单：只允许这些叶子键，禁止任意 JSON patch。 */
-const sheetPatchSchema = z.object({
-  hpCurrent: z.number().int().optional(),
-  hpMax: z.number().int().optional(),
-  ac: z.number().int().optional(),
-  gold: z.number().int().optional(),
-  level: z.number().int().optional(),
-  experience: z.number().int().optional(),
-  conditions: z.array(z.string()).optional(),
-  inventory: z.array(z.string()).optional(),
-}).strict();
-
-const characterPatchSchema = z.object({
-  name: z.string().trim().min(1).optional(),
-  sheet: sheetPatchSchema.optional(),
-}).strict();
-
-const worldFactPatchSchema = z.object({
-  title: z.string().trim().min(1).optional(),
-  content: z.string().optional(),
-  visibility: z.enum(['public', 'player_private', 'owner_only']).optional(),
-  knownBy: z.array(z.string().min(1)).optional(),
-}).strict();
 
 export class StateChangeMaterializer {
   constructor(
@@ -42,16 +28,15 @@ export class StateChangeMaterializer {
   async applyAll(
     tx: QueryExecutor,
     campaignId: string,
-    stateChanges: StateChange[],
+    stateChanges: readonly ValidatedStateChange[],
     actorUserId: string,
     creations: { worldFactCreations: WorldFactInput[]; encounterStarts: EncounterStartInput[] } = { worldFactCreations: [], encounterStarts: [] },
   ): Promise<void> {
-    // 未知 kind 在写任何正式状态之前以 AI_OUTPUT_INVALID 拒绝（与 member/duplicate 校验同一原则：
-    // 绝不把非法输出拖到 DB 层）；combat 未注入 applier 时保留能力门禁 STATE_CONFLICT（安全默认）。
-    for (const change of stateChanges) {
-      if (change.kind !== 'character' && change.kind !== 'world' && change.kind !== 'quest' && change.kind !== 'combat') {
-        throw new AppError('AI_OUTPUT_INVALID', '未知 stateChange kind。');
-      }
+    // The formal seam accepts only server-validated changes. Keep a runtime
+    // guard as well as the TypeScript brand so an unvalidated proposal cannot
+    // be smuggled in through an adapter or an `as` cast.
+    if (!stateChanges.every((change) => isValidatedStateChange(change))) {
+      throw new AppError('AI_OUTPUT_INVALID', 'stateChanges 尚未完成服务端校验。');
     }
     for (const change of stateChanges) {
       switch (change.kind) {
@@ -84,6 +69,26 @@ export class StateChangeMaterializer {
     }
   }
 
+  /**
+   * Compatibility seam for direct proposal callers. Parsing and branding are
+   * completed before formal application begins; callers that already have a
+   * validator-produced outcome must use applyAll instead.
+   */
+  async applyProposals(
+    tx: QueryExecutor,
+    campaignId: string,
+    proposals: readonly unknown[],
+    actorUserId: string,
+    creations: { worldFactCreations: WorldFactInput[]; encounterStarts: EncounterStartInput[] } = { worldFactCreations: [], encounterStarts: [] },
+  ): Promise<void> {
+    const parsed = z.array(proposedStateChangeSchema).safeParse(proposals);
+    if (!parsed.success) {
+      throw new AppError('AI_OUTPUT_INVALID', 'stateChanges 提案不符合结构化契约。');
+    }
+    const validated = parsed.data.map((change) => markStateChangeValidated(change));
+    await this.applyAll(tx, campaignId, validated, actorUserId, creations);
+  }
+
   private async insertWorldFact(tx: QueryExecutor, campaignId: string, creation: WorldFactInput): Promise<void> {
     const facts = new WorldFactRepository(tx);
     const knownBy = await this.validateKnownBy(tx, campaignId, creation.visibility, creation.knownBy ?? []);
@@ -95,7 +100,7 @@ export class StateChangeMaterializer {
     });
   }
 
-  private async applyCharacter(tx: QueryExecutor, campaignId: string, change: StateChange, actorUserId: string): Promise<void> {
+  private async applyCharacter(tx: QueryExecutor, campaignId: string, change: ValidatedStateChange, actorUserId: string): Promise<void> {
     const patch = characterPatchSchema.safeParse(change.patch);
     if (!patch.success) {
       throw new AppError('AI_OUTPUT_INVALID', 'stateChanges.character patch 不在白名单内。');
@@ -120,8 +125,8 @@ export class StateChangeMaterializer {
     });
   }
 
-  private async applyWorldFact(tx: QueryExecutor, campaignId: string, change: StateChange): Promise<void> {
-    const patch = worldFactPatchSchema.safeParse(change.patch);
+  private async applyWorldFact(tx: QueryExecutor, campaignId: string, change: ValidatedStateChange): Promise<void> {
+    const patch = worldPatchSchema.safeParse(change.patch);
     if (!patch.success) {
       throw new AppError('AI_OUTPUT_INVALID', 'stateChanges.world patch 不在白名单内。');
     }

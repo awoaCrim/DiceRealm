@@ -65,6 +65,7 @@ describe('ai context builder', () => {
     expect(userText).toContain('rollInitiative');
     expect(userText).toContain('服务端生成');
     expect(userText).toContain('骰子');
+    expect(promptText).toContain('diceResults 必须始终为 []');
     // 实际发给 Provider 的 messages 必须携带 JSON-only 指令与完整顶层模板。
     expect(promptText).toContain('只返回一个 JSON 对象');
     expect(promptText).toContain('不要输出解释、前后缀、Markdown');

@@ -9,7 +9,7 @@ import { OutboxRepository } from '../../platform/events/OutboxRepository.js';
 import { CombatService } from './CombatService.js';
 import { CombatAiAdapter } from './CombatAiAdapter.js';
 import { CombatRepository } from './CombatRepository.js';
-import type { StartEncounterInput } from '@dnd/contracts';
+import { markStateChangeValidated, type StartEncounterInput } from '@dnd/contracts';
 
 const publicFighter: StartEncounterInput['combatants'][number] = {
   name: '战士', characterId: null, initiativeBonus: 2, hpCurrent: 12, hpMax: 12, ac: 16,
@@ -47,12 +47,12 @@ describe('combat AI adapter', () => {
     const target = (await combat.get(ownerCtx, encounter.id)).combatants[1];
     // adapter.apply 在调用方 tx 内执行（CombatService.applyIn 不再开 transaction）。
     const result = await db.transaction(async (tx) => {
-      await adapter.apply(tx, ownerCtx.campaignId, {
+      await adapter.apply(tx, ownerCtx.campaignId, markStateChangeValidated({
         kind: 'combat',
         targetId: encounter.id,
         patch: { command: 'apply_damage', actorCombatantId: fighter.id, targetCombatantId: target.id, amount: 4 },
         visibility: 'public',
-      });
+      }));
       const rows = await tx.query<{ hp_current: number }>('SELECT hp_current FROM platform_combatants WHERE id = ?', [target.id]);
       return rows[0].hp_current;
     });
@@ -63,6 +63,23 @@ describe('combat AI adapter', () => {
       [ownerCtx.campaignId, 'combat.updated'],
     );
     expect(Number(events[0].count)).toBe(3); // start + roll_initiative + apply_damage
+    await db.close();
+  });
+
+  it('rejects an unvalidated change before the adapter can reach combat state', async () => {
+    const { db, combat, adapter, ownerCtx } = await makeFixture();
+    const encounter = await combat.start(ownerCtx, {
+      name: '未校验', combatants: [publicFighter, { ...publicFighter, name: '靶子', hpCurrent: 10, hpMax: 10 }],
+    });
+    await combat.execute(ownerCtx, encounter.id, { kind: 'roll_initiative', payload: {} });
+    const target = (await combat.get(ownerCtx, encounter.id)).combatants[1];
+    await expect(db.transaction((tx) => adapter.apply(tx, ownerCtx.campaignId, {
+      kind: 'combat', targetId: encounter.id,
+      patch: { command: 'apply_damage', actorCombatantId: 'actor', targetCombatantId: target.id, amount: 4 },
+      visibility: 'public',
+    }))).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
+    const row = await db.query<{ hp_current: number }>('SELECT hp_current FROM platform_combatants WHERE id = ?', [target.id]);
+    expect(row[0].hp_current).toBe(10);
     await db.close();
   });
 
@@ -94,11 +111,11 @@ describe('combat AI adapter', () => {
     // 未 roll_initiative：非 active 状态，命令必须 STATE_CONFLICT。
     const fighter = (await combat.get(ownerCtx, encounter.id)).combatants[0];
     const target = (await combat.get(ownerCtx, encounter.id)).combatants[1];
-    await expect(db.transaction((tx) => adapter.apply(tx, ownerCtx.campaignId, {
+    await expect(db.transaction((tx) => adapter.apply(tx, ownerCtx.campaignId, markStateChangeValidated({
       kind: 'combat', targetId: encounter.id,
       patch: { command: 'apply_damage', actorCombatantId: fighter.id, targetCombatantId: target.id, amount: 1 },
       visibility: 'public',
-    }))).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    })))).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
     // 冲突时 combat row 与 outbox 都不变。
     const hp = await db.query<{ hp_current: number }>('SELECT hp_current FROM platform_combatants WHERE id = ?', [target.id]);
     expect(hp[0].hp_current).toBe(10);

@@ -24,11 +24,28 @@ describe('turn resolution validator', () => {
     const result = await validator.validate(campaignId, {
       publicNarrative: '雨停了。',
       privateUpdates: [{ playerId: playerA, content: '你发现了暗门。' }],
-      diceResults: [{ id: 'd1', formula: '1d20', total: 7, visibility: 'public', targetPlayerId: null }],
+      diceResults: [],
       stateChanges: [],
       interactionRequests: [{ id: 'i1', targetPlayerId: playerA, prompt: '回答？' }],
     });
     expect(result.privateUpdates[0].playerId).toBe(playerA);
+    await db.close();
+  });
+
+  it('rejects Provider-authored dice results at the proposal-to-resolution boundary', async () => {
+    const { db, campaignId } = await makeDb();
+    const validator = new TurnResolutionValidator(db);
+    await expect(validator.validate(campaignId, {
+      publicNarrative: '骰子不应由 Provider 决定。',
+      privateUpdates: [],
+      diceResults: [{ id: 'provider-die', formula: '1d20+99', total: 120, visibility: 'public', targetPlayerId: null }],
+    })).rejects.toMatchObject({
+      code: 'AI_OUTPUT_INVALID',
+      diagnostic: {
+        kind: 'turn_resolution_domain_validation',
+        issues: [{ path: ['diceResults'], code: 'provider_dice_results_not_allowed' }],
+      },
+    });
     await db.close();
   });
 

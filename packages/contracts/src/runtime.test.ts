@@ -6,8 +6,11 @@ import {
   contextVisibilityFromPersisted,
   contextVisibilitySchema,
   contextSourceRefSchema,
+  isValidatedStateChange,
+  markStateChangeValidated,
   narrativeOutputSchema,
-  resolvedOutcomeSchema,
+  proposedStateChangeSchema,
+  runtimeOutcomeSchema,
   stateChangeSchema,
   stateRevisionSchema,
 } from './runtime.js';
@@ -47,6 +50,11 @@ describe('runtime contracts', () => {
       visibility: 'public',
     });
     expect(character.kind).toBe('character');
+    expect(proposedStateChangeSchema.parse(character)).toEqual(character);
+    expect(isValidatedStateChange(character)).toBe(false);
+    const validated = markStateChangeValidated(character);
+    expect(isValidatedStateChange(validated)).toBe(true);
+    expect(JSON.stringify(validated)).toBe(JSON.stringify(character));
 
     const combat = stateChangeSchema.parse({
       kind: 'combat',
@@ -78,7 +86,7 @@ describe('runtime contracts', () => {
     expect(actionIntentSchema.parse({
       actionId: 'turn-1', campaignId: 'campaign-1', actorId: 'player-1', input: 'search',
     }).actorId).toBe('player-1');
-    expect(resolvedOutcomeSchema.parse({ summary: 'found', facts: [] }).facts).toEqual([]);
+    expect(runtimeOutcomeSchema.parse({ summary: 'found', facts: [] }).facts).toEqual([]);
     expect(narrativeOutputSchema.parse({ publicNarrative: 'The door opens.' }).privateUpdates).toEqual([]);
     expect(stateRevisionSchema.parse({
       campaignId: 'campaign-1', revision: 2, mutationId: 'mutation-1',
