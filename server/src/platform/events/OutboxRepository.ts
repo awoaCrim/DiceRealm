@@ -70,19 +70,45 @@ export class OutboxRepository implements EventPublisherPort {
   }
 
   /**
-   * Process-local consumers use the outbox as a level-triggered wake-up feed.
+   * Durable consumers use the outbox as a level-triggered wake-up feed.
    * `published_at` remains untouched because SSE delivery has its own cursor;
-   * the consumer owns idempotency and re-checks the authoritative domain rows.
+   * each consumer advances through its own durable receipt stream.
    */
-  async listUnpublishedByType(eventType: CampaignEventType, limit = 200): Promise<OutboxEventRow[]> {
+  async listPendingByConsumer(
+    eventType: CampaignEventType,
+    consumerName: string,
+    limit = 200,
+  ): Promise<OutboxEventRow[]> {
     const normalizedLimit = Number.isFinite(limit) ? Math.trunc(limit) : 200;
     const boundedLimit = Math.max(1, Math.min(normalizedLimit, 1000));
     return this.executor.query<OutboxEventRow>(
-      `SELECT * FROM platform_outbox_events
-       WHERE event_type = ? AND published_at IS NULL AND superseded_at IS NULL
-       ORDER BY created_at ASC, id ASC LIMIT ?`,
-      [eventType, boundedLimit],
+      `SELECT e.*
+       FROM platform_outbox_events e
+       LEFT JOIN platform_outbox_consumer_receipts r
+         ON r.event_id = e.id AND r.consumer_name = ?
+       WHERE e.event_type = ?
+         AND e.published_at IS NULL
+         AND e.superseded_at IS NULL
+         AND r.event_id IS NULL
+       ORDER BY e.created_at ASC, e.id ASC LIMIT ?`,
+      [consumerName, eventType, boundedLimit],
     );
+  }
+
+  /** Record a handled event in the caller-owned transaction; duplicate receipts are harmless. */
+  async markConsumerReceiptIn(
+    tx: QueryExecutor,
+    consumerName: string,
+    eventId: string,
+    handledAt = new Date().toISOString(),
+  ): Promise<boolean> {
+    const result = await tx.execute(
+      `INSERT INTO platform_outbox_consumer_receipts (consumer_name, event_id, handled_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT (consumer_name, event_id) DO NOTHING`,
+      [consumerName, eventId, handledAt],
+    );
+    return result.changes === 1;
   }
 
   /** 审计全量列表：含被存档恢复 supersede 的历史事件（供 SSE replayable 未来使用与恢复 supersede 依据）。 */

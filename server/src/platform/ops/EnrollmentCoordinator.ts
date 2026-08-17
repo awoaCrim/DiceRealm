@@ -87,7 +87,7 @@ export async function runEnrollmentCommand(options: EnrollmentCoordinatorOptions
       assertPathAbsent(keyPath);
       database = openDatabase(databasePath);
       // init：只应用 literal 当前批准集合（frozen），
-      // 不因 manifest 未来新增 017+ 而静默扩展（017+ 需未来显式 hash-bound allowlist）。
+      // 不因 manifest 未来新增迁移而静默扩展；新版本需显式 hash-bound allowlist。
       await database.exec(TRACKING_TABLE_DDL);
       const freshApplied = await appliedMigrationVersions(database);
       for (const filename of PHASE3_APPROVED_MIGRATION_FILENAMES) {

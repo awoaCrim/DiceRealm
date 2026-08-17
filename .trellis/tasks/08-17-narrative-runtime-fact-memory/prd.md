@@ -142,6 +142,7 @@ NarrativeRound
 
 - **P0：live NarrativeRound 仍可被 legacy whole-turn `resolveTurn()` 处理。** 新 active Round 必须只允许 Decision-scoped resolution；旧 whole-turn path 仅保留历史/兼容读取，或在无 NarrativeRound 的旧数据上运行。
 - **P0：submit 后仍要等所有 required participant 提交才开始处理。** Round 必须允许收集新提交的同时处理已经提交的最早 Decision；不能把 `all submitted` 当作 processing 的开始条件。
+- **P0：outbox worker 不能依赖进程内 handled-event 集合。** 未修改 `published_at` 的 wake-up 事件必须通过 `platform_outbox_consumer_receipts` 持久化消费状态；查询必须能跨越超过一个 batch，并在重启后继续处理更新事件。
 - **P1：Decision-scoped path 缺少 presentation-only Narration。** Mechanics/WorkingFacts/Decision 状态提交后，应独立生成可重试的 narration，不得让 narration 失败回滚已提交 StateRevision。
 - **P1：Fact authority/source/status 需要组合矩阵。** 至少禁止 `narration_result -> runtime_state + authoritative`，不能只检查 `ai_candidate + authoritative`。
 - **P1：production deterministic contributors 需要覆盖现有 server mechanical/state/event effects；不实现完整 FactCompiler。**

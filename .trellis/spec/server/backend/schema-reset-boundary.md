@@ -17,7 +17,7 @@ verifyMigrationManifest(options: { migrationsDir: string; manifestPath: string }
 
 `PHASE2_APPROVED_MIGRATION_FILENAMES` remains the named pre-adjudication baseline for compatibility tests and bounded legacy inspection; it is not the ordinary startup schema after migration 016.
 
-A fresh maintained fixture applies the current Phase 3 set, including `016_server_adjudication_dice.sql`, and does not create `platform_rule_sources`. The migration manifest, approved set, temporary fixtures, and schema inventory agree on the absence of `011_rule_sources.sql`.
+A fresh maintained fixture applies the current Phase 3 set, including the current adjudication, narrative runtime, and durable outbox-receipt migrations, and does not create `platform_rule_sources`. The migration manifest, approved set, temporary fixtures, and schema inventory agree on the absence of `011_rule_sources.sql`.
 
 ## 3. Bounded compatibility migration
 

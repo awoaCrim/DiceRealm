@@ -36,7 +36,8 @@ new NarrativeWorkRuntime(database, coordinator, worker, intervalMs?)
 runtime.start()
 runtime.stop()
 runtime.runOnce()
-OutboxRepository.listUnpublishedByType(eventType, limit?)
+OutboxRepository.listPendingByConsumer(eventType, consumerName, limit?)
+OutboxRepository.markConsumerReceiptIn(tx, consumerName, eventId, handledAt?)
 ```
 
 Persistence is split across:
@@ -48,9 +49,11 @@ platform_narrative_decisions
 platform_narrative_working_facts
 platform_narrative_round_fact_sets
 platform_narrative_round_facts
+
+platform_outbox_consumer_receipts  # durable wake-up state; independent from SSE published_at
 ```
 
-Migration `017_narrative_runtime_fact_memory.sql` is part of the frozen approved migration set and must be listed in both the source manifest and approved migration filenames.
+Migrations `017_narrative_runtime_fact_memory.sql` and `018_narrative_work_consumer_receipts.sql` are part of the frozen approved migration set and must be listed in both the source manifest and approved migration filenames.
 
 ## 3. Contracts
 
@@ -63,7 +66,7 @@ Migration `017_narrative_runtime_fact_memory.sql` is part of the frozen approved
 - Each decision claim/apply is a short transaction. Provider calls happen outside transactions.
 - `platform_turns.status` is a compatibility mirror for live paths; new lifecycle code must not create an independent status authority.
 - `narrative.round.work_available` is only a wake-up signal. A worker must re-query the earliest eligible Decision by `submitted_at ASC, action_id ASC`; outbox delivery order, duplication, and delay never define causal order.
-- Production `NarrativeWorkRuntime` polls active unpublished `narrative.round.work_available` rows, never marks `published_at` (that column remains part of the SSE/outbox surface), and uses process-local handled-event state plus resolver idempotency for restart/replay safety. Each Provider attempt uses `narrative-work:<eventId>:<candidateDecisionId>`; the resolver-owned claim/CAS remains the duplicate-work authority.
+- Production `NarrativeWorkRuntime` polls active unpublished `narrative.round.work_available` rows through a durable per-consumer receipt anti-join, never marks `published_at` (that column remains part of the SSE/outbox surface), and records a receipt only after the signal is terminally consumed. Each Provider attempt uses `narrative-work:<eventId>:<candidateDecisionId>`; the resolver-owned claim/CAS remains the duplicate-work authority, while a crash before the receipt write safely replays the same idempotent work.
 - `NarrativeWorkCoordinator.peekNext()` is the production worker query seam. `claimNext()` is compatibility/test-only and must not run before `NarrativeDecisionResolutionService.resolveDecisionInternal()`.
 - `collecting` remains submit-capable while Decisions independently move through `submitted/processing/resolved`. Claim does not require `round.status=processing`; one Round may have at most one `processing` Decision at a time.
 - The claim revision anchors the world-state snapshot, not the input queue. A `turn_action_submit` mutation may advance the campaign revision while a Provider is running; apply may rebase to the latest revision only when every intervening ledger row has `cause_type='turn_action_submit'`. Any other intervening mutation is `STALE_STATE_REVISION`.
@@ -133,7 +136,9 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 | Any non-input mutation occurs after a claim | `STALE_STATE_REVISION`; no mechanics/facts/outcome |
 | Duplicate decision execution/idempotency | Return stored execution/outcome; no reroll/reapply/duplicate facts |
 | Outbox signal arrives for a later Decision while an earlier submitted Decision is unresolved/needs attention | Do not claim the later Decision; preserve the blocked prefix |
-| Duplicate/replayed `work_available` row | Re-query the earliest candidate; resolver idempotency/CAS permits at most one Provider execution per Decision |
+| Duplicate/replayed `work_available` row | Re-query the earliest candidate; durable consumer receipts skip completed signals, while resolver idempotency/CAS permits at most one Provider execution per Decision |
+| More than one consumer batch of handled wake-ups | The receipt anti-join advances to newer rows instead of repeatedly returning the first page |
+| Runtime crashes after terminal resolution but before receipt commit | The same event is replayed with the same idempotency key; no second Provider/mechanics execution is committed |
 | Runtime sees a stale signal for a closed/resolved/owner-attention prefix | Consume the wake-up without Provider work; a later valid transition must emit a fresh signal |
 | A second worker claims while another Decision in the same Round is processing | No-op/`STATE_CONFLICT`; keep one in-flight Decision per Round |
 | A processing claim is older than the worker lease without a committed outcome | CAS-expire it to `needs_owner_attention`, fail its running AI run, and keep later Decisions blocked |
@@ -172,7 +177,7 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 - A/B/C private next-round `AiContextBuilder` test with `previous_round_summary` and trace refs.
 - Archive restore test proving later Round/WorkingFact/FactSet rows are superseded and excluded from active projection.
 - Decision-scoped Provider test proving one action intent, server mechanics, idempotent replay and no second roll.
-- Async coordinator tests proving work signals only wake the worker, one in-flight Decision per Round, earliest-order/blocked-prefix scheduling, claim-lease expiry/late-result fencing, crash/replay idempotency, and submit/claim action snapshot CAS.
+- Async coordinator tests proving work signals only wake the worker, one in-flight Decision per Round, earliest-order/blocked-prefix scheduling, claim-lease expiry/late-result fencing, durable receipt pagination across more than one batch and restart, crash/replay idempotency, and submit/claim action snapshot CAS.
 - Production composition/startup test proving the composed outbox runtime starts and stops with the server; vertical A-only submit test must show no Owner resolve call, exactly one Provider call, one resolved Decision, mechanical outcome/WorkingFact persistence, and later participants still waiting.
 - Existing turn, AI, narration retry, archive, migration, typecheck, build and projection regressions.
 

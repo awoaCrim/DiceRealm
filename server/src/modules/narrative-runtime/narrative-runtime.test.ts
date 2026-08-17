@@ -19,7 +19,7 @@ import { AiContextBuilder } from '../ai-runtime/AiContextBuilder.js';
 import { NarrativeDecisionResolutionService } from './NarrativeDecisionResolutionService.js';
 import { NarrativeClaimLeaseSweeper } from './NarrativeClaimLeaseSweeper.js';
 import { NarrativeWorkCoordinator } from './NarrativeWorkCoordinator.js';
-import { NarrativeWorkRuntime } from './NarrativeWorkRuntime.js';
+import { NARRATIVE_WORK_CONSUMER_NAME, NarrativeWorkRuntime } from './NarrativeWorkRuntime.js';
 
 async function makeFixture() {
   const db = createSqliteDatabase(':memory:');
@@ -293,8 +293,8 @@ describe('NarrativeRound runtime', () => {
       expect(after.decisions.find((item) => item.actorId === contexts[1].playerId)?.status).toBe('waiting');
       expect(after.decisions.find((item) => item.actorId === contexts[2].playerId)?.status).toBe('waiting');
 
-      // A fresh process-local runtime can see the old unacked wake-ups again,
-      // but ordering/idempotency prevents a second Provider execution.
+      // A restarted runtime sees only signals without a durable consumer receipt;
+      // the already handled wake-ups are not replayed.
       await runtime.stop();
       const restarted = new NarrativeWorkRuntime(
         db,
@@ -307,6 +307,111 @@ describe('NarrativeRound runtime', () => {
       expect(providerCalls).toBe(1);
     } finally {
       await runtime?.stop();
+      await db.close();
+    }
+  });
+
+  it('advances durable work receipts past a full batch and after restart', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    const workEventType = 'narrative.round.work_available';
+    const historicalCreatedAt = '2000-01-01T00:00:00.000Z';
+    const outbox = new OutboxRepository(db);
+    let providerCalls = 0;
+    let actionId = '';
+    let actorId = '';
+    let runtime: NarrativeWorkRuntime | undefined;
+    let restarted: NarrativeWorkRuntime | undefined;
+    try {
+      await db.transaction(async (tx) => {
+        for (let index = 0; index < 201; index += 1) {
+          await outbox.publishIn(tx, {
+            type: workEventType,
+            campaignId: ownerCtx.campaignId,
+            roundId: `historical-round-${index}`,
+            decisionId: `historical-decision-${index}`,
+          });
+        }
+        await tx.execute(
+          'UPDATE platform_outbox_events SET created_at = ? WHERE campaign_id = ? AND event_type = ?',
+          [historicalCreatedAt, ownerCtx.campaignId, workEventType],
+        );
+      });
+
+      const countHistoricalReceipts = async (): Promise<number> => {
+        const rows = await db.query<{ count: number }>(
+          `SELECT COUNT(*) AS count
+           FROM platform_outbox_consumer_receipts r
+           JOIN platform_outbox_events e ON e.id = r.event_id
+           WHERE r.consumer_name = ? AND e.event_type = ? AND e.created_at = ?`,
+          [NARRATIVE_WORK_CONSUMER_NAME, workEventType, historicalCreatedAt],
+        );
+        return Number(rows[0].count);
+      };
+
+      const provider = {
+        name: 'durable-receipt-scripted',
+        model: 'durable-receipt-test',
+        stream: async () => {
+          providerCalls += 1;
+          return {
+            actionIntents: [{
+              actionId, actorId, mode: 'player_action', actionType: 'healing', actionRef: 'healing:basic',
+              targetIds: [], declaredApproach: '恢复体力', desiredOutcome: '恢复一点生命',
+              resourceChoices: [], fallbackPolicy: 'continue',
+            }],
+          };
+        },
+      } as const;
+      const resolver = new NarrativeDecisionResolutionService(db, provider, outbox);
+      runtime = new NarrativeWorkRuntime(
+        db,
+        new NarrativeWorkCoordinator(db, outbox),
+        resolver,
+        5,
+      );
+
+      await runtime.runOnce();
+      expect(await countHistoricalReceipts()).toBe(200);
+      await runtime.runOnce();
+      expect(await countHistoricalReceipts()).toBe(201);
+      await runtime.stop();
+
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A 在重启后提交行动。' });
+      const submitted = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const decision = submitted.decisions.find((item) => item.actorId === contexts[0].playerId);
+      if (!decision?.actionId) throw new Error('expected post-restart decision');
+      actionId = decision.actionId;
+      actorId = decision.actorId;
+
+      restarted = new NarrativeWorkRuntime(
+        db,
+        new NarrativeWorkCoordinator(db, outbox),
+        resolver,
+        5,
+      );
+      await restarted.runOnce();
+      await restarted.stop();
+
+      expect(providerCalls).toBe(1);
+      const resolved = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      expect(resolved.decisions.find((item) => item.id === decision.id)?.status).toBe('resolved');
+      const receipts = await db.query<{ payload_json: string }>(
+        `SELECT e.payload_json
+         FROM platform_outbox_consumer_receipts r
+         JOIN platform_outbox_events e ON e.id = r.event_id
+         WHERE r.consumer_name = ? AND e.event_type = ?`,
+        [NARRATIVE_WORK_CONSUMER_NAME, workEventType],
+      );
+      expect(receipts).toHaveLength(202);
+      expect(receipts.some((row) => JSON.parse(row.payload_json).roundId === turn.id)).toBe(true);
+      const published = await db.query<{ published_at: string | null }>(
+        'SELECT published_at FROM platform_outbox_events WHERE event_type = ?', [workEventType],
+      );
+      expect(published.every((row) => row.published_at === null)).toBe(true);
+    } finally {
+      await runtime?.stop();
+      await restarted?.stop();
       await db.close();
     }
   });

@@ -105,6 +105,27 @@ describe('outbox', () => {
     await db.close();
   });
 
+  it('advances independent durable consumer receipts without changing published_at', async () => {
+    const db = createSqliteDatabase(':memory:');
+    await db.migrate();
+    await seedCampaign(db, 'c1');
+    const repo = new OutboxRepository(db);
+    await db.transaction((tx) => repo.publishIn(tx, locked('c1')));
+
+    const first = await repo.listPendingByConsumer('turn.locked', 'consumer-a');
+    expect(first).toHaveLength(1);
+    expect(await db.transaction((tx) => repo.markConsumerReceiptIn(tx, 'consumer-a', first[0].id))).toBe(true);
+    expect(await repo.listPendingByConsumer('turn.locked', 'consumer-a')).toHaveLength(0);
+    expect(await repo.listPendingByConsumer('turn.locked', 'consumer-b')).toHaveLength(1);
+    expect(await db.transaction((tx) => repo.markConsumerReceiptIn(tx, 'consumer-a', first[0].id))).toBe(false);
+
+    const outbox = await db.query<{ published_at: string | null }>(
+      'SELECT published_at FROM platform_outbox_events WHERE id = ?', [first[0].id],
+    );
+    expect(outbox).toEqual([{ published_at: null }]);
+    await db.close();
+  });
+
   it('writes owner.debug with owner_only visibility and no target', async () => {
     const db = createSqliteDatabase(':memory:');
     await db.migrate();

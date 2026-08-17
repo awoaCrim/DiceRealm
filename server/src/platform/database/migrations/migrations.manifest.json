@@ -64,6 +64,10 @@
     {
       "name": "017_narrative_runtime_fact_memory.sql",
       "sha256": "85b1e48ff2a654e47b1e8895d91267b8ec753285edba20c909cab460fc8d246f"
+    },
+    {
+      "name": "018_narrative_work_consumer_receipts.sql",
+      "sha256": "486abc750467e971e6c450c115a72feb1963b28f6e9336982275b161256062a5"
     }
   ]
 }

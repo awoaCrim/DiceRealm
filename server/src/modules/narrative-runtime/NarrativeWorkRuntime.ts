@@ -6,9 +6,9 @@ import { NarrativeWorkCoordinator } from './NarrativeWorkCoordinator.js';
 
 /** Production default: work signals are level-triggered, not a timing authority. */
 export const NARRATIVE_WORK_POLL_INTERVAL_MS = 250;
+export const NARRATIVE_WORK_CONSUMER_NAME = 'narrative-work';
 const NARRATIVE_WORK_EVENT_TYPE = 'narrative.round.work_available';
 const NARRATIVE_WORK_BATCH_SIZE = 200;
-const MAX_HANDLED_EVENT_IDS = 10_000;
 
 export interface NarrativeDecisionWorker {
   resolveDecisionInternal(
@@ -31,7 +31,6 @@ export class NarrativeWorkRuntime {
   private timer: ReturnType<typeof setInterval> | null = null;
   private inFlight: Promise<void> | null = null;
   private readonly activeRounds = new Set<string>();
-  private readonly handledEventIds = new Set<string>();
 
   constructor(
     private readonly database: DatabasePort,
@@ -75,14 +74,17 @@ export class NarrativeWorkRuntime {
 
   private async pollOnce(): Promise<void> {
     const rows = await this.database.readCommitted((reader) =>
-      new OutboxRepository(reader).listUnpublishedByType(NARRATIVE_WORK_EVENT_TYPE, NARRATIVE_WORK_BATCH_SIZE),
+      new OutboxRepository(reader).listPendingByConsumer(
+        NARRATIVE_WORK_EVENT_TYPE,
+        NARRATIVE_WORK_CONSUMER_NAME,
+        NARRATIVE_WORK_BATCH_SIZE,
+      ),
     );
 
     for (const row of rows) {
-      if (this.handledEventIds.has(row.id)) continue;
       const event = parseWorkAvailable(row.payload_json);
       if (!event) {
-        this.rememberHandled(row.id);
+        await this.markHandled(row.id);
         continue;
       }
       if (this.activeRounds.has(event.roundId)) continue;
@@ -91,14 +93,14 @@ export class NarrativeWorkRuntime {
       if (!candidate) {
         // Closed/removed rounds have no future work; a later live transition
         // publishes a fresh signal if it is still meaningful.
-        this.rememberHandled(row.id);
+        await this.markHandled(row.id);
         continue;
       }
       if (candidate.status !== 'submitted' && candidate.status !== 'processing') {
         // needs_owner_attention is a deliberate blocked prefix. Skip this
         // stale wake-up; Owner skip/retry emits another signal. A processing
         // candidate is still eligible for resolver-owned crash recovery.
-        this.rememberHandled(row.id);
+        await this.markHandled(row.id);
         continue;
       }
 
@@ -111,14 +113,14 @@ export class NarrativeWorkRuntime {
           candidate.id,
           { idempotencyKey },
         );
-        if (result.run.status !== 'running') this.rememberHandled(row.id);
+        if (result.run.status !== 'running') await this.markHandled(row.id);
       } catch (error) {
         // A claim race is expected and must remain retryable. If the resolver
         // already created a terminal run, the event is safely consumed even
         // when the resolver surfaced that controlled failure to the caller.
         if (await this.hasTerminalRun(event.campaignId, idempotencyKey)
           || isTerminalNoWorkError(error)) {
-          this.rememberHandled(row.id);
+          await this.markHandled(row.id);
         } else if (!(error instanceof AppError && error.code === 'STATE_CONFLICT')) {
           this.report(error);
         }
@@ -136,11 +138,14 @@ export class NarrativeWorkRuntime {
     return rows[0]?.status === 'succeeded' || rows[0]?.status === 'failed';
   }
 
-  private rememberHandled(eventId: string): void {
-    this.handledEventIds.add(eventId);
-    if (this.handledEventIds.size <= MAX_HANDLED_EVENT_IDS) return;
-    const oldest = this.handledEventIds.values().next().value as string | undefined;
-    if (oldest) this.handledEventIds.delete(oldest);
+  private async markHandled(eventId: string): Promise<void> {
+    await this.database.transaction((tx) =>
+      new OutboxRepository(tx).markConsumerReceiptIn(
+        tx,
+        NARRATIVE_WORK_CONSUMER_NAME,
+        eventId,
+      ),
+    );
   }
 
   private report(error: unknown): void {
