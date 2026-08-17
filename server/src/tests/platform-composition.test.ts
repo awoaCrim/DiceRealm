@@ -108,13 +108,15 @@ function checkImportGraph(root: string, files: string[]): string[] {
 
 
 describe('createPlatformApp composition root', () => {
-  it('accepts only a DatabasePort and returns an explicit { app, realtimeRuntime }', async () => {
+  it('accepts only a DatabasePort and returns explicit HTTP, realtime and narrative runtimes', async () => {
     const platformDb = createSqliteDatabase(':memory:');
     try {
       await platformDb.migrate();
       const composed = createPlatformApp({ database: platformDb, securityConfig: parseSecurityConfig({ NODE_ENV: 'test', PUBLIC_ORIGIN: 'https://127.0.0.1' }) });
       expect(typeof composed.app.use).toBe('function');
       expect(typeof composed.realtimeRuntime.closeAll).toBe('function');
+      expect(typeof composed.narrativeWorkRuntime.start).toBe('function');
+      expect(typeof composed.narrativeWorkRuntime.stop).toBe('function');
       // 显式返回 runtime：不得依赖 app property cast。
       expect('realtimeRuntime' in composed.app).toBe(false);
     } finally {

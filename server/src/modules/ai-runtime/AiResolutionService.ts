@@ -101,6 +101,16 @@ export class AiResolutionService {
     return this.decisionResolution.resolveDecision(ctx, roundId, decisionId, input);
   }
 
+  /** Background entry point; it carries no HTTP/Owner auth context. */
+  async resolveDecisionInternal(
+    campaignId: string,
+    roundId: string,
+    decisionId: string,
+    input: ResolveTurnInput,
+  ): Promise<{ created: boolean; run: AiRunView }> {
+    return this.decisionResolution.resolveDecisionInternal(campaignId, roundId, decisionId, input);
+  }
+
   async resolveTurn(ctx: CampaignAuthContext, turnId: string, input: ResolveTurnInput): Promise<{ created: boolean; run: AiRunView }> {
     requireOwner(ctx);
     const activeRound = await new NarrativeRoundRepository(this.executor).findByTurnId(turnId);

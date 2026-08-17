@@ -11,13 +11,12 @@ export interface NarrativeWorkItem {
 }
 
 /**
- * Minimal level-triggered worker boundary for live NarrativeRound work.
+ * Query/recovery boundary for live NarrativeRound work.
  *
- * Outbox events only wake this coordinator. Each wake-up re-queries the active
- * round and claims the earliest action by submitted_at ASC, action_id ASC.
- * Mechanics/provider work is intentionally not performed in this transaction;
- * callers receive one immutable decision claim and run the provider outside the
- * database transaction.
+ * Production `NarrativeWorkRuntime` uses only `peekNext()` here. The resolver
+ * owns the claim transaction, creates the AI run and binds its execution id to
+ * the Decision. `claimNext()` remains a deterministic compatibility seam for
+ * existing lower-level tests and must not precede resolver-owned work.
  */
 export class NarrativeWorkCoordinator {
   private readonly narrative: NarrativeRoundService;
@@ -30,6 +29,10 @@ export class NarrativeWorkCoordinator {
     this.narrative = new NarrativeRoundService(executor, outbox, mutations);
   }
 
+  /**
+   * @deprecated Test/compatibility seam only. Production must not pre-claim
+   * before calling NarrativeDecisionResolutionService.
+   */
   async claimNext(
     campaignId: string,
     roundId: string,
@@ -40,6 +43,7 @@ export class NarrativeWorkCoordinator {
     return { claim, decision: claim.decision };
   }
 
+  /** @deprecated Test/compatibility seam only; use NarrativeWorkRuntime. */
   async runOnce<T>(
     campaignId: string,
     roundId: string,

@@ -1,5 +1,5 @@
 import { nanoid } from 'nanoid';
-import { campaignEventSchema, eventDefaultAudience, type CampaignEvent } from '@dnd/contracts';
+import { campaignEventSchema, eventDefaultAudience, type CampaignEvent, type CampaignEventType } from '@dnd/contracts';
 import type { QueryExecutor, QueryReader } from '../database/DatabasePort.js';
 import type { EventPublisherPort } from './EventPublisherPort.js';
 
@@ -66,6 +66,22 @@ export class OutboxRepository implements EventPublisherPort {
     return this.executor.query<OutboxEventRow>(
       'SELECT * FROM platform_outbox_events WHERE campaign_id = ? AND published_at IS NULL AND superseded_at IS NULL ORDER BY sequence ASC',
       [campaignId],
+    );
+  }
+
+  /**
+   * Process-local consumers use the outbox as a level-triggered wake-up feed.
+   * `published_at` remains untouched because SSE delivery has its own cursor;
+   * the consumer owns idempotency and re-checks the authoritative domain rows.
+   */
+  async listUnpublishedByType(eventType: CampaignEventType, limit = 200): Promise<OutboxEventRow[]> {
+    const normalizedLimit = Number.isFinite(limit) ? Math.trunc(limit) : 200;
+    const boundedLimit = Math.max(1, Math.min(normalizedLimit, 1000));
+    return this.executor.query<OutboxEventRow>(
+      `SELECT * FROM platform_outbox_events
+       WHERE event_type = ? AND published_at IS NULL AND superseded_at IS NULL
+       ORDER BY created_at ASC, id ASC LIMIT ?`,
+      [eventType, boundedLimit],
     );
   }
 

@@ -19,6 +19,7 @@ import { AiContextBuilder } from '../ai-runtime/AiContextBuilder.js';
 import { NarrativeDecisionResolutionService } from './NarrativeDecisionResolutionService.js';
 import { NarrativeClaimLeaseSweeper } from './NarrativeClaimLeaseSweeper.js';
 import { NarrativeWorkCoordinator } from './NarrativeWorkCoordinator.js';
+import { NarrativeWorkRuntime } from './NarrativeWorkRuntime.js';
 
 async function makeFixture() {
   const db = createSqliteDatabase(':memory:');
@@ -231,6 +232,81 @@ describe('NarrativeRound runtime', () => {
       expect(updated.workingFacts.length).toBeGreaterThan(0);
       expect(JSON.stringify(updated.workingFacts)).not.toContain('A 恢复体力');
     } finally {
+      await db.close();
+    }
+  });
+
+  it('consumes work_available through the background resolver without an Owner resolve call', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    let providerCalls = 0;
+    let actionId = '';
+    let actorId = '';
+    let runtime: NarrativeWorkRuntime | undefined;
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A 恢复体力。' });
+      const submitted = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const decision = submitted.decisions.find((item) => item.actorId === contexts[0].playerId);
+      if (!decision?.actionId) throw new Error('expected A decision');
+      actionId = decision.actionId;
+      actorId = decision.actorId;
+
+      const provider = {
+        name: 'background-scripted',
+        model: 'background-test',
+        stream: async () => {
+          providerCalls += 1;
+          return {
+            actionIntents: [{
+              actionId, actorId, mode: 'player_action', actionType: 'healing', actionRef: 'healing:basic',
+              targetIds: [], declaredApproach: '恢复体力', desiredOutcome: '恢复一点生命',
+              resourceChoices: [], fallbackPolicy: 'continue',
+            }],
+          };
+        },
+      } as const;
+      const outbox = new OutboxRepository(db);
+      const resolver = new NarrativeDecisionResolutionService(db, provider, outbox);
+      runtime = new NarrativeWorkRuntime(
+        db,
+        new NarrativeWorkCoordinator(db, outbox),
+        resolver,
+        5,
+      );
+      runtime.start();
+
+      await vi.waitFor(async () => {
+        const current = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+        expect(current.decisions.find((item) => item.id === decision.id)?.status).toBe('resolved');
+      });
+
+      expect(providerCalls).toBe(1);
+      const runs = await db.query<{ status: string; id: string }>(
+        'SELECT id, status FROM platform_ai_runs WHERE turn_id = ?', [turn.id],
+      );
+      expect(runs).toHaveLength(1);
+      expect(runs[0].status).toBe('succeeded');
+      expect(await db.query('SELECT id FROM platform_resolved_outcomes WHERE execution_id = ?', [runs[0].id])).toHaveLength(1);
+      expect(await db.query('SELECT id FROM platform_narrative_working_facts WHERE decision_id = ?', [decision.id])).not.toHaveLength(0);
+
+      const after = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      expect(after.decisions.find((item) => item.actorId === contexts[1].playerId)?.status).toBe('waiting');
+      expect(after.decisions.find((item) => item.actorId === contexts[2].playerId)?.status).toBe('waiting');
+
+      // A fresh process-local runtime can see the old unacked wake-ups again,
+      // but ordering/idempotency prevents a second Provider execution.
+      await runtime.stop();
+      const restarted = new NarrativeWorkRuntime(
+        db,
+        new NarrativeWorkCoordinator(db, outbox),
+        resolver,
+        5,
+      );
+      await restarted.runOnce();
+      await restarted.stop();
+      expect(providerCalls).toBe(1);
+    } finally {
+      await runtime?.stop();
       await db.close();
     }
   });

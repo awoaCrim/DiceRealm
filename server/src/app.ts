@@ -41,6 +41,8 @@ import { CombatRepository } from './modules/combat/CombatRepository.js';
 import { AiProviderConfigService } from './modules/ai-runtime/AiProviderConfigService.js';
 import { CampaignScopedAiProvider } from './modules/ai-runtime/CampaignScopedAiProvider.js';
 import type { CredentialCipher } from './modules/ai-runtime/CredentialCipher.js';
+import { NarrativeWorkCoordinator } from './modules/narrative-runtime/NarrativeWorkCoordinator.js';
+import { NarrativeWorkRuntime } from './modules/narrative-runtime/NarrativeWorkRuntime.js';
 
 /**
  * 平台唯一组合根。`database` 必填且只能是 `DatabasePort`；
@@ -64,11 +66,13 @@ export interface PlatformAppTestOptions {
   realtimeAuthorityChecker?: EventAuthorityChecker;
   realtimePollIntervalMs?: number;
   realtimeHeartbeatIntervalMs?: number;
+  narrativeWorkPollIntervalMs?: number;
 }
 
 export interface PlatformApp {
   app: express.Express;
   realtimeRuntime: EventStreamRuntime;
+  narrativeWorkRuntime: NarrativeWorkRuntime;
 }
 
 export function createPlatformApp(options: CreatePlatformAppOptions): PlatformApp {
@@ -198,6 +202,14 @@ function composePlatformApp(
     new StateChangeMaterializer(database, new CombatAiAdapter(combat, new CombatRepository(database))),
   );
   app.use('/api/campaigns/:campaignId/ai', createAiRouter(database, ai, aiProviderConfig));
+  // The outbox worker is composed with the same campaign-scoped Provider facade
+  // and resolver instance as HTTP, but startup owns its lifecycle.
+  const narrativeWorkRuntime = new NarrativeWorkRuntime(
+    database,
+    new NarrativeWorkCoordinator(database, new OutboxRepository(database)),
+    ai,
+    testOptions.narrativeWorkPollIntervalMs,
+  );
 
   // 统一错误中间件：注册在所有平台路由之后、404 之前，处理一切已挂载 route 的错误。
   app.use(errorMiddleware);
@@ -208,5 +220,5 @@ function composePlatformApp(
     res.status(404).json({ error: { code: 'NOT_FOUND', message: '接口不存在。' } });
   });
 
-  return { app, realtimeRuntime };
+  return { app, realtimeRuntime, narrativeWorkRuntime };
 }

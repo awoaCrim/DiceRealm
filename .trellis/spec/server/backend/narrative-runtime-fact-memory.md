@@ -30,6 +30,13 @@ projection.projectLatestClosedBefore(campaignId, roundNumber, audience, actorId?
 
 new NarrativeDecisionResolutionService(database, provider, outbox, ...)
 service.resolveDecision(ctx, roundId, decisionId, { idempotencyKey })
+service.resolveDecisionInternal(campaignId, roundId, decisionId, { idempotencyKey })
+
+new NarrativeWorkRuntime(database, coordinator, worker, intervalMs?)
+runtime.start()
+runtime.stop()
+runtime.runOnce()
+OutboxRepository.listUnpublishedByType(eventType, limit?)
 ```
 
 Persistence is split across:
@@ -56,6 +63,8 @@ Migration `017_narrative_runtime_fact_memory.sql` is part of the frozen approved
 - Each decision claim/apply is a short transaction. Provider calls happen outside transactions.
 - `platform_turns.status` is a compatibility mirror for live paths; new lifecycle code must not create an independent status authority.
 - `narrative.round.work_available` is only a wake-up signal. A worker must re-query the earliest eligible Decision by `submitted_at ASC, action_id ASC`; outbox delivery order, duplication, and delay never define causal order.
+- Production `NarrativeWorkRuntime` polls active unpublished `narrative.round.work_available` rows, never marks `published_at` (that column remains part of the SSE/outbox surface), and uses process-local handled-event state plus resolver idempotency for restart/replay safety. Each Provider attempt uses `narrative-work:<eventId>:<candidateDecisionId>`; the resolver-owned claim/CAS remains the duplicate-work authority.
+- `NarrativeWorkCoordinator.peekNext()` is the production worker query seam. `claimNext()` is compatibility/test-only and must not run before `NarrativeDecisionResolutionService.resolveDecisionInternal()`.
 - `collecting` remains submit-capable while Decisions independently move through `submitted/processing/resolved`. Claim does not require `round.status=processing`; one Round may have at most one `processing` Decision at a time.
 - The claim revision anchors the world-state snapshot, not the input queue. A `turn_action_submit` mutation may advance the campaign revision while a Provider is running; apply may rebase to the latest revision only when every intervening ledger row has `cause_type='turn_action_submit'`. Any other intervening mutation is `STALE_STATE_REVISION`.
 - Every live transition must read and conditionally update `NarrativeRound.status` first; only then may the same transaction update the compatible Turn mirror. A stale or missing round transition rolls back the mirror update.
@@ -124,6 +133,8 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 | Any non-input mutation occurs after a claim | `STALE_STATE_REVISION`; no mechanics/facts/outcome |
 | Duplicate decision execution/idempotency | Return stored execution/outcome; no reroll/reapply/duplicate facts |
 | Outbox signal arrives for a later Decision while an earlier submitted Decision is unresolved/needs attention | Do not claim the later Decision; preserve the blocked prefix |
+| Duplicate/replayed `work_available` row | Re-query the earliest candidate; resolver idempotency/CAS permits at most one Provider execution per Decision |
+| Runtime sees a stale signal for a closed/resolved/owner-attention prefix | Consume the wake-up without Provider work; a later valid transition must emit a fresh signal |
 | A second worker claims while another Decision in the same Round is processing | No-op/`STATE_CONFLICT`; keep one in-flight Decision per Round |
 | A processing claim is older than the worker lease without a committed outcome | CAS-expire it to `needs_owner_attention`, fail its running AI run, and keep later Decisions blocked |
 | A processing claim is older than the worker lease but already has a committed mechanical outcome | Do not expire it; replay must recover Decision/run metadata without a second mechanics revision |
@@ -162,11 +173,22 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 - Archive restore test proving later Round/WorkingFact/FactSet rows are superseded and excluded from active projection.
 - Decision-scoped Provider test proving one action intent, server mechanics, idempotent replay and no second roll.
 - Async coordinator tests proving work signals only wake the worker, one in-flight Decision per Round, earliest-order/blocked-prefix scheduling, claim-lease expiry/late-result fencing, crash/replay idempotency, and submit/claim action snapshot CAS.
+- Production composition/startup test proving the composed outbox runtime starts and stops with the server; vertical A-only submit test must show no Owner resolve call, exactly one Provider call, one resolved Decision, mechanical outcome/WorkingFact persistence, and later participants still waiting.
 - Existing turn, AI, narration retry, archive, migration, typecheck, build and projection regressions.
 
 ## 7. Wrong vs Correct
 
 ### Wrong
+
+```ts
+// A coordinator claims first, then the resolver attempts a second claim with a new execution id.
+const item = await coordinator.claimNext(campaignId, roundId);
+await resolver.resolveDecisionInternal(campaignId, roundId, item.decision.id, {
+  idempotencyKey: `work:${item.decision.id}`,
+});
+```
+
+This creates two competing execution identities and can reject the real Provider run as already owned.
 
 ```ts
 // Long transaction around the entire round and raw history in the next prompt.
@@ -194,6 +216,14 @@ A failed or stale Round transition can then leave Turn and Round disagreeing, an
 ### Correct
 
 ```ts
+// The outbox row only wakes the runtime; resolver owns claim + execution identity.
+const candidate = await coordinator.peekNext(campaignId, roundId);
+if (candidate?.status === 'submitted') {
+  await resolver.resolveDecisionInternal(campaignId, roundId, candidate.id, {
+    idempotencyKey: `narrative-work:${eventId}:${candidate.id}`,
+  });
+}
+
 const claim = await rounds.claimDecision(campaignId, roundId, decisionId, executionId);
 const proposal = await provider.stream(decisionContext(claim), hooks);
 

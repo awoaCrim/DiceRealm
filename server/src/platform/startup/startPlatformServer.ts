@@ -104,11 +104,12 @@ export async function defaultListen(app: express.Express, port: number, host: st
  *   → create env fallback provider
  *   → createPlatformApp({ database, ... })
  *   → listen
+ *   → start Narrative outbox worker
  *   → start Narrative claim lease sweeper
  *
  * 任一步失败：已打开的 DB 必须 close，锁最后 release，listener 不得留下。
  * 正常 shutdown 固定为：
- *   stop Narrative claim lease sweeper → server.close（停止新连接）→ realtimeRuntime.closeAll()
+ *   stop Narrative outbox worker → stop Narrative claim lease sweeper → server.close（停止新连接）→ realtimeRuntime.closeAll()
  *   → server.closeAllConnections() → 等待 server close 完成 → database.close() → InstanceLock.release()。
  * 每一步异常隔离：前面步骤抛出也不阻止 DB/lock 清理。
  */
@@ -127,11 +128,19 @@ export async function startPlatformServer(options: StartPlatformServerOptions): 
   let database: (DatabasePort & { close(): Promise<void> }) | null = null;
   let realtimeRuntime: EventStreamRuntime | null = null;
   let listener: PlatformListener | null = null;
+  let narrativeWorkRuntime: PlatformApp['narrativeWorkRuntime'] | null = null;
   let narrativeClaimLeaseSweeper: NarrativeClaimLeaseSweeper | null = null;
 
   // 统一关闭序列（正常 shutdown 与失败清理共用），每步异常隔离：
-  // lease sweeper → server.close → realtime closeAll → server.closeAllConnections → database.close → lock.release。
+  // outbox worker → lease sweeper → server.close → realtime closeAll → server.closeAllConnections → database.close → lock.release。
   const shutdownAll = async (): Promise<void> => {
+    try {
+      if (narrativeWorkRuntime !== null) {
+        await narrativeWorkRuntime.stop();
+      }
+    } catch {
+      // Background Provider work must not prevent the database/lock cleanup.
+    }
     try {
       if (narrativeClaimLeaseSweeper !== null) {
         await narrativeClaimLeaseSweeper.stop();
@@ -227,11 +236,13 @@ export async function startPlatformServer(options: StartPlatformServerOptions): 
       aiProvider,
     });
     realtimeRuntime = composed.realtimeRuntime;
+    narrativeWorkRuntime = composed.narrativeWorkRuntime;
     emit('app.create');
 
     listener = await listen(composed.app, config.port, config.host);
     emit('listen');
 
+    narrativeWorkRuntime.start();
     narrativeClaimLeaseSweeper = new NarrativeClaimLeaseSweeper(
       new NarrativeWorkCoordinator(database, new OutboxRepository(database)),
     );

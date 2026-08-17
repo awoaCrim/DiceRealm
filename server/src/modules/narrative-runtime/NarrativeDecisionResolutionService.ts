@@ -10,6 +10,7 @@ import type { DatabasePort, QueryExecutor } from '../../platform/database/Databa
 import type { EventPublisherPort } from '../../platform/events/EventPublisherPort.js';
 import { AppError } from '../../platform/http/AppError.js';
 import { requireOwner, type CampaignAuthContext } from '../campaigns/CampaignAccess.js';
+import { CampaignRepository } from '../campaigns/CampaignRepository.js';
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 import { TurnRepository } from '../turns/TurnRepository.js';
 import { AiContextBuilder } from '../ai-runtime/AiContextBuilder.js';
@@ -51,19 +52,33 @@ export class NarrativeDecisionResolutionService {
     input: { idempotencyKey: string },
   ): Promise<{ created: boolean; run: AiRunView }> {
     requireOwner(ctx);
+    return this.resolveDecisionInternal(ctx.campaignId, roundId, decisionId, input);
+  }
+
+  /**
+   * Worker-only entry point. It deliberately accepts campaign identity rather
+   * than an Owner auth context: the claim transaction is the single authority
+   * that allocates the execution id and binds it to the Decision.
+   */
+  async resolveDecisionInternal(
+    campaignId: string,
+    roundId: string,
+    decisionId: string,
+    input: { idempotencyKey: string },
+  ): Promise<{ created: boolean; run: AiRunView }> {
     // Reclaim an abandoned claim before idempotency replay. This is a no-op
     // for a live claim and for a committed mechanics checkpoint.
-    await this.narrative.expireExpiredDecisionClaim(ctx.campaignId, roundId, decisionId);
+    await this.narrative.expireExpiredDecisionClaim(campaignId, roundId, decisionId);
     const runProvider = this.provider.resolveForCampaign
-      ? await this.provider.resolveForCampaign(ctx.campaignId)
+      ? await this.provider.resolveForCampaign(campaignId)
       : this.provider;
-    const claim = await this.claim(ctx.campaignId, roundId, decisionId, input.idempotencyKey, runProvider);
+    const claim = await this.claim(campaignId, roundId, decisionId, input.idempotencyKey, runProvider);
     if (claim.kind === 'replay') {
       // A crash can leave the immutable mechanics/outcome committed while the
       // run/decision completion metadata is still pending. Recover that
       // checkpoint without calling the Provider or allocating another revision.
       if (claim.run.status === 'running' && await this.hasCommittedOutcome(claim.run.id)) {
-        await this.recoverCommittedApply(ctx.campaignId, roundId, decisionId, claim.run.id);
+        await this.recoverCommittedApply(campaignId, roundId, decisionId, claim.run.id);
         const recovered = await new AiRunRepository(this.executor).findById(claim.run.id);
         if (!recovered) throw new AppError('INTERNAL_ERROR', '叙事决策恢复结果读取失败。');
         return { created: false, run: this.toView(recovered) };
@@ -75,15 +90,15 @@ export class NarrativeDecisionResolutionService {
       const raw = await runProvider.stream(claim.prompt!, {
         onDelta: async (delta) => {
           await this.executor.transaction((tx) => this.outbox.publishIn(tx, {
-            type: 'ai.preview.delta', campaignId: ctx.campaignId, runId, text: delta.text,
+            type: 'ai.preview.delta', campaignId, runId, text: delta.text,
           }));
         },
       });
-      const outcome = await this.validator.validate(ctx.campaignId, raw);
+      const outcome = await this.validator.validate(campaignId, raw);
       const proposal = this.singleProposal(outcome, decisionId, roundId);
-      await this.apply(ctx.campaignId, ctx.userId, roundId, decisionId, runId, proposal);
+      await this.apply(campaignId, roundId, decisionId, runId, proposal);
     } catch (error) {
-      await this.fail(ctx.campaignId, roundId, decisionId, runId, error);
+      await this.fail(campaignId, roundId, decisionId, runId, error);
       if (error instanceof AppError) throw error;
       throw new AppError('AI_PROVIDER_FAILED', 'AI Provider 调用失败。');
     }
@@ -208,7 +223,6 @@ export class NarrativeDecisionResolutionService {
 
   private async apply(
     campaignId: string,
-    actorUserId: string,
     roundId: string,
     decisionId: string,
     runId: string,
@@ -217,9 +231,10 @@ export class NarrativeDecisionResolutionService {
     await this.executor.transaction(async (tx) => {
       const runs = new AiRunRepository(tx);
       const roundRepository = new NarrativeRoundRepository(tx);
+      const campaign = await new CampaignRepository(tx).findById(campaignId);
       const run = await runs.findById(runId);
       const decision = await roundRepository.findDecisionById(decisionId);
-      if (!run || run.status !== 'running' || !decision || decision.round_id !== roundId
+      if (!campaign || !run || run.status !== 'running' || !decision || decision.round_id !== roundId
         || decision.campaign_id !== campaignId || decision.status !== 'processing'
         || decision.execution_id !== runId) {
         throw new AppError('STATE_CONFLICT', '叙事决策 AI run 不在可应用状态。');
@@ -251,7 +266,7 @@ export class NarrativeDecisionResolutionService {
           mutationId: `narrative-ai-apply:${runId}`,
           basedOnStateRevision: run.expected_state_revision as number,
           appliedStateRevision: stateRevision,
-          actorUserId,
+          actorUserId: campaign.owner_id,
           proposal,
           actionSnapshot: contextSnapshot,
         });
