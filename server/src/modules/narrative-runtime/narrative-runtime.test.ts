@@ -311,6 +311,117 @@ describe('NarrativeRound runtime', () => {
     }
   });
 
+  it('re-wakes a submitted Decision after restoring an archive whose original wake-up was consumed', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    const outbox = new OutboxRepository(db);
+    const workEventType = 'narrative.round.work_available';
+    let providerCalls = 0;
+    let actionId = '';
+    let actorId = '';
+    let runtime: NarrativeWorkRuntime | undefined;
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A 在存档前提交行动。' });
+      const submitted = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const decision = submitted.decisions.find((item) => item.actorId === contexts[0].playerId);
+      if (!decision?.actionId) throw new Error('expected A decision');
+      actionId = decision.actionId;
+      actorId = decision.actorId;
+
+      const archives = new ArchiveService(db, outbox);
+      const checkpoint = await archives.createManual(ownerCtx, 'A submitted checkpoint');
+      const workRows = await db.query<{ id: string; payload_json: string }>(
+        'SELECT id, payload_json FROM platform_outbox_events WHERE campaign_id = ? AND event_type = ? ORDER BY sequence',
+        [turn.campaignId, workEventType],
+      );
+      const originalWork = workRows.find((row) => JSON.parse(row.payload_json).roundId === turn.id);
+      if (!originalWork) throw new Error('expected original work_available event');
+
+      const provider = {
+        name: 'restore-rewake-scripted',
+        model: 'restore-rewake-test',
+        stream: async () => {
+          providerCalls += 1;
+          return {
+            actionIntents: [{
+              actionId, actorId, mode: 'player_action', actionType: 'healing', actionRef: 'healing:basic',
+              targetIds: [], declaredApproach: '恢复体力', desiredOutcome: '恢复一点生命',
+              resourceChoices: [], fallbackPolicy: 'continue',
+            }],
+          };
+        },
+      } as const;
+      const resolver = new NarrativeDecisionResolutionService(db, provider, outbox);
+      runtime = new NarrativeWorkRuntime(
+        db,
+        new NarrativeWorkCoordinator(db, outbox),
+        resolver,
+        5,
+      );
+
+      await runtime.runOnce();
+      expect(providerCalls).toBe(1);
+      expect(await db.query(
+        'SELECT event_id FROM platform_outbox_consumer_receipts WHERE consumer_name = ? AND event_id = ?',
+        [NARRATIVE_WORK_CONSUMER_NAME, originalWork.id],
+      )).toHaveLength(1);
+      expect((await narrative.getRequiredByTurn(turn.campaignId, turn.id)).decisions
+        .find((item) => item.id === decision.id)?.status).toBe('resolved');
+
+      // Advance the round to a completed state so restore is legal, while leaving
+      // the original archive's submitted A state as the branch to rewind to.
+      const later = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const bDecision = later.decisions.find((item) => item.actorId === contexts[1].playerId);
+      const cDecision = later.decisions.find((item) => item.actorId === contexts[2].playerId);
+      if (!bDecision || !cDecision) throw new Error('expected B and C decisions');
+      await turns.submitAction(contexts[1], turn.id, { body: 'B 在 A 之后提交行动。' });
+      await narrative.skipDecision(turn.campaignId, turn.id, bDecision.id);
+      await turns.submitAction(contexts[2], turn.id, { body: 'C 在 A 之后提交行动。' });
+      await narrative.skipDecision(turn.campaignId, turn.id, cDecision.id);
+      await narrative.closeRound(turn.campaignId, turn.id);
+
+      const restored = await archives.restore(ownerCtx, checkpoint.id);
+      expect(restored.restoredTurnId).toBe(turn.id);
+      const restoredView = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      expect(restoredView.decisions.find((item) => item.id === decision.id)?.status).toBe('submitted');
+
+      const pending = await outbox.listPendingByConsumer(
+        workEventType,
+        NARRATIVE_WORK_CONSUMER_NAME,
+      );
+      expect(pending).toHaveLength(1);
+      const restoredWork = pending[0];
+      expect(restoredWork.id).not.toBe(originalWork.id);
+      expect(JSON.parse(restoredWork.payload_json)).toMatchObject({
+        type: workEventType, campaignId: turn.campaignId, roundId: turn.id, decisionId: decision.id,
+      });
+      expect(await db.query(
+        'SELECT event_id FROM platform_outbox_consumer_receipts WHERE consumer_name = ? AND event_id = ?',
+        [NARRATIVE_WORK_CONSUMER_NAME, originalWork.id],
+      )).toHaveLength(1);
+      expect(await db.query(
+        'SELECT event_id FROM platform_outbox_consumer_receipts WHERE consumer_name = ? AND event_id = ?',
+        [NARRATIVE_WORK_CONSUMER_NAME, restoredWork.id],
+      )).toHaveLength(0);
+
+      await runtime.runOnce();
+      expect(providerCalls).toBe(2);
+      expect((await narrative.getRequiredByTurn(turn.campaignId, turn.id)).decisions
+        .find((item) => item.id === decision.id)?.status).toBe('resolved');
+      expect(await db.query(
+        'SELECT event_id FROM platform_outbox_consumer_receipts WHERE consumer_name = ? AND event_id = ?',
+        [NARRATIVE_WORK_CONSUMER_NAME, originalWork.id],
+      )).toHaveLength(1);
+      expect(await db.query(
+        'SELECT event_id FROM platform_outbox_consumer_receipts WHERE consumer_name = ? AND event_id = ?',
+        [NARRATIVE_WORK_CONSUMER_NAME, restoredWork.id],
+      )).toHaveLength(1);
+    } finally {
+      await runtime?.stop();
+      await db.close();
+    }
+  });
+
   it('advances durable work receipts past a full batch and after restart', async () => {
     const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
     const workEventType = 'narrative.round.work_available';

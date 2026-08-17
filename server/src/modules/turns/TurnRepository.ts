@@ -261,15 +261,36 @@ export class TurnRepository {
     );
   }
 
-  /** 恢复：该回合的所有动作替换为快照动作（delete + insert，同 tx）。 */
+  /**
+   * 恢复：把当前回合动作替换为快照动作（同 tx）。
+   * 已被 immutable adjudication audit 引用的 later action 不能物理删除；快照内动作则优先原地更新，
+   * 这样 archive restore 不会因 platform_action_intents 的 FK 破坏已落库的审计链。
+   */
   async replaceActions(turnId: string, campaignId: string, actions: ActionRow[]): Promise<void> {
-    await this.executor.execute('DELETE FROM platform_actions WHERE turn_id = ?', [turnId]);
-    for (const action of actions) {
-      await this.executor.execute(
-        `INSERT INTO platform_actions (id, turn_id, campaign_id, player_id, body, submitted_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [action.id, turnId, campaignId, action.player_id, action.body, action.submitted_at, action.updated_at],
+    const existing = await this.listActionsByTurn(turnId);
+    const snapshotIds = new Set(actions.map((action) => action.id));
+    for (const action of existing) {
+      if (snapshotIds.has(action.id)) continue;
+      const references = await this.executor.query<{ count: number }>(
+        'SELECT COUNT(*) AS count FROM platform_action_intents WHERE action_id = ?', [action.id],
       );
+      if (Number(references[0]?.count ?? 0) > 0) continue;
+      await this.executor.execute('DELETE FROM platform_actions WHERE id = ? AND turn_id = ?', [action.id, turnId]);
+    }
+    for (const action of actions) {
+      const updated = await this.executor.execute(
+        `UPDATE platform_actions
+         SET turn_id = ?, campaign_id = ?, player_id = ?, body = ?, submitted_at = ?, updated_at = ?
+         WHERE id = ?`,
+        [turnId, campaignId, action.player_id, action.body, action.submitted_at, action.updated_at, action.id],
+      );
+      if (updated.changes === 0) {
+        await this.executor.execute(
+          `INSERT INTO platform_actions (id, turn_id, campaign_id, player_id, body, submitted_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [action.id, turnId, campaignId, action.player_id, action.body, action.submitted_at, action.updated_at],
+        );
+      }
     }
   }
 

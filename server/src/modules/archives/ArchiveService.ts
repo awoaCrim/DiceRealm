@@ -128,7 +128,10 @@ export class ArchiveService {
       await this.supersedeHistory(tx, ctx.campaignId, archive.id, archive.version, snapshot, now);
       // 5) 恢复快照状态。
       const restoredTurnId = await this.restoreSnapshotState(tx, ctx.campaignId, snapshot, ctx.userId, archive.id, now);
-      // 5b) 选中 archive 自身解除 superseded，成为当前 active checkpoint；version > target 仍 superseded。
+      // 5b) 原 work_available 可能已经被 worker 消费并留下 durable receipt；恢复 submitted
+      // decision 时必须在同一事务补发一个新的 wake-up，不能依赖被回溯到快照水位之前的旧事件。
+      await this.publishRestoredNarrativeWorkIfNeeded(tx, ctx.campaignId, snapshot);
+      // 5c) 选中 archive 自身解除 superseded，成为当前 active checkpoint；version > target 仍 superseded。
       //     使恢复后的 DTO superseded=false 且 listForCampaign 可见（产品语义：选中的存档成为当前状态）。
       await repo.clearSuperseded(archive.id);
       // 6) 最后 publish archive.restored（public；其 sequence > watermark，不被本次 supersede）。
@@ -336,6 +339,28 @@ export class ArchiveService {
     } else {
       await combat.supersedeAllByCampaign(campaignId, archiveId, now);
     }
+  }
+
+  /**
+   * Restore can rewind a submitted Decision after its original wake-up has
+   * already received a durable worker receipt. Publish a fresh signal only
+   * for the restored earliest submitted Decision; other restored statuses stay
+   * owner-driven or terminal.
+   */
+  private async publishRestoredNarrativeWorkIfNeeded(
+    tx: QueryExecutor,
+    campaignId: string,
+    snapshot: ArchiveSnapshot,
+  ): Promise<void> {
+    if (snapshot.schemaVersion !== 2 || !snapshot.narrative) return;
+    const repository = new NarrativeRoundRepository(tx);
+    const round = await repository.findById(snapshot.narrative.round.id);
+    if (!round || round.campaign_id !== campaignId || round.status === 'closed') return;
+    const decision = await repository.findEarliestUnresolvedDecision(round.id);
+    if (!decision || decision.status !== 'submitted') return;
+    await this.outbox.publishIn(tx, {
+      type: 'narrative.round.work_available', campaignId, roundId: round.id, decisionId: decision.id,
+    });
   }
 
   private async restoreNarrativeSnapshot(

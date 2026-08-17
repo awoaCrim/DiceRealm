@@ -109,6 +109,8 @@ NarrativeRound
 
 - 新 round、decision、WorkingFact、RoundFactSet 查询默认排除 `superseded_at IS NOT NULL`；archive restore 必须按 round/turn watermark supersede later branch，并恢复快照内 active round/facts。
 - active next context 不能读取被 restore 作废的 RoundFactSet，即使其原始 AI run、turn entry 或 state revision 仍在审计表中。
+- restore 若把 earliest Decision 恢复为 `submitted`，必须在 supersede + snapshot restore 的同一事务内发布新的 `narrative.round.work_available`；旧 durable receipt 保留，不得无条件唤醒 `waiting`、`needs_owner_attention` 或 `closed`。
+- archive action replacement 必须优先原地更新快照内 action，并保护仍被 immutable adjudication audit 引用的 action，避免 restore 破坏 `platform_action_intents` FK。
 - legacy Turn/AI records 保持可读；新 live round path 不得把旧 legacy run 的缺失 revision 当作可应用权威状态。
 
 ## 端到端验收场景
@@ -132,6 +134,7 @@ NarrativeRound
 - [ ] Round close 仅在完成条件满足时发生，首次 close 生成一个 immutable RoundFactSet；重复 close 不重复事实、不推进新 revision、不重新处理 mechanics。
 - [ ] Minimal ProjectedRoundSummary 真正接入下一轮 `AiContextBuilder`，并通过 A/B/C private projection 验证 actor isolation。
 - [ ] Archive restore/supersede 后，作废 Round/WorkingFact/RoundFactSet 不会进入 active 下一轮 Context。
+- [ ] Archive restore 在原始 `work_available` 已有 durable receipt 时，仍会为恢复后的 earliest `submitted` Decision 发布 fresh wake-up；background runtime 能完成恢复后的 Decision，且旧 receipt 不被删除。
 - [ ] RuntimeFact、ActorKnowledge、NarrativeFactExtractor、WorldTick/close contributor seam 已定义，但没有引入其完整长期持久化、AI orchestration 或世界模拟实现。
 - [ ] 临时 SQLite fixture 覆盖正常流程、重复提交、后续 Decision 失败、candidate 越权、Round close 幂等、projection privacy、archive supersede 和 migration rollback/failure。
 - [ ] 通过项目规定的 `typecheck`、focused tests、full test、build、migration manifest 检查和 `git diff --check`。
@@ -143,6 +146,7 @@ NarrativeRound
 - **P0：live NarrativeRound 仍可被 legacy whole-turn `resolveTurn()` 处理。** 新 active Round 必须只允许 Decision-scoped resolution；旧 whole-turn path 仅保留历史/兼容读取，或在无 NarrativeRound 的旧数据上运行。
 - **P0：submit 后仍要等所有 required participant 提交才开始处理。** Round 必须允许收集新提交的同时处理已经提交的最早 Decision；不能把 `all submitted` 当作 processing 的开始条件。
 - **P0：outbox worker 不能依赖进程内 handled-event 集合。** 未修改 `published_at` 的 wake-up 事件必须通过 `platform_outbox_consumer_receipts` 持久化消费状态；查询必须能跨越超过一个 batch，并在重启后继续处理更新事件。
+- **P0：Archive Restore 不能把 durable receipt 当成恢复后 Decision 已处理。** 如果快照恢复后 earliest Decision 是 `submitted`，必须在同一 restore transaction 发布 fresh `narrative.round.work_available`；保留旧 receipt，并保护已被 adjudication audit 引用的 action 不被物理删除。
 - **P1：Decision-scoped path 缺少 presentation-only Narration。** Mechanics/WorkingFacts/Decision 状态提交后，应独立生成可重试的 narration，不得让 narration 失败回滚已提交 StateRevision。
 - **P1：Fact authority/source/status 需要组合矩阵。** 至少禁止 `narration_result -> runtime_state + authoritative`，不能只检查 `ai_candidate + authoritative`。
 - **P1：production deterministic contributors 需要覆盖现有 server mechanical/state/event effects；不实现完整 FactCompiler。**

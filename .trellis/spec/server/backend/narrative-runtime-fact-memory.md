@@ -75,6 +75,8 @@ Migrations `017_narrative_runtime_fact_memory.sql` and `018_narrative_work_consu
 - Claim/failure/apply paths must persist the resulting StateRevision and decision cursor on the Round. Failure must move the Round and applicable participant/decision to `needs_owner_attention` so a retry with a new execution key is possible.
 - A `processing` Decision claim uses its `updated_at` as a five-minute worker lease. The process-local lease sweeper runs independently of HTTP/Provider traffic and must CAS-expire an abandoned claim to `needs_owner_attention`, move the participant/Round/Turn mirror to the same attention state, and fail any still-running AI run with `WORKER_CLAIM_EXPIRED`. A committed mechanical outcome is a recoverable checkpoint and must not be expired; a late Provider result must fail the Decision/apply identity guard. The sweeper only recovers claims; the outbox-to-Provider work consumer remains a separate transport concern.
 - WorkingFacts are append-only within an open round; a closed or superseded round is fail-closed for new facts and active projection. Idempotent FactSet replay must verify campaign ownership before returning an existing set.
+- Archive restore must re-check the restored Round's earliest unresolved Decision inside the same supersede/restore transaction. Only an earliest `submitted` Decision gets a fresh `narrative.round.work_available`; old durable receipts are retained, and `waiting`, `needs_owner_attention` or `closed` states are not unconditionally awakened.
+- Archive action replacement must update snapshot actions in place where possible and must not physically delete actions still referenced by immutable `platform_action_intents` adjudication audit rows; otherwise restore can violate the action FK and lose the audit chain.
 
 ### Fact authority and provenance
 
@@ -140,6 +142,8 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 | More than one consumer batch of handled wake-ups | The receipt anti-join advances to newer rows instead of repeatedly returning the first page |
 | Runtime crashes after terminal resolution but before receipt commit | The same event is replayed with the same idempotency key; no second Provider/mechanics execution is committed |
 | Runtime sees a stale signal for a closed/resolved/owner-attention prefix | Consume the wake-up without Provider work; a later valid transition must emit a fresh signal |
+| Archive restore rewinds an earliest Decision to `submitted` after its original signal has a durable receipt | Keep the old receipt, publish a new same-transaction `work_available` row with no receipt, and let the worker re-query/resolve the restored Decision |
+| Archive restore replaces an action already referenced by immutable adjudication audit | Update the snapshot action in place and delete only unreferenced branch actions; never violate the action audit FK |
 | A second worker claims while another Decision in the same Round is processing | No-op/`STATE_CONFLICT`; keep one in-flight Decision per Round |
 | A processing claim is older than the worker lease without a committed outcome | CAS-expire it to `needs_owner_attention`, fail its running AI run, and keep later Decisions blocked |
 | A processing claim is older than the worker lease but already has a committed mechanical outcome | Do not expire it; replay must recover Decision/run metadata without a second mechanics revision |
@@ -160,11 +164,13 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 - **Good:** A applies one decision at revision N+2; B's decision context contains A's public structured WorkingFact but not A's raw input.
 - **Good:** C's private fact has `visibility=player_private`, `audienceActorIds=[C]`; C's next-round summary includes it while A/B summaries do not.
 - **Good:** Round close copies active WorkingFacts into one immutable FactSet and creates the next Turn/Round in the same close transaction.
+- **Good:** Restoring a checkpoint captured while A is `submitted` publishes a fresh wake-up even when A's original wake-up is already receipted; the worker resolves A without an Owner call.
 - **Base:** Legacy `resolveTurn()` remains readable and finalizes a compatibility Round/FactSet; new clients can call decision-scoped resolution without a whole-round transaction.
 - **Bad:** Keep all prior action bodies in the next Provider prompt and rely on the model to hide private information.
 - **Bad:** Let an AI statement such as “the NPC is afraid” enter `runtime_state` as an authoritative fact without candidate validation.
 - **Bad:** Re-run `MechanicalResolutionService` or `DiceService` during Round close.
 - **Bad:** Restore a historical branch while leaving later RoundFactSet rows active in projection queries.
+- **Bad:** Treat a durable receipt as proof that a restored Decision is already resolved, or delete the receipt and rely on the old event's sequence to wake it again.
 
 ## 6. Tests Required
 
@@ -178,6 +184,7 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 - Archive restore test proving later Round/WorkingFact/FactSet rows are superseded and excluded from active projection.
 - Decision-scoped Provider test proving one action intent, server mechanics, idempotent replay and no second roll.
 - Async coordinator tests proving work signals only wake the worker, one in-flight Decision per Round, earliest-order/blocked-prefix scheduling, claim-lease expiry/late-result fencing, durable receipt pagination across more than one batch and restart, crash/replay idempotency, and submit/claim action snapshot CAS.
+- Vertical archive-restore worker test proving: A submit → manual archive → worker resolves A and receives the original receipt → later branch advances/closes → restore rewinds A to `submitted` → a fresh wake-up exists with no receipt → background runtime resolves A again while the original receipt remains.
 - Production composition/startup test proving the composed outbox runtime starts and stops with the server; vertical A-only submit test must show no Owner resolve call, exactly one Provider call, one resolved Decision, mechanical outcome/WorkingFact persistence, and later participants still waiting.
 - Existing turn, AI, narration retry, archive, migration, typecheck, build and projection regressions.
 
@@ -219,6 +226,21 @@ if (turn.status === 'waiting_for_actions') {
 A failed or stale Round transition can then leave Turn and Round disagreeing, and a legacy completed Turn can accidentally keep an active round visible.
 
 ### Correct
+
+```ts
+// Restore rewinds state and emits a new signal only for the restored submitted prefix.
+await restoreSnapshotState(tx, campaignId, snapshot, actorUserId, archiveId, now);
+const round = snapshot.narrative ? await rounds.findById(snapshot.narrative.round.id) : null;
+const candidate = round && round.status !== 'closed'
+  ? await rounds.findEarliestUnresolvedDecision(round.id)
+  : null;
+if (candidate?.status === 'submitted') {
+  await outbox.publishIn(tx, {
+    type: 'narrative.round.work_available',
+    campaignId, roundId: round.id, decisionId: candidate.id,
+  });
+}
+```
 
 ```ts
 // The outbox row only wakes the runtime; resolver owns claim + execution identity.
