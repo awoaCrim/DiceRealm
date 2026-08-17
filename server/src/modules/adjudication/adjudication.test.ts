@@ -78,7 +78,7 @@ describe('server adjudication and dice authority', () => {
     expect(result.plans.map((plan) => plan.rollKind)).toEqual(['attack', 'damage']);
     expect(result.records[0].total).toBe(24);
     expect(result.records[0].stateRevision).toBe(5);
-    expect(result.effects).toEqual([{ kind: 'hp_delta', targetId: 'goblin-1', delta: -4, reason: 'attack_damage' }]);
+    expect(result.effects).toEqual([{ kind: 'hp_delta', sourceActionId: 'action-1', targetId: 'goblin-1', delta: -4, reason: 'attack_damage' }]);
   });
 
   it('does not let Provider resourceChoices select mechanical advantage', () => {
@@ -109,7 +109,7 @@ describe('server adjudication and dice authority', () => {
       targets: { 'poison-source': { id: 'poison-source', hpCurrent: 1, hpMax: 1 } },
     }, 'mutation-save');
     expect(result.records[0].result).toBe('failure');
-    expect(result.effects).toEqual([{ kind: 'hp_delta', targetId: 'player-1', delta: -1, reason: 'saving_throw_failure' }]);
+    expect(result.effects).toEqual([{ kind: 'hp_delta', sourceActionId: 'action-save', targetId: 'player-1', delta: -1, reason: 'saving_throw_failure' }]);
   });
 
   it('allows a fixed ability check without a Provider-supplied DC', () => {

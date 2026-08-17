@@ -491,9 +491,10 @@ export class AiResolutionService {
       }
       const repository = new AdjudicationRepository(tx);
       const outcomeRow = await repository.findOutcomeByExecution(tx, runId);
-      if (!outcomeRow) throw new AppError('STATE_CONFLICT', '机械结果尚未提交。');
-      await assertRevision(tx, campaignId, outcomeRow.applied_state_revision);
+      if (!outcomeRow) throw new AppError('STATE_CONFLICT', '机械结果尚未提交或已被恢复操作 supersede。');
+      assertNarrationOutcomeMatches(run, outcomeRow, campaignId, turnId, runId);
       const latest = await repository.findLatestNarrationAttempt(tx, runId);
+      if (latest) assertNarrationAttemptMatches(latest, outcomeRow, campaignId, turnId, runId);
       if (latest?.status === 'running') return { kind: 'running' as const };
       if (latest?.status === 'succeeded') {
         return { kind: 'succeeded' as const, attempt: latest, output: parseNarrationOutput(latest.result_json) };
@@ -521,6 +522,23 @@ export class AiResolutionService {
   private async buildNarrationRequest(tx: QueryExecutor, outcomeRow: { id: string; campaign_id: string; turn_id: string; execution_id: string; applied_state_revision: number; outcome_json: string }): Promise<NarrationRequest> {
     const outcome = mechanicalResolvedOutcomeSchema.parse(JSON.parse(outcomeRow.outcome_json));
     const actions = await new TurnRepository(tx).listActionsByTurn(outcomeRow.turn_id);
+    const intentByActionId = new Map(outcome.intents.map((intent) => [intent.actionId, intent]));
+    const projection = await this.projectNarrationProjection(tx, outcomeRow.campaign_id, outcome);
+    const actionSummaries = actions.map((action) => {
+      const intent = intentByActionId.get(action.id);
+      if (!intent || intent.actorId !== action.player_id) {
+        throw new AppError('INTERNAL_ERROR', '机械结果缺少与提交行动对应的 Intent。');
+      }
+      return {
+        actionId: action.id,
+        actorId: action.player_id,
+        observableIntent: {
+          actionType: intent.actionType,
+          ...(intent.actionRef ? { actionRef: intent.actionRef } : {}),
+          targetIds: intent.targetIds.filter((targetId) => projection.visibleEntityIds.has(targetId)),
+        },
+      };
+    });
     return narrationRequestSchema.parse({
       outcomeId: outcomeRow.id,
       executionId: outcomeRow.execution_id,
@@ -528,60 +546,84 @@ export class AiResolutionService {
       turnId: outcomeRow.turn_id,
       stateRevision: outcomeRow.applied_state_revision,
       audience: 'player_public',
-      actionSummaries: actions.map((action) => ({ actionId: action.id, actorId: action.player_id, text: action.body })),
+      observableEntities: projection.observableEntities,
+      actionSummaries,
       observableOutcome: {
-        effects: await this.projectObservableEffects(tx, outcomeRow.campaign_id, outcome),
-        rolls: outcome.rollRecords.map((record) => {
-          const plan = outcome.rollPlans.find((candidate) => candidate.id === record.rollPlanId);
-          if (!plan) throw new AppError('INTERNAL_ERROR', '机械结果缺少对应的 RollPlan。');
-          return {
-            kind: plan.rollKind,
-            selectedDice: record.selectedDice,
-            total: record.total,
-            result: record.result,
-          };
-        }),
+        effects: projection.effects,
+        rolls: projection.rolls,
       },
     });
   }
 
   /**
-   * Project only effects whose target is already visible to the public
-   * narration audience. Action actors are visible through actionSummaries;
-   * combatants must be explicitly public. Hidden targets are omitted rather
-   * than exposing an internal id or private scene.
+   * Build a player-public projection from immutable mechanical records. This
+   * boundary intentionally excludes raw action bodies and all hidden targets,
+   * while retaining stable entity/action links for Narrator grounding.
    */
-  private async projectObservableEffects(
+  private async projectNarrationProjection(
     tx: QueryExecutor,
     campaignId: string,
-    outcome: Pick<MechanicalResolvedOutcome, 'intents' | 'effects'>,
+    outcome: Pick<MechanicalResolvedOutcome, 'intents' | 'rollPlans' | 'rollRecords' | 'effects'>,
   ) {
-    const visibleActorIds = new Set(outcome.intents.map((intent) => intent.actorId));
-    const candidateTargetIds = [...new Set(
-      outcome.effects
-        .map((effect) => effect.targetId)
-        .filter((targetId) => !visibleActorIds.has(targetId)),
-    )];
-    const visibleCombatantIds = new Set<string>();
-    if (candidateTargetIds.length > 0) {
-      const placeholders = candidateTargetIds.map(() => '?').join(',');
-      const rows = await tx.query<{ id: string; visibility: string }>(
-        `SELECT id, visibility FROM platform_combatants
-         WHERE campaign_id = ? AND superseded_at IS NULL AND id IN (${placeholders})`,
-        [campaignId, ...candidateTargetIds],
+    const actorIds = [...new Set(outcome.intents.map((intent) => intent.actorId))];
+    const actorIdSet = new Set(actorIds);
+    const candidateCombatantIds = [...new Set([
+      ...outcome.intents.flatMap((intent) => intent.targetIds),
+      ...outcome.rollPlans.flatMap((plan) => plan.targetIds),
+      ...outcome.effects.map((effect) => effect.targetId),
+    ].filter((id) => !actorIdSet.has(id)))];
+
+    const characters = await new CharacterRepository(tx).listByCampaign(campaignId);
+    const observableEntities: Array<{ id: string; kind: 'actor' | 'combatant'; displayName: string }> = [];
+    const visibleEntityIds = new Set(actorIds);
+    for (const actorId of actorIds) {
+      const character = characters.find((row) => row.player_id === actorId && row.status !== 'archived')
+        ?? characters.find((row) => row.player_id === actorId);
+      observableEntities.push({ id: actorId, kind: 'actor', displayName: character?.name ?? actorId });
+    }
+
+    if (candidateCombatantIds.length > 0) {
+      const placeholders = candidateCombatantIds.map(() => '?').join(',');
+      const combatants = await tx.query<{ id: string; name: string }>(
+        `SELECT id, name FROM platform_combatants
+         WHERE campaign_id = ? AND superseded_at IS NULL AND visibility = 'public'
+           AND id IN (${placeholders}) ORDER BY id`,
+        [campaignId, ...candidateCombatantIds],
       );
-      for (const row of rows) {
-        if (row.visibility === 'public') visibleCombatantIds.add(row.id);
+      for (const combatant of combatants) {
+        visibleEntityIds.add(combatant.id);
+        observableEntities.push({ id: combatant.id, kind: 'combatant', displayName: combatant.name });
       }
     }
-    return outcome.effects
-      .filter((effect) => visibleActorIds.has(effect.targetId) || visibleCombatantIds.has(effect.targetId))
+
+    const actionIds = new Set(outcome.intents.map((intent) => intent.actionId));
+    const effects = outcome.effects
+      .filter((effect) => visibleEntityIds.has(effect.targetId))
       .map((effect) => ({
+        ...(effect.sourceActionId && actionIds.has(effect.sourceActionId) ? { sourceActionId: effect.sourceActionId } : {}),
         kind: effect.kind,
         targetId: effect.targetId,
         delta: effect.delta,
         reason: effect.reason,
       }));
+
+    const intentsById = new Map(outcome.intents.map((intent) => [intent.intentId, intent]));
+    const rolls = outcome.rollRecords.map((record) => {
+      const plan = outcome.rollPlans.find((candidate) => candidate.id === record.rollPlanId);
+      const intent = intentsById.get(record.actionIntentId);
+      if (!plan || !intent) throw new AppError('INTERNAL_ERROR', '机械结果缺少对应的 RollPlan 或 Intent。');
+      return {
+        kind: plan.rollKind,
+        actionId: intent.actionId,
+        actorId: intent.actorId,
+        targetIds: plan.targetIds.filter((targetId) => visibleEntityIds.has(targetId)),
+        selectedDice: record.selectedDice,
+        total: record.total,
+        result: record.result,
+      };
+    });
+
+    return { observableEntities, visibleEntityIds, effects, rolls };
   }
 
   private async finalizeSavedNarration(campaignId: string, turnId: string, runId: string): Promise<void> {
@@ -615,8 +657,11 @@ export class AiResolutionService {
       if (!turn || turn.status !== 'completed') throw new AppError('STATE_CONFLICT', '机械回合生命周期尚未提交。');
       const repository = new AdjudicationRepository(tx);
       const outcomeRow = await repository.findOutcomeByExecution(tx, runId);
-      if (!outcomeRow) throw new AppError('STATE_CONFLICT', '机械结果已丢失。');
-      await assertRevision(tx, campaignId, outcomeRow.applied_state_revision);
+      if (!outcomeRow) throw new AppError('STATE_CONFLICT', '机械结果已丢失或已被恢复操作 supersede。');
+      assertNarrationOutcomeMatches(run, outcomeRow, campaignId, turnId, runId);
+      const attempt = await repository.findNarrationAttemptById(tx, attemptId);
+      if (!attempt) throw new AppError('STATE_CONFLICT', '叙事尝试已被恢复操作 supersede。');
+      assertNarrationAttemptMatches(attempt, outcomeRow, campaignId, turnId, runId);
       const now = new Date().toISOString();
       if (!(await repository.updateNarrationAttempt(tx, attemptId, 'succeeded', JSON.stringify(output), null, now))) {
         const latest = await repository.findLatestNarrationAttempt(tx, runId);
@@ -773,12 +818,44 @@ function promptFromRun(run: AiRunRow): AiPrompt {
   }
 }
 
-async function assertRevision(tx: QueryExecutor, campaignId: string, expectedRevision: number): Promise<void> {
-  const rows = await tx.query<{ revision: number }>(
-    'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [campaignId],
-  );
-  if (!rows[0] || Number(rows[0].revision) !== expectedRevision) {
-    throw new AppError('STALE_STATE_REVISION', '叙事所依据的机械结果已过期。');
+function assertNarrationOutcomeMatches(
+  run: AiRunRow,
+  outcome: { id: string; campaign_id: string; turn_id: string; execution_id: string; applied_state_revision: number },
+  campaignId: string,
+  turnId: string,
+  runId: string,
+): void {
+  // The outcome revision is historical presentation provenance, not a live CAS
+  // requirement. Only identity and active/superseded checks belong here; the
+  // caller already loaded the unsuperseded outcome and completed turn.
+  if (
+    run.campaign_id !== campaignId
+    || run.turn_id !== turnId
+    || run.id !== runId
+    || outcome.campaign_id !== campaignId
+    || outcome.turn_id !== turnId
+    || outcome.execution_id !== runId
+    || run.applied_state_revision !== outcome.applied_state_revision
+  ) {
+    throw new AppError('STATE_CONFLICT', '叙事结果与机械执行身份不一致。');
+  }
+}
+
+function assertNarrationAttemptMatches(
+  attempt: NarrationAttemptRow,
+  outcome: { id: string; campaign_id: string; turn_id: string; execution_id: string; applied_state_revision: number },
+  campaignId: string,
+  turnId: string,
+  runId: string,
+): void {
+  if (
+    attempt.campaign_id !== campaignId
+    || attempt.turn_id !== turnId
+    || attempt.execution_id !== runId
+    || attempt.outcome_id !== outcome.id
+    || attempt.state_revision !== outcome.applied_state_revision
+  ) {
+    throw new AppError('STATE_CONFLICT', '叙事尝试与机械结果不一致。');
   }
 }
 

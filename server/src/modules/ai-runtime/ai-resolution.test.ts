@@ -184,6 +184,7 @@ describe('ai resolution service', () => {
       const actions = await db.query<{ id: string; player_id: string }>(
         'SELECT id, player_id FROM platform_actions WHERE turn_id = ? ORDER BY submitted_at, id', [turn.id],
       );
+      await db.execute('UPDATE platform_actions SET body = ? WHERE id = ?', ['我偷偷把真正目的藏起来，不让其他玩家知道。', actions[0].id]);
       actionActors = actions.map((action) => action.player_id);
       semanticIntents = actions.map((action) => ({
         actionId: action.id, actorId: action.player_id, mode: 'player_action', actionType: 'attack',
@@ -201,10 +202,6 @@ describe('ai resolution service', () => {
       expect(interpretationCalls).toBe(1);
       expect(narrationCalls).toBe(1);
       expect(narrationRequests).toHaveLength(1);
-      expect((narrationRequests[0].observableOutcome as { effects: unknown[] }).effects).toEqual([
-        { kind: 'hp_delta', targetId, delta: -4, reason: 'attack_damage' },
-        { kind: 'hp_delta', targetId, delta: -4, reason: 'attack_damage' },
-      ]);
       expect(await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id])).toHaveLength(0);
       expect(await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).toHaveLength(1);
       expect((await db.query<{ status: string }>('SELECT status FROM platform_turns WHERE id = ?', [turn.id]))[0].status).toBe('completed');
@@ -225,14 +222,45 @@ describe('ai resolution service', () => {
       expect(headAfterMechanical[0].revision).toBe(outcomeAfterMechanical[0].applied_state_revision);
       expect((await db.query<{ status: string }>('SELECT status FROM platform_narration_attempts WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?) ORDER BY attempt', [turn.id])).map((row) => row.status)).toEqual(['failed']);
 
+      const nextTurnId = (await db.query<{ id: string }>(
+        'SELECT id FROM platform_turns WHERE campaign_id = ? AND number = 2', [turn.campaignId],
+      ))[0].id;
+      await new TurnService(db, outbox).submitAction(fixture.aCtx, nextTurnId, { body: '下一回合的公开行动。' });
+      const headAfterLaterMutation = await db.query<{ revision: number }>(
+        'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [turn.campaignId],
+      );
+      expect(headAfterLaterMutation[0].revision).toBe(outcomeAfterMechanical[0].applied_state_revision + 1);
+
       narrationAvailable = true;
       const retried = await service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'semantic-retry' });
       expect(retried.created).toBe(false);
       expect(retried.run.status).toBe('succeeded');
       expect(interpretationCalls).toBe(1);
       expect(narrationCalls).toBe(2);
+      const firstNarrationRequest = narrationRequests[0];
+      expect(JSON.stringify(firstNarrationRequest)).not.toContain('我偷偷把真正目的藏起来');
+      expect(firstNarrationRequest.actionSummaries).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          actionId: actions[0].id,
+          actorId: actionActors[0],
+          observableIntent: expect.objectContaining({ actionType: 'attack', targetIds: [targetId] }),
+        }),
+      ]));
+      expect(firstNarrationRequest.observableEntities).toEqual(expect.arrayContaining([
+        { id: targetId, kind: 'combatant', displayName: '靶人' },
+      ]));
+      expect((firstNarrationRequest.observableOutcome as { effects: unknown[] }).effects).toEqual([
+        { kind: 'hp_delta', sourceActionId: actions[0].id, targetId, delta: -4, reason: 'attack_damage' },
+        { kind: 'hp_delta', sourceActionId: actions[1].id, targetId, delta: -4, reason: 'attack_damage' },
+      ]);
+      expect((firstNarrationRequest.observableOutcome as { rolls: unknown[] }).rolls).toEqual(expect.arrayContaining([
+        expect.objectContaining({ actionId: actions[0].id, actorId: actionActors[0], targetIds: [targetId] }),
+        expect.objectContaining({ actionId: actions[1].id, actorId: actionActors[1], targetIds: [targetId] }),
+      ]));
       expect(await db.query('SELECT id FROM platform_roll_records WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?)', [turn.id])).toHaveLength(4);
       expect((await db.query<{ hp_current: number }>('SELECT hp_current FROM platform_combatants WHERE id = ?', [targetId]))[0].hp_current).toBe(12);
+      expect((await db.query<{ revision: number }>('SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [turn.campaignId]))[0].revision).toBe(headAfterLaterMutation[0].revision);
+      expect((await db.query<{ count: number }>("SELECT COUNT(*) AS count FROM platform_campaign_state_revisions WHERE campaign_id = ? AND cause_type = 'ai_formal_apply'", [turn.campaignId]))[0].count).toBe(1);
       expect((await db.query<{ entry_kind: string }>('SELECT entry_kind FROM platform_turn_entries WHERE turn_id = ? ORDER BY entry_index', [turn.id])).map((row) => row.entry_kind)).toEqual(['narrative', 'private_update']);
       expect((await db.query<{ status: string }>('SELECT status FROM platform_narration_attempts WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?) ORDER BY attempt', [turn.id])).map((row) => row.status)).toEqual(['failed', 'succeeded']);
       expect(await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).toHaveLength(1);

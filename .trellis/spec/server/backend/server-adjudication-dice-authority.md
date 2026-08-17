@@ -55,16 +55,15 @@ A `RollPlan` is fully constructed and hash-locked before the RNG is read. The pl
 
 Narration is a separate Provider stage (`AiPrompt.stage = 'narration'`). `NarrationService` receives a server-built `NarrationRequest` containing only:
 
-- the submitted action summaries needed to describe the turn;
-- a player-observable scene projection;
-- the committed `ResolvedOutcome`;
-- visibility-projected mechanical effects (`kind`, `targetId`, `delta`, `reason`) whose targets are visible to the narration audience;
-- safe observable roll data (kind, selected dice, total, result);
+- action summaries projected from normalized server intents (`actionType`, optional allow-listed `actionRef`, and visible target ids), never raw `platform_actions.body`;
+- `observableEntities` mapping visible actor/combatant ids to display names;
+- visibility-projected mechanical effects (`kind`, optional `sourceActionId`, `targetId`, `delta`, `reason`) whose targets are visible to the narration audience;
+- observable rolls linked to `actionId`, `actorId`, and visible `targetIds`, plus safe selected dice/total/result data;
 - the allowed public/private audience scope.
 
-It must not receive GM-only context blocks, unrelated player-private knowledge, raw AI context/debug, credentials, target/DC/modifier breakdowns, or full Owner-only RollRecord data. `NarrationOutput` may contain readable public narrative and validated private updates only; it cannot create state changes, rolls, targets, DCs, or other mechanical effects.
+Hidden target ids are omitted from action, effect, roll, and entity projections. It must not receive GM-only context blocks, unrelated player-private knowledge, raw action text, raw AI context/debug, credentials, target/DC/modifier breakdowns, or full Owner-only RollRecord data. `NarrationOutput` may contain readable public narrative and validated private updates only; it cannot create state changes, rolls, targets, DCs, or other mechanical effects.
 
-Narration failure is persisted as a retryable narration attempt while the mechanical outcome, completed Turn lifecycle, automatic archive, next waiting Turn, and StateRevision remain committed. Retrying narration uses the same mechanical run/outcome and does not call `DiceService` or the mutation coordinator again. Narration finalize may only write presentation entries and run/attempt metadata; it must not complete the Turn, create an archive/next Turn, publish `turn.resolved`, or allocate another runtime revision. Player routes continue to rely on the existing server-side entry projection; Owner-only debug data remains behind Owner authorization.
+Narration failure is persisted as a retryable narration attempt while the mechanical outcome, completed Turn lifecycle, automatic archive, next waiting Turn, and StateRevision remain committed. Retrying narration uses the same immutable active mechanical run/outcome and does not call `DiceService` or the mutation coordinator again. `stateRevision` in the NarrationRequest is historical provenance for the described outcome, not a requirement that the live campaign head remain unchanged. Retry/finalize must instead verify execution/campaign/turn/outcome/attempt identity and reject records superseded by archive restore. Narration finalize may only write presentation entries and run/attempt metadata; it must not complete the Turn, create an archive/next Turn, publish `turn.resolved`, or allocate another runtime revision. Player routes continue to rely on the existing server-side entry projection; Owner-only debug data remains behind Owner authorization.
 
 ## Persistence and startup boundary
 
@@ -78,6 +77,7 @@ Fresh/temp fixtures use the frozen `PHASE3_APPROVED_MIGRATION_FILENAMES` set. Or
 - Keep `resourceChoices` from directly selecting advantage/disadvantage; test the server-owned derivation path separately.
 - Keep all formal state changes behind server validation and preserve the existing campaign CAS/ledger seam.
 - Assert that mechanical commit leaves the Turn lifecycle and `StateRevision` consistent even when Narration Provider execution fails.
+- Assert that a later authoritative revision does not block retry of an active historical Narration outcome, while archive supersede still blocks it.
 - Preserve Player/Owner entry projection and archive superseded semantics.
-- Test stale revisions, unsupported actions, plan hashing, replay/idempotency, narration visibility, narration retry, migration admission, and rollback with temporary SQLite databases.
+- Test raw action isolation, hidden-target omission, observable entity/source/action grounding, stale revisions, unsupported actions, plan hashing, replay/idempotency, narration visibility, narration retry, migration admission, and rollback with temporary SQLite databases.
 - Never use repository-root or configured development databases as test fixtures.

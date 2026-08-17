@@ -10,10 +10,17 @@ const request: NarrationRequest = {
   turnId: 'turn-1',
   stateRevision: 8,
   audience: 'player_public',
-  actionSummaries: [{ actionId: 'action-1', actorId: 'player-1', text: '攻击地精' }],
+  observableEntities: [
+    { id: 'player-1', kind: 'actor', displayName: '薇拉' },
+    { id: 'goblin-1', kind: 'combatant', displayName: '地精' },
+  ],
+  actionSummaries: [{
+    actionId: 'action-1', actorId: 'player-1',
+    observableIntent: { actionType: 'attack', actionRef: 'attack:basic', targetIds: ['goblin-1'] },
+  }],
   observableOutcome: {
-    effects: [{ kind: 'hp_delta', targetId: 'goblin-1', delta: -4, reason: 'attack_damage' }],
-    rolls: [{ kind: 'attack', selectedDice: [19], total: 24, result: 'success' }],
+    effects: [{ sourceActionId: 'action-1', kind: 'hp_delta', targetId: 'goblin-1', delta: -4, reason: 'attack_damage' }],
+    rolls: [{ actionId: 'action-1', actorId: 'player-1', targetIds: ['goblin-1'], kind: 'attack', selectedDice: [19], total: 24, result: 'success' }],
   },
 };
 

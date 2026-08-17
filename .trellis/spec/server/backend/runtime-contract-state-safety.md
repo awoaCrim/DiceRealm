@@ -97,7 +97,8 @@ Persisted visibility remains `public | player_private | owner_only`. Map it at t
 3. Formal apply performs an expected-revision CAS. Only after it succeeds may the transaction apply typed state changes, entries, interactions, run success, turn completion, archive creation, formal events, and next-turn creation. For semantic Intent resolution, the mechanical checkpoint owns the same Turn completion/archive/next-turn lifecycle; the later Narration finalize is presentation-only.
 4. Successful formal apply stores the new head in `applied_state_revision`; the resolved Turn lifecycle must be part of that same revision.
 5. A stale result writes no formal entries, state changes, archive, or next turn. The controlled failure path marks the run failed, moves the turn to `needs_owner_attention`, emits preview failure, and records its own authoritative failure mutation.
-6. Legacy runs with `expected_state_revision IS NULL` are audit/display-only and cannot formally apply.
+6. A committed semantic Narration retry is historical presentation work: it may run after later authoritative revisions as long as the active execution/outcome/turn/attempt identity still matches. Its stored `stateRevision` describes the outcome being narrated and is not a live-head CAS. Archive restore superseding that outcome/turn/attempt must still block the retry.
+7. Legacy runs with `expected_state_revision IS NULL` are audit/display-only and cannot formally apply.
 
 ### Mutation classification
 
@@ -161,6 +162,7 @@ The single Provider call returns an `AiResolutionProposal` (the backward-compati
 ## 5. Good / Base / Bad Cases
 
 - **Good:** claim at head `N`, store expected `N+1`, a formal result CASes `N+1 -> N+2`, and every formal table/event/archive/Turn-lifecycle write commits with that transaction; Narration may then add presentation entries without a third runtime revision.
+- **Good:** a semantic outcome committed at revision `N+2` can fail Narration, the campaign can advance to `N+3`, and the still-active historical outcome can retry without rerolling, reapplying, or allocating another revision.
 - **Good:** actor context includes a player's scoped fact, excludes another player's private fact and GM-only secret, and leaves a stable denial trace.
 - **Base:** existing campaigns start at revision `0`; existing AI runs keep NULL revision columns and remain readable but unappliable.
 - **Base:** a manual archive snapshot does not advance revision; restoring it later advances the current live head by exactly one.
@@ -174,7 +176,7 @@ The single Provider call returns an `AiResolutionProposal` (the backward-compati
 - Proposal/resolved boundary tests proving non-empty Provider dice is rejected, formal schema parsing does not mint `ValidatedStateChange`, and an unvalidated change cannot enter materializer/combat writes.
 - Coordinator tests for revision allocation, concurrent expected-revision CAS, duplicate replay, cause mismatch, missing head, callback rollback, and metadata-only no-op classification.
 - Context-builder fixture with a GM-only secret, actor A private knowledge, and actor B private knowledge; assert Provider messages and trace inclusion/denial.
-- AI resolution tests for claim expected revision, successful applied revision, stale Provider result, NULL legacy run rejection, formal rollback, and same-key replay with no duplicate entries/archive/turn.
+- AI resolution tests for claim expected revision, successful applied revision, stale Provider result, historical Narration retry after a later revision, superseded-outcome rejection, NULL legacy run rejection, formal rollback, and same-key replay with no duplicate entries/archive/turn.
 - Service tests proving authoritative character/world/combat/turn/member/archive mutations advance the head once per logical transaction.
 - Fresh/temp SQLite migration tests for revision-0 head initialization and preservation of legacy AI NULL columns.
 - `npm test -- --maxWorkers=1`, `npm run typecheck`, `npm run build`, and `git diff --check`; tests must not read or mutate repository-root databases.

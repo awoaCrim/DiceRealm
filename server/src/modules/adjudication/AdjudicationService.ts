@@ -61,6 +61,7 @@ export interface AdjudicationContext {
 
 export interface MechanicalEffect {
   kind: 'hp_delta';
+  sourceActionId: string;
   targetId: string;
   delta: number;
   reason: string;
@@ -179,14 +180,14 @@ export class AdjudicationService {
       plans.push(damagePlan);
       const damageRecord = this.rollRecord(damagePlan, mutationId, context);
       records.push(damageRecord);
-      effects.push({ kind: 'hp_delta', targetId, delta: -Math.max(0, damageRecord.total), reason: firstRecord.result === 'critical_success' ? 'critical_attack_damage' : 'attack_damage' });
+      effects.push({ sourceActionId: intent.actionId, kind: 'hp_delta', targetId, delta: -Math.max(0, damageRecord.total), reason: firstRecord.result === 'critical_success' ? 'critical_attack_damage' : 'attack_damage' });
     } else if (intent.actionType === 'healing') {
       const targetId = intent.targetIds[0] ?? intent.actorId;
-      effects.push({ kind: 'hp_delta', targetId, delta: Math.max(0, firstRecord.total), reason: 'healing_roll' });
+      effects.push({ sourceActionId: intent.actionId, kind: 'hp_delta', targetId, delta: Math.max(0, firstRecord.total), reason: 'healing_roll' });
     } else if (intent.actionType === 'saving_throw' && firstRecord.result === 'failure') {
       const actor = getById(context.actors, intent.actorId);
       const failureDamage = actor?.hpCurrent === undefined ? 0 : 1;
-      effects.push({ kind: 'hp_delta', targetId: intent.actorId, delta: -failureDamage, reason: 'saving_throw_failure' });
+      effects.push({ sourceActionId: intent.actionId, kind: 'hp_delta', targetId: intent.actorId, delta: -failureDamage, reason: 'saving_throw_failure' });
     }
     return { decision: adjudicated.decision, plans, records, effects };
   }

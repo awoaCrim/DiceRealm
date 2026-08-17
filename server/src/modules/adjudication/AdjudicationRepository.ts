@@ -187,6 +187,14 @@ export class AdjudicationRepository {
     return rows[0] ?? null;
   }
 
+  async findNarrationAttemptById(tx: QueryExecutor, attemptId: string): Promise<NarrationAttemptRow | null> {
+    const rows = await tx.query<NarrationAttemptRow>(
+      'SELECT * FROM platform_narration_attempts WHERE id = ? AND superseded_at IS NULL',
+      [attemptId],
+    );
+    return rows[0] ?? null;
+  }
+
   async listNarrationAttempts(tx: QueryExecutor, executionId: string): Promise<NarrationAttemptRow[]> {
     return tx.query<NarrationAttemptRow>(
       'SELECT * FROM platform_narration_attempts WHERE execution_id = ? AND superseded_at IS NULL ORDER BY attempt ASC',

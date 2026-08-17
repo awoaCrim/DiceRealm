@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   actionIntentProposalSchema,
   actionIntentSchema,
+  actionTypeSchema,
   stateChangeSchema,
   type ActionIntent,
   type ActionIntentProposal,
@@ -118,6 +119,8 @@ export type NormalizedActionIntent = z.infer<typeof normalizedActionIntentSchema
  */
 export const mechanicalEffectSchema = z.object({
   kind: z.literal('hp_delta'),
+  /** Added for new outcomes; optional keeps historical JSON outcomes readable. */
+  sourceActionId: z.string().min(1).optional(),
   targetId: z.string().min(1),
   delta: z.number().int(),
   reason: z.string().trim().min(1).max(160),
@@ -148,9 +151,35 @@ export type MechanicalResolvedOutcome = Omit<z.infer<typeof mechanicalResolvedOu
 export const narrationAudienceSchema = z.enum(['player_public', 'player_private', 'owner']);
 export type NarrationAudience = z.infer<typeof narrationAudienceSchema>;
 
+/** Player-observable entity names. Hidden combatants are omitted before this boundary. */
+export const narrationObservableEntitySchema = z.object({
+  id: z.string().min(1),
+  kind: z.enum(['actor', 'combatant']),
+  displayName: z.string().trim().min(1).max(160),
+}).strict();
+export type NarrationObservableEntity = z.infer<typeof narrationObservableEntitySchema>;
+
+/** Raw action bodies never cross into player-public Narration. */
+export const narrationObservableIntentSchema = z.object({
+  actionType: actionTypeSchema,
+  actionRef: z.string().trim().min(1).max(160).optional(),
+  targetIds: z.array(z.string().min(1)).max(64),
+}).strict();
+export type NarrationObservableIntent = z.infer<typeof narrationObservableIntentSchema>;
+
+export const narrationActionSummarySchema = z.object({
+  actionId: z.string().min(1),
+  actorId: z.string().min(1),
+  observableIntent: narrationObservableIntentSchema,
+}).strict();
+export type NarrationActionSummary = z.infer<typeof narrationActionSummarySchema>;
+
 /** Player-observable roll projection. Internal targets, modifiers and raw dice stay Owner-only. */
 export const observableRollSchema = z.object({
   kind: rollKindSchema,
+  actionId: z.string().min(1),
+  actorId: z.string().min(1),
+  targetIds: z.array(z.string().min(1)).max(64),
   selectedDice: z.array(z.number().int().min(1).max(100)).max(64),
   total: z.number().int(),
   result: rollRecordResultSchema,
@@ -168,7 +197,8 @@ export const narrationRequestSchema = z.object({
   turnId: z.string().min(1),
   stateRevision: z.number().int().nonnegative(),
   audience: narrationAudienceSchema,
-  actionSummaries: z.array(z.object({ actionId: z.string().min(1), actorId: z.string().min(1), text: z.string() }).strict()).max(128),
+  observableEntities: z.array(narrationObservableEntitySchema).max(256),
+  actionSummaries: z.array(narrationActionSummarySchema).max(128),
   observableOutcome: z.object({
     publicNarrative: z.string().min(1).optional(),
     effects: z.array(narrationObservableEffectSchema).max(256),

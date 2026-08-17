@@ -83,3 +83,11 @@
 - Changed Narration observable effects to structured, visibility-projected `{ kind, targetId, delta, reason }` values and corrected saving-throw failure effects to target the acting actor.
 - Regression coverage: advantage injection, saving-throw target, narration effect grounding, and mechanics-committed-before-narration-failure lifecycle consistency.
 - Verification after the follow-up: 80 test files passed, 735 tests passed, 8 skipped; `npm run typecheck`; `npm run build`; `git diff --check`.
+
+## Architecture review follow-up 2 (2026-08-17)
+
+- Removed the live campaign-head CAS from semantic Narration prepare/finalize. Retry now binds to the active execution, ResolvedOutcome, completed Turn, and NarrationAttempt identity; archive-superseded history remains rejected.
+- Replaced player-public Narration raw action bodies with server-projected normalized intents. Hidden targets are omitted from action summaries, effects, rolls, and entity mappings.
+- Added `observableEntities`, effect `sourceActionId`, and roll `actionId`/`actorId`/visible `targetIds` so Narrator grounding no longer depends on array order.
+- Added regression coverage for `N -> N+1 -> retry(N)`, raw action isolation, entity naming, and action/effect/roll linkage.
+- Focused verification: 3 files passed, 33 tests passed; `npm run typecheck` passed.

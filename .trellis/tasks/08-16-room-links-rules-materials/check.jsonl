@@ -1,3 +1,5 @@
+{"file": ".trellis/spec/server/backend/server-adjudication-dice-authority.md", "reason": "Document historical Narration retry, raw action isolation, and observable source/entity grounding"}
+{"file": ".trellis/spec/server/backend/runtime-contract-state-safety.md", "reason": "Document that presentation retry uses outcome identity rather than the live campaign revision head"}
 {"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
 {"file": ".trellis/spec/server/backend/schema-reset-boundary.md", "reason": "Verify bounded legacy rule-source migration and fail-closed reset boundary"}
 {"file": ".trellis/spec/server/backend/database-guidelines.md", "reason": "Verify SQLite transaction, backup, and migration conventions"}
