@@ -12,6 +12,7 @@ export const campaignEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('turn.resolved'), campaignId: z.string().min(1), turnId: z.string().min(1), archiveId: z.string().min(1) }),
   z.object({ type: z.literal('narrative.decision.claimed'), campaignId: z.string().min(1), roundId: z.string().min(1), decisionId: z.string().min(1), actorId: z.string().min(1) }),
   z.object({ type: z.literal('narrative.decision.resolved'), campaignId: z.string().min(1), roundId: z.string().min(1), decisionId: z.string().min(1), stateRevision: z.number().int().nonnegative() }),
+  z.object({ type: z.literal('narrative.round.work_available'), campaignId: z.string().min(1), roundId: z.string().min(1), decisionId: z.string().min(1) }),
   z.object({ type: z.literal('narrative.round.closed'), campaignId: z.string().min(1), roundId: z.string().min(1), factSetId: z.string().min(1), stateRevision: z.number().int().nonnegative() }),
   z.object({ type: z.literal('combat.updated'), campaignId: z.string().min(1), encounterId: z.string().min(1) }),
   z.object({ type: z.literal('interaction.requested'), campaignId: z.string().min(1), requestId: z.string().min(1), targetPlayerId: z.string().min(1) }),
@@ -32,6 +33,7 @@ export const campaignEventTypeSchema = z.enum([
   'turn.resolved',
   'narrative.decision.claimed',
   'narrative.decision.resolved',
+  'narrative.round.work_available',
   'narrative.round.closed',
   'combat.updated',
   'interaction.requested',
@@ -55,6 +57,7 @@ export type CampaignEventAudience = z.infer<typeof campaignEventAudienceSchema>;
 export function eventDefaultAudience(event: CampaignEvent): CampaignEventAudience {
   switch (event.type) {
     case 'owner.debug':
+    case 'narrative.round.work_available':
       return { visibility: 'owner_only', targetPlayerId: null };
     case 'interaction.requested':
       return { visibility: 'player_private', targetPlayerId: event.targetPlayerId };

@@ -134,9 +134,10 @@ describe('turns', () => {
       'SELECT sequence, event_type, payload_json FROM platform_outbox_events WHERE campaign_id = ? ORDER BY sequence',
       [turn.campaignId],
     );
-    expect(rows.map((r) => r.sequence)).toEqual([1, 2, 3]);
+    expect(rows.map((r) => r.sequence)).toEqual([1, 2, 3, 4, 5]);
     expect(rows.map((r) => r.event_type)).toEqual([
-      'turn.action_submitted', 'turn.action_submitted', 'turn.locked',
+      'turn.action_submitted', 'narrative.round.work_available',
+      'turn.action_submitted', 'narrative.round.work_available', 'turn.locked',
     ]);
     for (const row of rows) {
       expect(row.payload_json).not.toContain('搜索房间');
@@ -176,7 +177,7 @@ describe('turns', () => {
       'SELECT sequence, event_type FROM platform_outbox_events WHERE campaign_id = ? ORDER BY sequence',
       [turn.campaignId],
     );
-    expect(rows.map((r) => r.sequence)).toEqual([1, 2, 3]);
+    expect(rows.map((r) => r.sequence)).toEqual([1, 2, 3, 4, 5]);
     expect(rows.filter((r) => r.event_type === 'turn.locked')).toHaveLength(1);
     await db.close();
   });

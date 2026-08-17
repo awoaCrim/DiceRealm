@@ -324,6 +324,85 @@ export class NarrativeRoundRepository {
     );
   }
 
+  /**
+   * The worker ordering source is the submitted action timestamp, not the
+   * participant/decision insertion order. The first unresolved row is also
+   * the blocking row when it needs owner attention or is already processing.
+   */
+  async findEarliestUnresolvedDecision(roundId: string): Promise<NarrativeDecisionRow | null> {
+    const rows = await this.executor.query<NarrativeDecisionRow>(
+      `SELECT d.*
+       FROM platform_narrative_decisions d
+       JOIN platform_actions a ON a.id = d.action_id AND a.turn_id = d.turn_id
+       WHERE d.round_id = ? AND d.superseded_at IS NULL AND d.action_id IS NOT NULL
+         AND d.status NOT IN ('resolved', 'skipped')
+       ORDER BY a.submitted_at ASC, a.id ASC
+       LIMIT 1`,
+      [roundId],
+    );
+    return rows[0] ?? null;
+  }
+
+  async listProcessingDecisions(): Promise<NarrativeDecisionRow[]> {
+    return this.executor.query<NarrativeDecisionRow>(
+      `SELECT * FROM platform_narrative_decisions
+       WHERE superseded_at IS NULL AND status = 'processing'
+       ORDER BY updated_at ASC, id ASC`,
+    );
+  }
+
+  async hasProcessingDecision(roundId: string, excludeDecisionId?: string): Promise<boolean> {
+    const rows = await this.executor.query<{ count: number }>(
+      `SELECT COUNT(*) AS count FROM platform_narrative_decisions
+       WHERE round_id = ? AND superseded_at IS NULL AND status = 'processing'
+         AND (? IS NULL OR id <> ?)`,
+      [roundId, excludeDecisionId ?? null, excludeDecisionId ?? null],
+    );
+    return Number(rows[0]?.count ?? 0) > 0;
+  }
+
+  /**
+   * CAS claim used by both the explicit decision facade and the worker. The
+   * ordering and single-in-flight guards live in the UPDATE so two workers
+   * cannot both observe and claim the same eligible position.
+   */
+  async claimDecision(
+    roundId: string,
+    decisionId: string,
+    executionId: string,
+    claimRevision: number,
+    updatedAt: string,
+    allowOwnerAttention = true,
+  ): Promise<boolean> {
+    const claimable = allowOwnerAttention ? "('submitted','needs_owner_attention')" : "('submitted')";
+    const result = await this.executor.execute(
+      `UPDATE platform_narrative_decisions AS d
+       SET status = 'processing', execution_id = ?, claim_revision = ?, failure_code = NULL, updated_at = ?
+       WHERE d.id = ? AND d.round_id = ? AND d.superseded_at IS NULL
+         AND d.status IN ${claimable}
+         AND NOT EXISTS (
+           SELECT 1 FROM platform_narrative_decisions busy
+           WHERE busy.round_id = d.round_id AND busy.superseded_at IS NULL
+             AND busy.status = 'processing' AND busy.id <> d.id
+         )
+         AND NOT EXISTS (
+           SELECT 1
+           FROM platform_narrative_decisions prior
+           JOIN platform_actions prior_action
+             ON prior_action.id = prior.action_id AND prior_action.turn_id = prior.turn_id
+           JOIN platform_actions current_action
+             ON current_action.id = d.action_id AND current_action.turn_id = d.turn_id
+           WHERE prior.round_id = d.round_id AND prior.superseded_at IS NULL
+             AND prior.action_id IS NOT NULL
+             AND prior.status NOT IN ('resolved', 'skipped')
+             AND (prior_action.submitted_at < current_action.submitted_at
+               OR (prior_action.submitted_at = current_action.submitted_at AND prior_action.id < current_action.id))
+         )`,
+      [executionId, claimRevision, updatedAt, decisionId, roundId],
+    );
+    return result.changes === 1;
+  }
+
   async updateDecisionOrder(decisionId: string, decisionOrder: number, updatedAt: string): Promise<boolean> {
     const result = await this.executor.execute(
       'UPDATE platform_narrative_decisions SET decision_order = ?, updated_at = ? WHERE id = ? AND superseded_at IS NULL',
@@ -352,12 +431,38 @@ export class NarrativeRoundRepository {
     return result.changes === 1;
   }
 
-  async markResolved(decisionId: string, outcomeId: string | null, appliedRevision: number, updatedAt: string): Promise<boolean> {
+  /** Fence an abandoned claim; the timestamp is the claim lease heartbeat. */
+  async expireProcessingDecision(
+    roundId: string,
+    decisionId: string,
+    executionId: string,
+    failureCode: string,
+    expiredBefore: string,
+    updatedAt: string,
+  ): Promise<boolean> {
+    const result = await this.executor.execute(
+      `UPDATE platform_narrative_decisions
+       SET status = 'needs_owner_attention', failure_code = ?, updated_at = ?
+       WHERE id = ? AND round_id = ? AND superseded_at IS NULL
+         AND status = 'processing' AND execution_id = ? AND updated_at <= ?`,
+      [failureCode, updatedAt, decisionId, roundId, executionId, expiredBefore],
+    );
+    return result.changes === 1;
+  }
+
+  async markResolved(
+    decisionId: string,
+    outcomeId: string | null,
+    appliedRevision: number,
+    updatedAt: string,
+    executionId?: string | null,
+  ): Promise<boolean> {
     const result = await this.executor.execute(
       `UPDATE platform_narrative_decisions
        SET status = 'resolved', outcome_id = ?, applied_state_revision = ?, failure_code = NULL, updated_at = ?
-       WHERE id = ? AND superseded_at IS NULL AND status = 'processing'`,
-      [outcomeId, appliedRevision, updatedAt, decisionId],
+       WHERE id = ? AND superseded_at IS NULL AND status = 'processing'
+         AND (? IS NULL OR execution_id = ?)`,
+      [outcomeId, appliedRevision, updatedAt, decisionId, executionId ?? null, executionId ?? null],
     );
     return result.changes === 1;
   }
@@ -403,6 +508,15 @@ export class NarrativeRoundRepository {
         ? 'SELECT * FROM platform_narrative_working_facts WHERE round_id = ? ORDER BY created_at ASC, id ASC'
         : 'SELECT * FROM platform_narrative_working_facts WHERE round_id = ? AND superseded_at IS NULL ORDER BY created_at ASC, id ASC',
       [roundId],
+    );
+  }
+
+  async listWorkingFactsByExecution(roundId: string, executionId: string): Promise<NarrativeFactRow[]> {
+    return this.executor.query<NarrativeFactRow>(
+      `SELECT * FROM platform_narrative_working_facts
+       WHERE round_id = ? AND execution_id = ? AND superseded_at IS NULL
+       ORDER BY created_at ASC, id ASC`,
+      [roundId, executionId],
     );
   }
 

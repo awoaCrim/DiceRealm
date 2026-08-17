@@ -6,6 +6,8 @@ import {
   scriptedResolution,
   type AiProviderScript,
 } from '../modules/ai-runtime/ScriptedAiProvider.js';
+import type { QueryExecutor } from '../platform/database/DatabasePort.js';
+import { removeNarrativeRoundForLegacyTurn } from './legacyNarrativeFixture.js';
 
 let restoreHarnessFetch: (() => void) | undefined;
 beforeAll(() => { restoreHarnessFetch = installHarnessFetch(); });
@@ -66,7 +68,14 @@ async function makeFullCampaign(baseUrl: string) {
   return { owner, playerA, playerB, campaignId: created.campaign.id };
 }
 
-async function lockTurn(baseUrl: string, campaignId: string, owner: Actor, playerA: Actor, playerB: Actor): Promise<{ turnId: string; aiBase: string }> {
+async function lockTurn(
+  baseUrl: string,
+  campaignId: string,
+  owner: Actor,
+  playerA: Actor,
+  playerB: Actor,
+  executor: QueryExecutor,
+): Promise<{ turnId: string; aiBase: string }> {
   const turnsBase = `${baseUrl}/api/campaigns/${campaignId}/turns`;
   const startRes = await fetch(`${turnsBase}`, { method: 'POST', headers: jsonHeaders(owner.cookieJar.header()) });
   expect(startRes.status).toBe(201);
@@ -78,6 +87,8 @@ async function lockTurn(baseUrl: string, campaignId: string, owner: Actor, playe
     });
     expect(res.status).toBe(200);
   }
+  // This test suite explicitly exercises the historical whole-turn adapter.
+  await removeNarrativeRoundForLegacyTurn(executor, turn.turn.id);
   return { turnId: turn.turn.id, aiBase: `${baseUrl}/api/campaigns/${campaignId}/ai` };
 }
 
@@ -87,7 +98,7 @@ describe('HTTP server-side AI vertical flow', () => {
     try {
       const { baseUrl, platformDb } = server;
       const { owner, playerA, playerB, campaignId } = await makeFullCampaign(baseUrl);
-      const { turnId, aiBase } = await lockTurn(baseUrl, campaignId, owner, playerA, playerB);
+      const { turnId, aiBase } = await lockTurn(baseUrl, campaignId, owner, playerA, playerB, platformDb);
 
       // owner resolve（幂等 key）。
       const resolveRes = await fetch(`${aiBase}/turns/${turnId}/runs`, {
@@ -201,7 +212,7 @@ describe('HTTP server-side AI vertical flow', () => {
     try {
       const { baseUrl, platformDb } = server;
       const { owner, playerA, playerB, campaignId } = await makeFullCampaign(baseUrl);
-      const { turnId, aiBase } = await lockTurn(baseUrl, campaignId, owner, playerA, playerB);
+      const { turnId, aiBase } = await lockTurn(baseUrl, campaignId, owner, playerA, playerB, platformDb);
 
       // 第一次 resolve：provider throw → AI_PROVIDER_FAILED，turn=needs_owner_attention，无正式写。
       const failRes = await fetch(`${aiBase}/turns/${turnId}/runs`, {
@@ -270,7 +281,7 @@ describe('HTTP server-side AI vertical flow', () => {
     try {
       const { baseUrl, platformDb } = server;
       const { owner, playerA, playerB, campaignId } = await makeFullCampaign(baseUrl);
-      const { turnId, aiBase } = await lockTurn(baseUrl, campaignId, owner, playerA, playerB);
+      const { turnId, aiBase } = await lockTurn(baseUrl, campaignId, owner, playerA, playerB, platformDb);
 
       // 空 publicNarrative 触发 schema 校验 AI_OUTPUT_INVALID；turn=needs_owner_attention，无正式写。
       const invalidRes = await fetch(`${aiBase}/turns/${turnId}/runs`, {
@@ -310,7 +321,7 @@ describe('HTTP server-side AI vertical flow', () => {
     try {
       const { baseUrl, platformDb } = server;
       const { owner, playerA, playerB, campaignId } = await makeFullCampaign(baseUrl);
-      const { turnId, aiBase } = await lockTurn(baseUrl, campaignId, owner, playerA, playerB);
+      const { turnId, aiBase } = await lockTurn(baseUrl, campaignId, owner, playerA, playerB, platformDb);
 
       const invalidRes = await fetch(`${aiBase}/turns/${turnId}/runs`, {
         method: 'POST', headers: jsonHeaders(owner.cookieJar.header()),

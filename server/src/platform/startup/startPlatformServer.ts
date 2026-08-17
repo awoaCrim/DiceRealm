@@ -11,8 +11,11 @@ import { verifyMigrationManifest } from '../../platform/ops/migrationManifest.js
 import { PHASE3_APPROVED_MIGRATION_FILENAMES } from '../../platform/ops/approvedMigrations.js';
 import { assertExistingRegularFileNotSymlink } from '../../platform/ops/platformPaths.js';
 import type { EventStreamRuntime } from '../../platform/realtime/EventStreamService.js';
+import { OutboxRepository } from '../../platform/events/OutboxRepository.js';
 import { createPlatformApp, type CreatePlatformAppOptions, type PlatformApp } from '../../app.js';
 import { createConfiguredAiProvider } from '../../modules/ai-runtime/createAiProvider.js';
+import { NarrativeClaimLeaseSweeper } from '../../modules/narrative-runtime/NarrativeClaimLeaseSweeper.js';
+import { NarrativeWorkCoordinator } from '../../modules/narrative-runtime/NarrativeWorkCoordinator.js';
 import { credentialKeyPathForDatabase } from '../../modules/ai-runtime/CredentialKeyStore.js';
 import { runStartupSecurityGate } from './StartupSecurityGate.js';
 
@@ -101,11 +104,12 @@ export async function defaultListen(app: express.Express, port: number, host: st
  *   → create env fallback provider
  *   → createPlatformApp({ database, ... })
  *   → listen
+ *   → start Narrative claim lease sweeper
  *
  * 任一步失败：已打开的 DB 必须 close，锁最后 release，listener 不得留下。
  * 正常 shutdown 固定为：
- *   server.close（停止新连接）→ realtimeRuntime.closeAll() → server.closeAllConnections()
- *   → 等待 server close 完成 → database.close() → InstanceLock.release()。
+ *   stop Narrative claim lease sweeper → server.close（停止新连接）→ realtimeRuntime.closeAll()
+ *   → server.closeAllConnections() → 等待 server close 完成 → database.close() → InstanceLock.release()。
  * 每一步异常隔离：前面步骤抛出也不阻止 DB/lock 清理。
  */
 export async function startPlatformServer(options: StartPlatformServerOptions): Promise<RunningPlatformServer> {
@@ -123,10 +127,18 @@ export async function startPlatformServer(options: StartPlatformServerOptions): 
   let database: (DatabasePort & { close(): Promise<void> }) | null = null;
   let realtimeRuntime: EventStreamRuntime | null = null;
   let listener: PlatformListener | null = null;
+  let narrativeClaimLeaseSweeper: NarrativeClaimLeaseSweeper | null = null;
 
   // 统一关闭序列（正常 shutdown 与失败清理共用），每步异常隔离：
-  // server.close → realtime closeAll → server.closeAllConnections → database.close → lock.release。
+  // lease sweeper → server.close → realtime closeAll → server.closeAllConnections → database.close → lock.release。
   const shutdownAll = async (): Promise<void> => {
+    try {
+      if (narrativeClaimLeaseSweeper !== null) {
+        await narrativeClaimLeaseSweeper.stop();
+      }
+    } catch {
+      // Background recovery must not prevent the database/lock cleanup.
+    }
     try {
       if (listener !== null) {
         await listener.stopAccepting();
@@ -219,6 +231,11 @@ export async function startPlatformServer(options: StartPlatformServerOptions): 
 
     listener = await listen(composed.app, config.port, config.host);
     emit('listen');
+
+    narrativeClaimLeaseSweeper = new NarrativeClaimLeaseSweeper(
+      new NarrativeWorkCoordinator(database, new OutboxRepository(database)),
+    );
+    narrativeClaimLeaseSweeper.start();
 
     let closed = false;
     return {

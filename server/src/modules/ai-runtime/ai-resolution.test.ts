@@ -23,6 +23,7 @@ import { CombatRepository } from '../combat/CombatRepository.js';
 import { AdjudicationService } from '../adjudication/AdjudicationService.js';
 import { DiceService } from '../adjudication/DiceService.js';
 import { MechanicalResolutionService } from '../adjudication/MechanicalResolutionService.js';
+import { NarrativeRoundService } from '../narrative-runtime/NarrativeRoundService.js';
 import type { StartEncounterInput } from '@dnd/contracts';
 
 async function makeFixture(provider: AiProviderPort, options: { lockTurn?: boolean; combat?: boolean } = {}) {
@@ -53,6 +54,19 @@ async function makeFixture(provider: AiProviderPort, options: { lockTurn?: boole
     await turns.submitAction(aCtx, turn.id, { body: '我搜索房间。' });
     await turns.submitAction(bCtx, turn.id, { body: '我警戒门口。' });
   }
+  // These tests exercise the historical whole-turn adapter. Remove the newly
+  // bootstrapped NarrativeRound so the fixture models legacy data explicitly;
+  // active-round isolation is covered by narrative-runtime tests.
+  await db.transaction(async (tx) => {
+    for (const table of [
+      'platform_narrative_round_facts', 'platform_narrative_round_fact_sets',
+      'platform_narrative_working_facts', 'platform_narrative_decisions',
+      'platform_narrative_round_participants',
+    ]) {
+      await tx.execute(`DELETE FROM ${table} WHERE round_id = ?`, [turn.id]);
+    }
+    await tx.execute('DELETE FROM platform_narrative_rounds WHERE id = ?', [turn.id]);
+  });
   const archives = new ArchiveService(db, outbox);
   const materializer = options.combat
     ? new StateChangeMaterializer(db, new CombatAiAdapter(new CombatService(db, outbox, () => 0.5), new CombatRepository(db)))
@@ -77,6 +91,20 @@ const validResolution = (playerA: string, playerB: string) => ({
 });
 
 describe('ai resolution service', () => {
+  it('rejects the legacy whole-turn path while an active NarrativeRound exists', async () => {
+    const { db, service, ownerCtx, turn } = await makeFixture(
+      new ScriptedAiProvider(async () => ({ publicNarrative: 'legacy', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [] })),
+    );
+    try {
+      const narrative = new NarrativeRoundService(db, new OutboxRepository(db));
+      await narrative.ensureForTurn(ownerCtx.campaignId, turn.id);
+      await expect(service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'legacy-active-round' }))
+        .rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    } finally {
+      await db.close();
+    }
+  });
+
   it('claims, runs the provider, applies formal state and auto-archives', async () => {
     const { db, service, ownerCtx, turn } = await makeFixture(
       // 脚本经 approvedPlayerIds 从真实 prompt 解析成员 id，避免在 makeFixture 前引用 aCtx/bCtx（TDZ）。

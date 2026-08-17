@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { CampaignAuthContext } from '../campaigns/CampaignAccess.js';
 import { resolveCampaignContext } from '../campaigns/CampaignAccess.js';
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
@@ -9,10 +9,16 @@ import { IdentityService } from '../identity/IdentityService.js';
 import { createSqliteDatabase } from '../../platform/database/SqliteDatabaseAdapter.js';
 import { OutboxRepository } from '../../platform/events/OutboxRepository.js';
 import { TurnService } from '../turns/TurnService.js';
-import { NarrativeRoundService } from './NarrativeRoundService.js';
+import {
+  NARRATIVE_DECISION_CLAIM_EXPIRED_CODE,
+  NARRATIVE_DECISION_CLAIM_LEASE_MS,
+  NarrativeRoundService,
+} from './NarrativeRoundService.js';
 import { RoundProjectionService } from './RoundProjectionService.js';
 import { AiContextBuilder } from '../ai-runtime/AiContextBuilder.js';
 import { NarrativeDecisionResolutionService } from './NarrativeDecisionResolutionService.js';
+import { NarrativeClaimLeaseSweeper } from './NarrativeClaimLeaseSweeper.js';
+import { NarrativeWorkCoordinator } from './NarrativeWorkCoordinator.js';
 
 async function makeFixture() {
   const db = createSqliteDatabase(':memory:');
@@ -229,6 +235,50 @@ describe('NarrativeRound runtime', () => {
     }
   });
 
+  it('allows later input submissions while an in-flight Decision applies', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    let calls = 0;
+    let releaseProvider: (() => void) | undefined;
+    const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve; });
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A resolves while B is composing' });
+      const decision = (await narrative.getRequiredByTurn(turn.campaignId, turn.id)).decisions
+        .find((item) => item.actorId === contexts[0].playerId);
+      if (!decision?.actionId) throw new Error('expected A decision');
+      const provider = {
+        name: 'collecting-test',
+        model: 'collecting-test',
+        stream: async () => {
+          calls += 1;
+          await providerGate;
+          return {
+            actionIntents: [{
+              actionId: decision.actionId!, actorId: decision.actorId, mode: 'player_action',
+              actionType: 'healing', actionRef: 'healing:basic', targetIds: [],
+              declaredApproach: 'recover', desiredOutcome: 'recover', resourceChoices: [], fallbackPolicy: 'continue',
+            }],
+          };
+        },
+      } as const;
+      const service = new NarrativeDecisionResolutionService(db, provider, new OutboxRepository(db));
+      const pending = service.resolveDecision(ownerCtx, turn.id, decision.id, { idempotencyKey: 'collecting-submit' });
+      await vi.waitFor(() => expect(calls).toBe(1));
+
+      await turns.submitAction(contexts[1], turn.id, { body: 'B submits during A resolution' });
+      releaseProvider!();
+      const result = await pending;
+      expect(result.run.status).toBe('succeeded');
+      const after = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      expect(after.round.status).toBe('collecting');
+      expect(after.decisions.find((item) => item.id === decision.id)?.status).toBe('resolved');
+      expect(after.decisions.find((item) => item.actorId === contexts[1].playerId)?.status).toBe('submitted');
+    } finally {
+      releaseProvider?.();
+      await db.close();
+    }
+  });
+
   it('rejects AI candidates from becoming authoritative facts', async () => {
     const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
     try {
@@ -337,6 +387,303 @@ describe('NarrativeRound runtime', () => {
       );
       expect(facts[0].superseded_at).not.toBeNull();
       expect(await new RoundProjectionService(db).projectWorkingFacts(third.id, 'party')).toEqual([]);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('runs and stops the process-local claim lease sweeper without overlapping ticks', async () => {
+    vi.useFakeTimers();
+    try {
+      let active = 0;
+      let calls = 0;
+      const coordinator = {
+        sweepExpiredClaims: async () => {
+          active += 1;
+          calls += 1;
+          expect(active).toBe(1);
+          active -= 1;
+          return 0;
+        },
+      } as unknown as NarrativeWorkCoordinator;
+      const sweeper = new NarrativeClaimLeaseSweeper(coordinator, 100);
+      sweeper.start();
+      expect(calls).toBe(1);
+      await vi.advanceTimersByTimeAsync(100);
+      expect(calls).toBe(2);
+      await sweeper.stop();
+      await vi.advanceTimersByTimeAsync(100);
+      expect(calls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('claims only once when duplicate wake-ups reach two workers', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A first' });
+      const view = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const coordinator = new NarrativeWorkCoordinator(db, new OutboxRepository(db));
+      const [left, right] = await Promise.all([
+        coordinator.claimNext(turn.campaignId, turn.id, 'worker-left'),
+        coordinator.claimNext(turn.campaignId, turn.id, 'worker-right'),
+      ]);
+      expect([left, right].filter(Boolean)).toHaveLength(1);
+      expect((await narrative.getRequiredByTurn(turn.campaignId, turn.id)).decisions
+        .find((decision) => decision.id === view.decisions.find((item) => item.actionId)?.id)?.status).toBe('processing');
+      expect((await db.query<{ count: number }>(
+        "SELECT COUNT(*) AS count FROM platform_narrative_decisions WHERE round_id = ? AND status = 'processing'", [turn.id],
+      ))[0].count).toBe(1);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('fences an expired worker claim and preserves the blocked prefix', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A orphaned claim' });
+      await turns.submitAction(contexts[1], turn.id, { body: 'B remains blocked' });
+      const initial = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const firstDecision = initial.decisions.find((decision) => decision.actorId === contexts[0].playerId);
+      if (!firstDecision) throw new Error('expected A decision');
+      const coordinator = new NarrativeWorkCoordinator(db, new OutboxRepository(db));
+      const claimed = await coordinator.claimNext(turn.campaignId, turn.id, 'orphaned-worker');
+      expect(claimed?.decision.id).toBe(firstDecision.id);
+
+      const expiredAt = new Date(Date.now() - NARRATIVE_DECISION_CLAIM_LEASE_MS - 1000).toISOString();
+      await db.execute('UPDATE platform_narrative_decisions SET updated_at = ? WHERE id = ?', [expiredAt, firstDecision.id]);
+      expect(await coordinator.sweepExpiredClaims()).toBe(1);
+
+      const after = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      expect(after.round.status).toBe('needs_owner_attention');
+      expect(after.decisions.find((decision) => decision.id === firstDecision.id)?.status).toBe('needs_owner_attention');
+      expect(after.decisions.find((decision) => decision.actorId === contexts[1].playerId)?.status).toBe('submitted');
+      expect(after.participants.find((participant) => participant.playerId === contexts[0].playerId)?.status)
+        .toBe('needs_owner_attention');
+      expect((await db.query<{ status: string }>('SELECT status FROM platform_turns WHERE id = ?', [turn.id]))[0].status)
+        .toBe('needs_owner_attention');
+      expect(await coordinator.claimNext(turn.campaignId, turn.id, 'later-worker')).toBeNull();
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('expires an orphaned AI run and rejects a late provider result', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    let calls = 0;
+    let releaseProvider: (() => void) | undefined;
+    const providerGate = new Promise<void>((resolve) => { releaseProvider = resolve; });
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A provider will be fenced' });
+      const decision = (await narrative.getRequiredByTurn(turn.campaignId, turn.id)).decisions
+        .find((item) => item.actorId === contexts[0].playerId);
+      if (!decision?.actionId) throw new Error('expected A decision');
+      const provider = {
+        name: 'lease-test', model: 'lease-test',
+        stream: async () => {
+          calls += 1;
+          await providerGate;
+          return { actionIntents: [{
+            actionId: decision.actionId!, actorId: decision.actorId, mode: 'player_action',
+            actionType: 'healing', actionRef: 'healing:basic', targetIds: [],
+            declaredApproach: 'recover', desiredOutcome: 'recover', resourceChoices: [], fallbackPolicy: 'continue',
+          }] };
+        },
+      } as const;
+      const service = new NarrativeDecisionResolutionService(db, provider, new OutboxRepository(db));
+      const pending = service.resolveDecision(ownerCtx, turn.id, decision.id, { idempotencyKey: 'expired-provider-run' });
+      await vi.waitFor(() => expect(calls).toBe(1));
+
+      const expiredAt = new Date(Date.now() - NARRATIVE_DECISION_CLAIM_LEASE_MS - 1000).toISOString();
+      await db.execute('UPDATE platform_narrative_decisions SET updated_at = ? WHERE id = ?', [expiredAt, decision.id]);
+      const replay = await service.resolveDecision(ownerCtx, turn.id, decision.id, { idempotencyKey: 'expired-provider-run' });
+      expect(replay.created).toBe(false);
+      expect(replay.run.status).toBe('failed');
+      expect(replay.run.errorCode).toBe(NARRATIVE_DECISION_CLAIM_EXPIRED_CODE);
+      expect((await db.query<{ status: string; error_code: string | null }>(
+        'SELECT status, error_code FROM platform_ai_runs WHERE id = ?', [replay.run.id],
+      ))[0]).toEqual({ status: 'failed', error_code: NARRATIVE_DECISION_CLAIM_EXPIRED_CODE });
+      expect((await db.query<{ status: string; failure_code: string | null }>(
+        'SELECT status, failure_code FROM platform_narrative_decisions WHERE id = ?', [decision.id],
+      ))[0]).toEqual({ status: 'needs_owner_attention', failure_code: NARRATIVE_DECISION_CLAIM_EXPIRED_CODE });
+      expect(await db.query('SELECT id FROM platform_resolved_outcomes WHERE execution_id = ?', [replay.run.id])).toHaveLength(0);
+      expect(await db.query('SELECT id FROM platform_narrative_working_facts WHERE execution_id = ?', [replay.run.id])).toHaveLength(0);
+      expect((await db.query<{ event_type: string }>(
+        'SELECT event_type FROM platform_outbox_events WHERE campaign_id = ?', [turn.campaignId],
+      )).map((event) => event.event_type)).toContain('ai.preview.failed');
+
+      releaseProvider!();
+      await expect(pending).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+      expect(calls).toBe(1);
+    } finally {
+      releaseProvider?.();
+      await db.close();
+    }
+  });
+
+  it('keeps a Round collecting while a claimed Decision processes and accepts later submissions', async () => {
+    const { db, ownerCtx, contexts, turns, narrative, mutations } = await makeFixture();
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A acts first' });
+      const coordinator = new NarrativeWorkCoordinator(db, new OutboxRepository(db));
+      const claimed = await coordinator.claimNext(turn.campaignId, turn.id, 'collecting-worker');
+      if (!claimed) throw new Error('expected a claimed Decision');
+      expect(claimed.decision.status).toBe('processing');
+      expect((await narrative.getRequiredByTurn(turn.campaignId, turn.id)).round.status).toBe('collecting');
+
+      await turns.submitAction(contexts[1], turn.id, { body: 'B submits while A processes' });
+      expect((await narrative.getRequiredByTurn(turn.campaignId, turn.id)).round.status).toBe('collecting');
+      await db.transaction(async (tx) => {
+        const applyExpectedRevision = await mutations.latestCompatibleRevisionIn(
+          tx,
+          turn.campaignId,
+          claimed.claim.stateRevision,
+          ['turn_action_submit'],
+        );
+        await mutations.mutateIn(tx, {
+          campaignId: turn.campaignId,
+          expectedRevision: applyExpectedRevision,
+          mutationId: 'collecting-worker-apply',
+          causeType: 'test_decision_apply',
+          causeId: claimed.decision.id,
+        }, async ({ stateRevision }) => {
+          await narrative.markDecisionResolvedIn(tx, {
+            campaignId: turn.campaignId,
+            roundId: turn.id,
+            decisionId: claimed.decision.id,
+            stateRevision,
+          });
+        });
+      });
+      await turns.submitAction(contexts[2], turn.id, { body: 'C submits last' });
+
+      const final = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      expect(final.round.status).toBe('ready');
+      expect(final.round.decisionCursor).toBe(1);
+      expect(final.decisions.find((decision) => decision.actorId === contexts[0].playerId)?.status).toBe('resolved');
+      expect((await db.query<{ status: string }>('SELECT status FROM platform_turns WHERE id = ?', [turn.id]))[0].status).toBe('resolving');
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('resolves A as soon as A submits while B is still collecting', async () => {
+    const { db, ownerCtx, contexts, turns, narrative, mutations } = await makeFixture();
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A acts now' });
+      const view = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const aDecision = view.decisions.find((decision) => decision.actorId === contexts[0].playerId);
+      if (!aDecision) throw new Error('expected A decision');
+      await resolveDecision(db, narrative, mutations, turn.campaignId, turn.id, aDecision.id, {
+        factKind: 'a.resolved', payload: { ok: true }, visibility: 'public',
+      });
+      const after = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      expect(after.decisions.find((decision) => decision.id === aDecision.id)?.status).toBe('resolved');
+      expect(after.decisions.filter((decision) => decision.status === 'waiting')).toHaveLength(2);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('does not bypass an earlier needs_owner_attention decision', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A blocks' });
+      await turns.submitAction(contexts[1], turn.id, { body: 'B waits' });
+      await turns.submitAction(contexts[2], turn.id, { body: 'C waits' });
+      const view = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const [aDecision, bDecision] = view.decisions;
+      const first = await narrative.claimDecision(turn.campaignId, turn.id, aDecision.id, 'attention-exec');
+      await narrative.markDecisionNeedsOwnerAttention(turn.campaignId, turn.id, aDecision.id, 'GM_REQUIRED');
+      expect((await narrative.getRequiredByTurn(turn.campaignId, turn.id)).round.status).toBe('needs_owner_attention');
+      const coordinator = new NarrativeWorkCoordinator(db, new OutboxRepository(db));
+      expect(await coordinator.claimNext(turn.campaignId, turn.id, 'b-worker')).toBeNull();
+      await narrative.skipDecision(turn.campaignId, turn.id, aDecision.id);
+      const next = await coordinator.claimNext(turn.campaignId, turn.id, 'b-worker-after-skip');
+      expect(next?.decision.id).toBe(bDecision.id);
+      expect(first.decision.executionId).toBe('attention-exec');
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('allows edit before claim, rejects edit after claim, and applies the claimed action snapshot', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'before claim' });
+      await turns.submitAction(contexts[0], turn.id, { body: 'edited before claim' });
+      const view = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const decision = view.decisions.find((item) => item.actorId === contexts[0].playerId);
+      if (!decision?.actionId) throw new Error('expected A decision');
+      const provider = {
+        name: 'snapshot-test', model: 'snapshot-test',
+        stream: async () => {
+          await expect(turns.submitAction(contexts[0], turn.id, { body: 'edit after claim' }))
+            .rejects.toMatchObject({ code: 'TURN_LOCKED' });
+          await db.execute('UPDATE platform_actions SET body = ? WHERE id = ?', ['concurrent raw edit', decision.actionId]);
+          return {
+            actionIntents: [{
+              actionId: decision.actionId, actorId: decision.actorId, mode: 'player_action',
+              actionType: 'healing', actionRef: 'healing:basic', targetIds: [],
+              declaredApproach: 'recover', desiredOutcome: 'recover', resourceChoices: [], fallbackPolicy: 'continue',
+            }],
+          };
+        },
+      } as const;
+      const service = new NarrativeDecisionResolutionService(db, provider, new OutboxRepository(db));
+      const result = await service.resolveDecision(ownerCtx, turn.id, decision.id, { idempotencyKey: 'snapshot-run' });
+      const intents = await db.query<{ input: string }>(
+        'SELECT source_input AS input FROM platform_action_intents WHERE execution_id = ?', [result.run.id],
+      );
+      expect(intents[0]?.input).toBe('edited before claim');
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('replays a committed mechanics checkpoint without rerunning facts or revision', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A heals' });
+      const decision = (await narrative.getRequiredByTurn(turn.campaignId, turn.id)).decisions
+        .find((item) => item.actorId === contexts[0].playerId);
+      if (!decision?.actionId) throw new Error('expected A decision');
+      const provider = {
+        name: 'replay-test', model: 'replay-test',
+        stream: async () => ({ actionIntents: [{
+          actionId: decision.actionId!, actorId: decision.actorId, mode: 'player_action',
+          actionType: 'healing', actionRef: 'healing:basic', targetIds: [],
+          declaredApproach: 'recover', desiredOutcome: 'recover', resourceChoices: [], fallbackPolicy: 'continue',
+        }] }),
+      } as const;
+      const service = new NarrativeDecisionResolutionService(db, provider, new OutboxRepository(db));
+      const first = await service.resolveDecision(ownerCtx, turn.id, decision.id, { idempotencyKey: 'replay-run' });
+      const before = await db.query<{ revision: number }>(
+        'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [turn.campaignId],
+      );
+      const beforeFacts = await db.query('SELECT id FROM platform_narrative_working_facts WHERE execution_id = ?', [first.run.id]);
+      const beforeRolls = await db.query('SELECT id FROM platform_roll_records WHERE execution_id = ?', [first.run.id]);
+      await db.execute("UPDATE platform_ai_runs SET status = 'running', completed_at = NULL, result_json = NULL, applied_state_revision = NULL WHERE id = ?", [first.run.id]);
+      const expiredAt = new Date(Date.now() - NARRATIVE_DECISION_CLAIM_LEASE_MS - 1000).toISOString();
+      await db.execute("UPDATE platform_narrative_decisions SET status = 'processing', outcome_id = NULL, updated_at = ? WHERE id = ?", [expiredAt, decision.id]);
+      const replay = await service.resolveDecision(ownerCtx, turn.id, decision.id, { idempotencyKey: 'replay-run' });
+      expect(replay.created).toBe(false);
+      expect(replay.run.status).toBe('succeeded');
+      expect((await db.query<{ revision: number }>(
+        'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [turn.campaignId],
+      ))[0].revision).toBe(before[0].revision);
+      expect(await db.query('SELECT id FROM platform_narrative_working_facts WHERE execution_id = ?', [first.run.id])).toHaveLength(beforeFacts.length);
+      expect(await db.query('SELECT id FROM platform_roll_records WHERE execution_id = ?', [first.run.id])).toHaveLength(beforeRolls.length);
     } finally {
       await db.close();
     }

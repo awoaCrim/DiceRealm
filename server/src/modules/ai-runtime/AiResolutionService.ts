@@ -31,6 +31,7 @@ import { AdjudicationRepository, type NarrationAttemptRow } from '../adjudicatio
 import { NarrationService } from '../adjudication/NarrationService.js';
 import { NarrativeRoundService } from '../narrative-runtime/NarrativeRoundService.js';
 import { NarrativeDecisionResolutionService } from '../narrative-runtime/NarrativeDecisionResolutionService.js';
+import { NarrativeRoundRepository } from '../narrative-runtime/NarrativeRoundRepository.js';
 
 type NarrationPreparation =
   | { kind: 'running' }
@@ -102,6 +103,10 @@ export class AiResolutionService {
 
   async resolveTurn(ctx: CampaignAuthContext, turnId: string, input: ResolveTurnInput): Promise<{ created: boolean; run: AiRunView }> {
     requireOwner(ctx);
+    const activeRound = await new NarrativeRoundRepository(this.executor).findByTurnId(turnId);
+    if (activeRound && activeRound.campaign_id === ctx.campaignId && activeRound.status !== 'closed') {
+      throw new AppError('STATE_CONFLICT', '存在 active NarrativeRound；live Turn 必须使用 decision-scoped worker path。');
+    }
     const { idempotencyKey } = input;
     // 动态 facade 在 claim 前解析并固定本次 run 的 provider；因此 run 身份、stream 调用和
     // 幂等 replay 使用同一实例，保存后的新配置只影响后续新 run，不会撕裂进行中的结算。
@@ -248,12 +253,9 @@ export class AiResolutionService {
         const attempt = (await runs.maxAttempt(tx, turnId)) + 1;
         const campaignSequence = await runs.nextCampaignSequence(tx, campaignId);
         const now = new Date().toISOString();
-        // NarrativeRound is the live lifecycle authority; Turn is mirrored only
-        // after the round transition succeeds in this same transaction.
-        await this.narrativeRound.ensureForTurnIn(tx, campaignId, turnId);
-        if (!(await this.narrativeRound.markProcessingForTurnIn(tx, turnId, stateRevision, now))) {
-          throw new AppError('STATE_CONFLICT', '叙事回合已不在结算许可状态。');
-        }
+        // This is the legacy whole-turn adapter. Live NarrativeRound turns are
+        // rejected before claim(); historical turns without a round remain
+        // readable and use the Turn mirror only.
         if (!(await turns.markResolving(turnId, now))) {
           throw new AppError('STATE_CONFLICT', '回合已不在结算许可状态。');
         }

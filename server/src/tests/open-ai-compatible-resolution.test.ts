@@ -14,6 +14,7 @@ import { TurnResolutionValidator } from '../modules/ai-runtime/TurnResolutionVal
 import { StateChangeMaterializer } from '../modules/ai-runtime/StateChangeMaterializer.js';
 import { AiResolutionService } from '../modules/ai-runtime/AiResolutionService.js';
 import { OpenAiCompatibleAiProvider } from '../modules/ai-runtime/OpenAiCompatibleAiProvider.js';
+import { removeNarrativeRoundForLegacyTurn } from './legacyNarrativeFixture.js';
 
 async function createChatStub(handler: (body: unknown, count: number) => { status?: number; body?: unknown; rawBody?: string }) {
   let count = 0;
@@ -68,6 +69,8 @@ async function makeFixture(baseUrl: string) {
   const turn = await turns.startTurn(ownerCtx);
   await turns.submitAction(aCtx, turn.id, { body: '我搜索房间。' });
   await turns.submitAction(bCtx, turn.id, { body: '我警戒门口。' });
+  // Explicit historical compatibility fixture for the legacy whole-turn adapter.
+  await removeNarrativeRoundForLegacyTurn(db, turn.id);
   const archives = new ArchiveService(db, outbox);
   const provider = new OpenAiCompatibleAiProvider(
     { baseUrl, apiKey: 'secret-key', model: 'gpt-test-model' },

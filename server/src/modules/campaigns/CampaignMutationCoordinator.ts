@@ -1,5 +1,5 @@
 import type { StateRevision } from '@dnd/contracts';
-import type { DatabasePort, QueryExecutor } from '../../platform/database/DatabasePort.js';
+import type { DatabasePort, QueryExecutor, QueryReader } from '../../platform/database/DatabasePort.js';
 import { AppError } from '../../platform/http/AppError.js';
 
 export interface CampaignMutationRequest {
@@ -107,6 +107,43 @@ export class CampaignMutationCoordinator {
   /** Compatibility seam for services that already own the surrounding transaction. */
   async mutateIn<T>(tx: QueryExecutor, request: CampaignMutationRequest, work: (context: CampaignMutationContext) => Promise<T>): Promise<CampaignMutationExecution<T>> {
     return this.runInTransaction(tx, request, work);
+  }
+
+  /**
+   * Return the current revision when all changes after a claim are explicitly
+   * known to be input-only. Action submissions may arrive while a Provider is
+   * running; they must not invalidate that Decision's world-state snapshot.
+   * Any other intervening mutation remains a hard stale-state conflict.
+   */
+  async latestCompatibleRevisionIn(
+    tx: QueryReader,
+    campaignId: string,
+    baseRevision: number,
+    allowedCauseTypes: readonly string[],
+  ): Promise<number> {
+    if (!Number.isInteger(baseRevision) || baseRevision < 0) {
+      throw new AppError('VALIDATION_ERROR', '基础运行时状态版本无效。');
+    }
+    const head = (await tx.query<StateHeadRow>(
+      'SELECT campaign_id, revision FROM platform_campaign_state_heads WHERE campaign_id = ?',
+      [campaignId],
+    ))[0];
+    if (!head) throw new AppError('STATE_CONFLICT', '战役运行时状态版本不存在。');
+    const currentRevision = Number(head.revision);
+    if (baseRevision > currentRevision) {
+      throw new AppError('STALE_STATE_REVISION', '战役状态版本无效。');
+    }
+    if (baseRevision === currentRevision) return currentRevision;
+    const allowed = new Set(allowedCauseTypes);
+    const intervening = await tx.query<{ cause_type: string }>(
+      `SELECT cause_type FROM platform_campaign_state_revisions
+       WHERE campaign_id = ? AND revision > ? ORDER BY revision ASC`,
+      [campaignId, baseRevision],
+    );
+    if (intervening.some((revision) => !allowed.has(revision.cause_type))) {
+      throw new AppError('STALE_STATE_REVISION', '战役状态已发生不兼容变化。');
+    }
+    return currentRevision;
   }
 
   async current(campaignId: string): Promise<StateRevision | null> {

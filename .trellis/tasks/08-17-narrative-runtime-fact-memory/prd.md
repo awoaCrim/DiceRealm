@@ -136,6 +136,36 @@ NarrativeRound
 - [ ] 临时 SQLite fixture 覆盖正常流程、重复提交、后续 Decision 失败、candidate 越权、Round close 幂等、projection privacy、archive supersede 和 migration rollback/failure。
 - [ ] 通过项目规定的 `typecheck`、focused tests、full test、build、migration manifest 检查和 `git diff --check`。
 
+## Post-implementation review follow-up（2026-08-17）
+
+代码 review 已确认主体数据链已经落地，但 live product semantics 仍有以下缺口：
+
+- **P0：live NarrativeRound 仍可被 legacy whole-turn `resolveTurn()` 处理。** 新 active Round 必须只允许 Decision-scoped resolution；旧 whole-turn path 仅保留历史/兼容读取，或在无 NarrativeRound 的旧数据上运行。
+- **P0：submit 后仍要等所有 required participant 提交才开始处理。** Round 必须允许收集新提交的同时处理已经提交的最早 Decision；不能把 `all submitted` 当作 processing 的开始条件。
+- **P1：Decision-scoped path 缺少 presentation-only Narration。** Mechanics/WorkingFacts/Decision 状态提交后，应独立生成可重试的 narration，不得让 narration 失败回滚已提交 StateRevision。
+- **P1：Fact authority/source/status 需要组合矩阵。** 至少禁止 `narration_result -> runtime_state + authoritative`，不能只检查 `ai_candidate + authoritative`。
+- **P1：production deterministic contributors 需要覆盖现有 server mechanical/state/event effects；不实现完整 FactCompiler。**
+- **P2：Round close 需要接入 automatic archive recovery boundary；Fact payload 需要增加大小/深度/键数量限制。**
+
+### Closed decision — Immediate decision scheduling
+
+正式采用异步 outbox/coordinator worker：
+
+```text
+action submit short transaction
+→ commit
+→ narrative.round.work_available outbox
+→ worker claims earliest eligible submitted Decision
+→ decision-scoped resolution
+→ WorkingFacts commit
+→ presentation-only narration
+→ schedule next eligible Decision
+```
+
+Outbox 只负责唤醒，不负责决定顺序；worker 每次都重新查询 `submitted_at ASC, id ASC` 的最早 eligible Decision。一个 Round 同时最多允许一个 Decision resolution in flight。Round 在 collecting 时可以继续接收新提交，同时处理已提交 Decision；最早 Decision 被 `needs_owner_attention` 阻塞时，后续 Decision 不得越过它。
+
+Action submit 与异步 claim 通过同一 campaign mutation/CAS 串行化：claim 成功后使用不可变的当前 action/context snapshot，后续修改不能改变本次 execution；claim 前的修改则由 worker 读取最新版本。
+
 ## Blocking open questions
 
 无。MVP 范围、端到端验收、权威状态源、事务边界和长期 seam 均已锁定；本 task 已进入实现阶段。

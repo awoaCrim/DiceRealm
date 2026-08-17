@@ -160,9 +160,10 @@ describe('HTTP world + outbox + turns vertical flow', () => {
         'SELECT sequence, event_type, payload_json, published_at FROM platform_outbox_events WHERE campaign_id = ? ORDER BY sequence',
         [createBody.campaign.id],
       );
-      expect(outboxRows.map((r) => r.sequence)).toEqual([1, 2, 3]);
+      expect(outboxRows.map((r) => r.sequence)).toEqual([1, 2, 3, 4, 5]);
       expect(outboxRows.map((r) => r.event_type)).toEqual([
-        'turn.action_submitted', 'turn.action_submitted', 'turn.locked',
+        'turn.action_submitted', 'narrative.round.work_available',
+        'turn.action_submitted', 'narrative.round.work_available', 'turn.locked',
       ]);
       for (const row of outboxRows) {
         expect(row.payload_json).not.toContain('搜索房间');

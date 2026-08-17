@@ -9,6 +9,7 @@ import { requireOwner, type CampaignAuthContext } from '../campaigns/CampaignAcc
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 import { CharacterRepository } from '../characters/CharacterRepository.js';
 import { TurnRepository, type ActionRow, type TurnRow } from './TurnRepository.js';
+import { NarrativeRoundRepository } from '../narrative-runtime/NarrativeRoundRepository.js';
 import { NarrativeRoundService } from '../narrative-runtime/NarrativeRoundService.js';
 
 /**
@@ -110,7 +111,7 @@ export class TurnService {
       // NarrativeRound owns the live lifecycle. Turn status is only the
       // compatibility mirror used for legacy DTOs and old repositories.
       const round = await this.narrative.ensureForTurnIn(tx, ctx.campaignId, turnId);
-      if (round.status !== 'collecting') {
+      if (!['collecting', 'processing', 'needs_owner_attention'].includes(round.status)) {
         if (round.status === 'ready') {
           throw new AppError('TURN_LOCKED', '回合已锁定，无法修改行动。');
         }
@@ -125,6 +126,12 @@ export class TurnService {
       // 4) 必须是本回合必需玩家。
       if (!(await repo.isRequired(turnId, playerId))) {
         throw new AppError('FORBIDDEN', '你不是该回合的必需玩家。');
+      }
+      const narrativeRepository = new NarrativeRoundRepository(tx);
+      const decision = await narrativeRepository.findDecisionByActor(round.id, playerId);
+      if (!decision) throw new AppError('FORBIDDEN', '你不是该叙事回合的参与者。');
+      if (!['waiting', 'submitted'].includes(decision.status)) {
+        throw new AppError('TURN_LOCKED', '该行动已经被 worker claim，无法修改。');
       }
       // 5) upsert 自己的 action（UNIQUE(turn_id, player_id)）。
       const existing = await repo.findActionByTurnPlayer(turnId, playerId);
@@ -143,26 +150,43 @@ export class TurnService {
         await repo.markRequirementSubmitted(turnId, playerId);
         firstSubmit = true;
       }
-      await this.narrative.linkSubmittedActionIn(tx, ctx.campaignId, turnId, playerId, actionId, now);
+      const submittedDecision = await this.narrative.linkSubmittedActionIn(tx, ctx.campaignId, turnId, playerId, actionId, now);
       // 6) 首次提交才发 progress 事件（锁前编辑不发，避免重复）。
       if (firstSubmit) {
         await this.outbox.publishIn(tx, {
           type: 'turn.action_submitted', campaignId: ctx.campaignId, turnId, playerId: playerId,
         });
       }
-      // 7) 最后一名提交 → 锁定 + locked 事件（条件锁定防重复）。
+      if (firstSubmit) {
+        await this.outbox.publishIn(tx, {
+          type: 'narrative.round.work_available', campaignId: ctx.campaignId,
+          roundId: round.id, decisionId: submittedDecision.id,
+        });
+      }
+      // 7) All-submitted remains a compatibility mirror only. A worker may
+      // already be processing the earliest decision while later players submit;
+      // submission never waits for this condition before waking work.
       const submitted = await repo.countSubmitted(turnId);
       const total = await repo.countTotal(turnId);
-      if (total > 0 && submitted >= total) {
-        // Advance the authoritative round first; Turn is only its same-tx
-        // compatibility mirror. Any failed mirror update rolls back both.
+      if (round.status === 'collecting' && total > 0 && submitted >= total) {
         const didReady = await this.narrative.markReadyIn(tx, round.id, now, stateRevision);
-        if (!didReady) throw new AppError('STATE_CONFLICT', '叙事回合无法锁定。');
-        const didLock = await repo.lockTurn(turnId, now);
-        if (!didLock) throw new AppError('STATE_CONFLICT', '兼容回合状态无法锁定。');
-        await this.outbox.publishIn(tx, {
-          type: 'turn.locked', campaignId: ctx.campaignId, turnId,
-        });
+        if (didReady) {
+          // A worker may already have mirrored the live Decision claim as
+          // Turn=resolving. In that race the Round can still become ready
+          // after the last action arrives; retain resolving and do not emit a
+          // duplicate locked event.
+          const didLock = await repo.lockTurn(turnId, now);
+          if (didLock) {
+            await this.outbox.publishIn(tx, {
+              type: 'turn.locked', campaignId: ctx.campaignId, turnId,
+            });
+          } else {
+            const currentTurn = await repo.findTurnById(turnId);
+            if (!currentTurn || !['locked', 'resolving'].includes(currentTurn.status)) {
+              throw new AppError('STATE_CONFLICT', '兼容回合状态无法锁定。');
+            }
+          }
+        }
       }
       // 8) service 返回在 commit 后（transaction 提交后才 resolve）。
       return this.playerView(tx, turnId, playerId);

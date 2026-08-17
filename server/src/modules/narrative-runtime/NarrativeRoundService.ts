@@ -20,6 +20,8 @@ import type { DatabasePort, QueryExecutor, QueryReader } from '../../platform/da
 import type { EventPublisherPort } from '../../platform/events/EventPublisherPort.js';
 import { AppError } from '../../platform/http/AppError.js';
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
+import { AiRunRepository } from '../ai-runtime/AiRunRepository.js';
+import { AdjudicationRepository } from '../adjudication/AdjudicationRepository.js';
 import { CharacterRepository } from '../characters/CharacterRepository.js';
 import { TurnRepository, type TurnRow } from '../turns/TurnRepository.js';
 import {
@@ -54,6 +56,10 @@ export interface CloseRoundResult {
   stateRevision: number;
   replayed: boolean;
 }
+
+/** A processing Decision must be reclaimed or surfaced to Owner after this lease. */
+export const NARRATIVE_DECISION_CLAIM_LEASE_MS = 5 * 60 * 1000;
+export const NARRATIVE_DECISION_CLAIM_EXPIRED_CODE = 'WORKER_CLAIM_EXPIRED';
 
 export interface RecordWorkingFactOptions {
   id?: string;
@@ -191,12 +197,17 @@ export class NarrativeRoundService {
     const allSubmitted = participants.filter((participant) => Number(participant.required) === 1)
       .every((participant) => {
         const decision = decisionByActor.get(participant.player_id);
-        return Boolean(decision?.action_id) && (decision?.status === 'submitted' || decision?.status === 'resolved' || decision?.status === 'skipped');
+        return Boolean(decision?.action_id)
+          && ['submitted', 'processing', 'resolved', 'skipped'].includes(decision?.status ?? '');
       });
     if (!allSubmitted) return false;
+    const current = await repository.findById(roundId);
+    if (!current || current.status !== 'collecting') return false;
     const changed = await repository.updateStatus(roundId, ['collecting'], 'ready', now, null);
     if (changed && stateRevision !== undefined) {
-      await repository.updateCursor(roundId, 0, stateRevision, now);
+      // Readiness is an aggregate transition; it must not rewind the
+      // Decision cursor after an earlier Decision already resolved.
+      await repository.updateCursor(roundId, current.decision_cursor, stateRevision, now);
     }
     return changed;
   }
@@ -219,7 +230,9 @@ export class NarrativeRoundService {
   ): Promise<boolean> {
     const repository = new NarrativeRoundRepository(tx);
     const round = await repository.findByTurnId(turnId);
-    if (!round) return false;
+    // Historical whole-turn runs may legitimately have no NarrativeRound. In
+    // that compatibility branch the Turn mirror is the only state to mark.
+    if (!round) return true;
     const changed = await repository.updateStatus(round.id, ['processing', 'ready'], 'needs_owner_attention', now, null);
     if (changed || round.status === 'needs_owner_attention') {
       await repository.updateCursor(round.id, round.decision_cursor, stateRevision, now);
@@ -241,36 +254,43 @@ export class NarrativeRoundService {
         throw new AppError('NOT_FOUND', '叙事决策不存在。');
       }
       if (existing.status === 'processing' && existing.execution_id) {
+        if (existing.execution_id !== executionId) {
+          throw new AppError('STATE_CONFLICT', '叙事决策已经被其它 worker 处理。');
+        }
         return { replayed: true, decision: mapNarrativeDecision(existing), stateRevision: Number(existing.claim_revision ?? 0) };
       }
       if (existing.status === 'resolved' || existing.status === 'skipped') {
         return { replayed: true, decision: mapNarrativeDecision(existing), stateRevision: Number(existing.applied_state_revision ?? existing.claim_revision ?? 0) };
       }
       if (!existing.action_id) throw new AppError('STATE_CONFLICT', '叙事决策尚未提交玩家行动。');
-      await this.assertPriorDecisionsComplete(tx, roundId, existing.decision_order);
+      await this.assertDecisionIsEarliest(tx, roundId, existing.id);
       const round = await repository.findById(roundId);
       if (!round) throw new AppError('NOT_FOUND', '叙事回合不存在。');
+      if (round.status === 'closed') throw new AppError('STATE_CONFLICT', '叙事回合已关闭。');
       const mutation = await this.mutations.mutateIn(tx, {
         campaignId,
         mutationId: `narrative-decision-claim:${executionId}`,
         causeType: 'narrative_decision_claim',
         causeId: decisionId,
       }, async ({ stateRevision }) => {
-        if (!(await repository.updateStatus(roundId, ['ready', 'processing', 'needs_owner_attention'], 'processing', new Date().toISOString(), null))) {
-          throw new AppError('STATE_CONFLICT', '叙事回合不在可处理状态。');
+        // Claim is a Decision-level transition. Keep the Round status intact so
+        // collecting remains submit-capable while this Decision is processing.
+        const now = new Date().toISOString();
+        if (!(await repository.updateStatus(roundId, [round.status], round.status, now, null))) {
+          throw new AppError('STATE_CONFLICT', '叙事回合状态已被并发修改。');
         }
         const currentRound = await repository.findById(roundId);
-        if (!currentRound || !(await repository.updateCursor(roundId, currentRound.decision_cursor, stateRevision, new Date().toISOString()))) {
+        if (!currentRound || !(await repository.updateCursor(roundId, currentRound.decision_cursor, stateRevision, now))) {
           throw new AppError('STATE_CONFLICT', '叙事回合版本更新失败。');
         }
-        if (!(await repository.markProcessing(decisionId, executionId, stateRevision, new Date().toISOString()))) {
-          throw new AppError('STATE_CONFLICT', '叙事决策不在可处理状态。');
+        if (!(await repository.claimDecision(roundId, decisionId, executionId, stateRevision, now))) {
+          throw new AppError('STATE_CONFLICT', '叙事决策已被其它 worker 处理或前序决策尚未完成。');
         }
         await tx.execute(
-          "UPDATE platform_turns SET status = 'resolving', updated_at = ? WHERE id = ? AND status IN ('locked','needs_owner_attention')",
-          [new Date().toISOString(), existing.turn_id],
+          "UPDATE platform_turns SET status = 'resolving', updated_at = ? WHERE id = ? AND status IN ('waiting_for_actions','locked','needs_owner_attention')",
+          [now, existing.turn_id],
         );
-        await repository.updateParticipantStatus(roundId, existing.actor_id, 'processing', new Date().toISOString());
+        await repository.updateParticipantStatus(roundId, existing.actor_id, 'processing', now);
         await this.outbox.publishIn(tx, {
           type: 'narrative.decision.claimed', campaignId, roundId, decisionId, actorId: existing.actor_id,
         });
@@ -287,6 +307,139 @@ export class NarrativeRoundService {
     });
   }
 
+  /**
+   * Worker seam: read the earliest submitted action every time the wake-up is
+   * handled. The actual claim is a separate short CAS transaction, so an
+   * outbox replay or another worker can only produce one in-flight decision.
+   */
+  async claimEarliestDecision(
+    campaignId: string,
+    roundId: string,
+    executionId = nanoid(24),
+  ): Promise<DecisionClaim | null> {
+    const candidate = await this.executor.transaction(async (tx) => {
+      const repository = new NarrativeRoundRepository(tx);
+      const round = await repository.findById(roundId);
+      if (!round || round.campaign_id !== campaignId || round.status === 'closed') return null;
+      return repository.findEarliestUnresolvedDecision(roundId);
+    });
+    if (!candidate) return null;
+    if (candidate.status === 'processing') {
+      await this.expireExpiredDecisionClaim(campaignId, roundId, candidate.id, candidate.execution_id ?? undefined);
+      return null;
+    }
+    if (candidate.status !== 'submitted') return null;
+    try {
+      const claimed = await this.claimDecision(campaignId, roundId, candidate.id, executionId);
+      if (claimed.replayed && (claimed.decision.status === 'resolved' || claimed.decision.status === 'skipped')) {
+        return this.claimEarliestDecision(campaignId, roundId);
+      }
+      return claimed;
+    } catch (error) {
+      // Another worker may have won the CAS between the read and claim. A
+      // wake-up is level-triggered, so treating that race as no work is safe.
+      if (error instanceof AppError && error.code === 'STATE_CONFLICT') return null;
+      throw error;
+    }
+  }
+
+  /**
+   * Convert an abandoned processing claim into Owner attention. The existing
+   * decision updated_at is the lease timestamp, so no schema expansion is
+   * needed; the CAS prevents a live worker from being fenced accidentally.
+   */
+  async expireExpiredDecisionClaim(
+    campaignId: string,
+    roundId: string,
+    decisionId: string,
+    executionId?: string,
+  ): Promise<boolean> {
+    try {
+      return await this.executor.transaction(async (tx) => {
+        const repository = new NarrativeRoundRepository(tx);
+        const decision = await repository.findDecisionById(decisionId);
+        if (!decision || decision.campaign_id !== campaignId || decision.round_id !== roundId
+          || decision.status !== 'processing' || !decision.execution_id) return false;
+        if (executionId && decision.execution_id !== executionId) return false;
+        if (!isNarrativeDecisionClaimExpired(decision.updated_at)) return false;
+        const claimExecutionId = decision.execution_id;
+        // A committed mechanical outcome is a recoverable checkpoint, not an
+        // orphan. Leave it processing so resolveDecision can finish metadata.
+        if (await new AdjudicationRepository(tx).findOutcomeByExecution(tx, claimExecutionId)) return false;
+        const expiredBefore = new Date(Date.now() - NARRATIVE_DECISION_CLAIM_LEASE_MS).toISOString();
+        const mutation = await this.mutations.mutateIn(tx, {
+          campaignId,
+          mutationId: `narrative-decision-expire:${claimExecutionId}`,
+          causeType: 'narrative_decision_failure',
+          causeId: decisionId,
+        }, async ({ stateRevision }) => {
+          const now = new Date().toISOString();
+          if (!(await repository.expireProcessingDecision(
+            roundId, decisionId, claimExecutionId, NARRATIVE_DECISION_CLAIM_EXPIRED_CODE, expiredBefore, now,
+          ))) {
+            throw new AppError('STATE_CONFLICT', '叙事决策 claim 已被其它 worker 更新。');
+          }
+          await repository.updateParticipantStatus(roundId, decision.actor_id, 'needs_owner_attention', now);
+          if (!(await repository.updateStatus(
+            roundId,
+            ['collecting', 'ready', 'processing', 'needs_owner_attention'],
+            'needs_owner_attention',
+            now,
+            null,
+          ))) {
+            throw new AppError('STATE_CONFLICT', '叙事回合无法进入 Owner attention。');
+          }
+          const round = await repository.findById(roundId);
+          if (round) await repository.updateCursor(roundId, round.decision_cursor, stateRevision, now);
+          await tx.execute(
+            "UPDATE platform_turns SET status = 'needs_owner_attention', updated_at = ? WHERE id = ? AND status IN ('waiting_for_actions','locked','resolving')",
+            [now, decision.turn_id],
+          );
+
+          // Explicit decision resolution creates the AI run in the same claim
+          // transaction. Worker-only claims may have no run row yet.
+          const runs = new AiRunRepository(tx);
+          const run = await runs.findById(claimExecutionId);
+          if (run?.status === 'running') {
+            const errorJson = JSON.stringify({
+              code: NARRATIVE_DECISION_CLAIM_EXPIRED_CODE,
+              name: 'NarrativeDecisionClaimExpired',
+              message: '叙事决策 worker claim 已超时，等待 Owner 处理。',
+              timestamp: now,
+            });
+            const rawDebugJson = JSON.stringify({
+              code: NARRATIVE_DECISION_CLAIM_EXPIRED_CODE,
+              roundId,
+              decisionId,
+              executionId: claimExecutionId,
+            });
+            if (!(await runs.markFailed(
+              tx,
+              claimExecutionId,
+              NARRATIVE_DECISION_CLAIM_EXPIRED_CODE,
+              errorJson,
+              rawDebugJson,
+              now,
+            ))) {
+              throw new AppError('STATE_CONFLICT', '叙事决策 AI run 已被并发更新。');
+            }
+            await this.outbox.publishIn(tx, {
+              type: 'ai.preview.failed', campaignId, runId: claimExecutionId,
+              code: NARRATIVE_DECISION_CLAIM_EXPIRED_CODE,
+            });
+          }
+          return true;
+        });
+        return mutation.result ?? false;
+      });
+    } catch (error) {
+      // Expiration is a best-effort recovery sweep. A live completion or a
+      // competing sweeper winning the CAS means there is nothing left to do.
+      if (error instanceof AppError && error.code === 'STATE_CONFLICT') return false;
+      throw error;
+    }
+  }
+
   /** Claim a single decision inside the caller's coordinator transaction. */
   async claimDecisionIn(
     tx: QueryExecutor,
@@ -298,21 +451,27 @@ export class NarrativeRoundService {
     if (!decision || decision.campaign_id !== input.campaignId || decision.round_id !== input.roundId) {
       throw new AppError('NOT_FOUND', '叙事决策不存在。');
     }
-    if (decision.status === 'processing' && decision.execution_id === input.executionId) {
+    if (decision.status === 'processing') {
+      if (decision.execution_id !== input.executionId) {
+        throw new AppError('STATE_CONFLICT', '叙事决策已经被其它 worker 处理。');
+      }
       return mapNarrativeDecision(decision);
     }
     if (!decision.action_id) throw new AppError('STATE_CONFLICT', '叙事决策尚未提交玩家行动。');
-    await this.assertPriorDecisionsComplete(tx, input.roundId, decision.decision_order);
+    await this.assertDecisionIsEarliest(tx, input.roundId, decision.id);
     const round = await repository.findById(input.roundId);
     if (!round) throw new AppError('NOT_FOUND', '叙事回合不存在。');
-    if (!(await repository.updateStatus(input.roundId, ['ready', 'processing', 'needs_owner_attention'], 'processing', now, null))) {
-      throw new AppError('STATE_CONFLICT', '叙事回合不在可处理状态。');
+    if (round.status === 'closed') throw new AppError('STATE_CONFLICT', '叙事回合已关闭。');
+    // Claim is a Decision-level transition. Keep the Round status intact so
+    // collecting remains submit-capable while this Decision is processing.
+    if (!(await repository.updateStatus(input.roundId, [round.status], round.status, now, null))) {
+      throw new AppError('STATE_CONFLICT', '叙事回合状态已被并发修改。');
     }
     if (!(await repository.updateCursor(input.roundId, round.decision_cursor, input.stateRevision, now))) {
       throw new AppError('STATE_CONFLICT', '叙事回合版本更新失败。');
     }
-    if (!(await repository.markProcessing(input.decisionId, input.executionId, input.stateRevision, now))) {
-      throw new AppError('STATE_CONFLICT', '叙事决策不在可处理状态。');
+    if (!(await repository.claimDecision(input.roundId, input.decisionId, input.executionId, input.stateRevision, now))) {
+      throw new AppError('STATE_CONFLICT', '叙事决策已被其它 worker 处理或前序决策尚未完成。');
     }
     await repository.updateParticipantStatus(input.roundId, decision.actor_id, 'processing', now);
     await this.outbox.publishIn(tx, {
@@ -327,7 +486,7 @@ export class NarrativeRoundService {
   /** Called inside the Decision's coordinator transaction after mechanics/facts are written. */
   async markDecisionResolvedIn(
     tx: QueryExecutor,
-    input: { campaignId: string; roundId: string; decisionId: string; outcomeId?: string | null; stateRevision: number },
+    input: { campaignId: string; roundId: string; decisionId: string; outcomeId?: string | null; stateRevision: number; executionId?: string | null },
     now = new Date().toISOString(),
   ): Promise<NarrativeDecision> {
     const repository = new NarrativeRoundRepository(tx);
@@ -336,7 +495,13 @@ export class NarrativeRoundService {
       throw new AppError('NOT_FOUND', '叙事决策不存在。');
     }
     if (decision.status === 'resolved') return mapNarrativeDecision(decision);
-    if (!(await repository.markResolved(input.decisionId, input.outcomeId ?? null, input.stateRevision, now))) {
+    if (!(await repository.markResolved(
+      input.decisionId,
+      input.outcomeId ?? null,
+      input.stateRevision,
+      now,
+      input.executionId,
+    ))) {
       throw new AppError('STATE_CONFLICT', '叙事决策不在处理中。');
     }
     await repository.updateParticipantStatus(input.roundId, decision.actor_id, 'resolved', now);
@@ -348,6 +513,7 @@ export class NarrativeRoundService {
       type: 'narrative.decision.resolved', campaignId: input.campaignId, roundId: input.roundId,
       decisionId: input.decisionId, stateRevision: input.stateRevision,
     });
+    await this.publishWorkAvailableIn(tx, input.campaignId, input.roundId, input.decisionId);
     const updated = await repository.findDecisionById(input.decisionId);
     if (!updated) throw new AppError('INTERNAL_ERROR', '叙事决策完成结果读取失败。');
     return mapNarrativeDecision(updated);
@@ -373,7 +539,7 @@ export class NarrativeRoundService {
         }
         const decision = await repository.findDecisionById(decisionId);
         if (decision) await repository.updateParticipantStatus(roundId, decision.actor_id, 'needs_owner_attention', now);
-        await repository.updateStatus(roundId, ['processing', 'ready'], 'needs_owner_attention', now, null);
+        await repository.updateStatus(roundId, ['collecting', 'processing', 'ready'], 'needs_owner_attention', now, null);
         const round = await repository.findById(roundId);
         if (round) await repository.updateCursor(roundId, round.decision_cursor, stateRevision, now);
       });
@@ -395,13 +561,14 @@ export class NarrativeRoundService {
       }, async ({ stateRevision }) => {
         const now = new Date().toISOString();
         if (decision.status === 'skipped') return mapNarrativeDecision(decision);
-        await this.assertPriorDecisionsComplete(tx, roundId, decision.decision_order);
+        await this.assertDecisionIsEarliest(tx, roundId, decision.id);
         if (!(await repository.markSkipped(decisionId, now))) {
           throw new AppError('STATE_CONFLICT', '叙事决策不在可跳过状态。');
         }
         await repository.updateParticipantStatus(roundId, decision.actor_id, 'skipped', now);
         const round = await repository.findById(roundId);
         if (round) await repository.updateCursor(roundId, Math.max(round.decision_cursor, decision.decision_order + 1), stateRevision, now);
+        await this.publishWorkAvailableIn(tx, campaignId, roundId, decisionId);
         const updated = await repository.findDecisionById(decisionId);
         if (!updated) throw new AppError('INTERNAL_ERROR', '叙事决策跳过结果读取失败。');
         return mapNarrativeDecision(updated);
@@ -646,10 +813,31 @@ export class NarrativeRoundService {
     await repository.updateStatus(round.id, ['ready', 'processing', 'needs_owner_attention'], 'closed', now, now);
   }
 
-  private async assertPriorDecisionsComplete(tx: QueryExecutor, roundId: string, decisionOrder: number): Promise<void> {
-    const pending = (await new NarrativeRoundRepository(tx).listDecisions(roundId))
-      .find((decision) => decision.decision_order < decisionOrder && !['resolved', 'skipped'].includes(decision.status));
-    if (pending) throw new AppError('STATE_CONFLICT', '必须先完成前序叙事决策。');
+  private async publishWorkAvailableIn(tx: QueryExecutor, campaignId: string, roundId: string, decisionId: string): Promise<void> {
+    await this.outbox.publishIn(tx, {
+      type: 'narrative.round.work_available', campaignId, roundId, decisionId,
+    });
+  }
+
+  private async assertDecisionIsEarliest(tx: QueryExecutor, roundId: string, decisionId: string): Promise<void> {
+    const repository = new NarrativeRoundRepository(tx);
+    const earliest = await repository.findEarliestUnresolvedDecision(roundId);
+    if (!earliest) throw new AppError('STATE_CONFLICT', '当前回合没有可处理的叙事决策。');
+    if (earliest.id !== decisionId) {
+      if (earliest.status === 'needs_owner_attention') {
+        throw new AppError('STATE_CONFLICT', '前序叙事决策需要 Owner 处理。');
+      }
+      if (earliest.status === 'processing') {
+        throw new AppError('STATE_CONFLICT', '前序叙事决策正在处理中。');
+      }
+      throw new AppError('STATE_CONFLICT', '必须先完成前序叙事决策。');
+    }
+    if (earliest.status === 'processing') {
+      throw new AppError('STATE_CONFLICT', '叙事决策正在处理中。');
+    }
+    if (await repository.hasProcessingDecision(roundId, decisionId)) {
+      throw new AppError('STATE_CONFLICT', '同一回合已有其它叙事决策正在处理中。');
+    }
   }
 
   private async refreshDecisionOrderIn(tx: QueryExecutor, roundId: string, turnId: string, updatedAt: string): Promise<void> {
@@ -758,6 +946,11 @@ export class NarrativeRoundService {
     await this.ensureForTurnIn(tx, campaignId, turnId);
     return turnId;
   }
+}
+
+export function isNarrativeDecisionClaimExpired(updatedAt: string, now = Date.now()): boolean {
+  const claimedAt = Date.parse(updatedAt);
+  return !Number.isFinite(claimedAt) || claimedAt <= now - NARRATIVE_DECISION_CLAIM_LEASE_MS;
 }
 
 function roundStatusFromTurn(status: TurnRow['status']): NarrativeRound['status'] {

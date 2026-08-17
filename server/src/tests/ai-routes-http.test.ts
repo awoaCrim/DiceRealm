@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { installHarnessFetch, jsonHeaders, registerAndLogin, startTestPlatformServer } from './httpTestHarness.js';
 import { ScriptedAiProvider, scriptedResolution, approvedPlayerIds } from '../modules/ai-runtime/ScriptedAiProvider.js';
 import { UnavailableAiProvider } from '../modules/ai-runtime/UnavailableAiProvider.js';
+import { removeNarrativeRoundForLegacyTurn } from './legacyNarrativeFixture.js';
 
 let restoreHarnessFetch: (() => void) | undefined;
 beforeAll(() => { restoreHarnessFetch = installHarnessFetch(); });
@@ -63,6 +64,9 @@ describe('HTTP ai routes', () => {
       };
       await submit(playerA, '搜索房间');
       await submit(playerB, '警戒门口');
+      // This test exercises the historical whole-turn adapter explicitly.
+      // Live Turns with NarrativeRound must use decision-scoped resolution.
+      await removeNarrativeRoundForLegacyTurn(platformDb, turn.turn.id);
       const aiBase = `${baseUrl}/api/campaigns/${createBody.campaign.id}/ai`;
 
       const providerStatus = await fetch(`${aiBase}/provider-status`, { headers: { cookie: owner.cookieJar.header() } });

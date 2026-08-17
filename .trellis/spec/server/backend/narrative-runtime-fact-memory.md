@@ -21,6 +21,7 @@ service.markDecisionResolvedIn(tx, {
   campaignId, roundId, decisionId, outcomeId?, stateRevision,
 })
 service.closeRound(campaignId, roundId)
+mutations.latestCompatibleRevisionIn(tx, campaignId, baseRevision, allowedCauseTypes)
 
 new RoundProjectionService(executor)
 projection.projectWorkingFacts(roundId, audience, actorId?)
@@ -54,9 +55,13 @@ Migration `017_narrative_runtime_fact_memory.sql` is part of the frozen approved
 - Decision order is `platform_actions.submitted_at ASC, platform_actions.id ASC`.
 - Each decision claim/apply is a short transaction. Provider calls happen outside transactions.
 - `platform_turns.status` is a compatibility mirror for live paths; new lifecycle code must not create an independent status authority.
+- `narrative.round.work_available` is only a wake-up signal. A worker must re-query the earliest eligible Decision by `submitted_at ASC, action_id ASC`; outbox delivery order, duplication, and delay never define causal order.
+- `collecting` remains submit-capable while Decisions independently move through `submitted/processing/resolved`. Claim does not require `round.status=processing`; one Round may have at most one `processing` Decision at a time.
+- The claim revision anchors the world-state snapshot, not the input queue. A `turn_action_submit` mutation may advance the campaign revision while a Provider is running; apply may rebase to the latest revision only when every intervening ledger row has `cause_type='turn_action_submit'`. Any other intervening mutation is `STALE_STATE_REVISION`.
 - Every live transition must read and conditionally update `NarrativeRound.status` first; only then may the same transaction update the compatible Turn mirror. A stale or missing round transition rolls back the mirror update.
 - `ensureForTurnIn` must reject a second non-closed round in the same campaign, while allowing an explicit compatibility repair for legacy completed Turns whose stale round row is still active. This repair must not fabricate historical facts.
 - Claim/failure/apply paths must persist the resulting StateRevision and decision cursor on the Round. Failure must move the Round and applicable participant/decision to `needs_owner_attention` so a retry with a new execution key is possible.
+- A `processing` Decision claim uses its `updated_at` as a five-minute worker lease. The process-local lease sweeper runs independently of HTTP/Provider traffic and must CAS-expire an abandoned claim to `needs_owner_attention`, move the participant/Round/Turn mirror to the same attention state, and fail any still-running AI run with `WORKER_CLAIM_EXPIRED`. A committed mechanical outcome is a recoverable checkpoint and must not be expired; a late Provider result must fail the Decision/apply identity guard. The sweeper only recovers claims; the outbox-to-Provider work consumer remains a separate transport concern.
 - WorkingFacts are append-only within an open round; a closed or superseded round is fail-closed for new facts and active projection. Idempotent FactSet replay must verify campaign ownership before returning an existing set.
 
 ### Fact authority and provenance
@@ -80,7 +85,7 @@ gm_authored
 
 Every fact stores bounded source refs plus round/decision/action/execution/outcome/event and based/applied StateRevision fields. Raw action bodies, Provider prompts and Narration prose are not WorkingFact truth.
 
-`ai_candidate` may only be `candidate`, `pending` or `rejected`; it must never be inserted as `authoritative`.
+`ai_candidate` may only be `candidate`, `pending` or `rejected`; it must never be inserted as `authoritative`. Fact writes use an allow-list matrix: `mechanical_resolved_outcome -> server_mechanical -> authoritative`, `state_transaction -> runtime_state -> authoritative`, `gm_authored -> runtime_state/event_evidence -> authoritative`, `turn_or_narrative_event -> event_evidence -> authoritative/verified`, and `narration_result -> ai_candidate/event_evidence -> candidate/pending`. Unlisted combinations, including `narration_result -> runtime_state + authoritative`, fail closed.
 
 ### Visibility and projection
 
@@ -115,7 +120,14 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 | Second active Round for one Turn | DB uniqueness/state conflict; do not create another authority |
 | Decision has no submitted action | `STATE_CONFLICT`; no claim/revision |
 | Decision claim/apply has stale expected revision | `STALE_STATE_REVISION`; no mechanics/facts/outcome |
+| Only `turn_action_submit` revisions occur after a claim | Rebase apply CAS to the latest revision; preserve the claimed world/action snapshot |
+| Any non-input mutation occurs after a claim | `STALE_STATE_REVISION`; no mechanics/facts/outcome |
 | Duplicate decision execution/idempotency | Return stored execution/outcome; no reroll/reapply/duplicate facts |
+| Outbox signal arrives for a later Decision while an earlier submitted Decision is unresolved/needs attention | Do not claim the later Decision; preserve the blocked prefix |
+| A second worker claims while another Decision in the same Round is processing | No-op/`STATE_CONFLICT`; keep one in-flight Decision per Round |
+| A processing claim is older than the worker lease without a committed outcome | CAS-expire it to `needs_owner_attention`, fail its running AI run, and keep later Decisions blocked |
+| A processing claim is older than the worker lease but already has a committed mechanical outcome | Do not expire it; replay must recover Decision/run metadata without a second mechanics revision |
+| Action edit races with claim | Edit wins before claim and is snapshotted; after claim, edit fails its Decision-status/CAS check |
 | Required Decision unresolved at close | `STATE_CONFLICT`; Round remains open |
 | Duplicate Round close | Return existing FactSet; no second close revision/next Round |
 | `ai_candidate` with authoritative status | `AI_OUTPUT_INVALID`; transaction rolls back |
@@ -128,6 +140,7 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 
 ## 5. Good / Base / Bad Cases
 
+- **Good:** A claims at revision N; B submits while A's Provider is running; A applies at N+2 because the only intervening revision is `turn_action_submit`, while A still uses its immutable claim snapshot.
 - **Good:** A applies one decision at revision N+2; B's decision context contains A's public structured WorkingFact but not A's raw input.
 - **Good:** C's private fact has `visibility=player_private`, `audienceActorIds=[C]`; C's next-round summary includes it while A/B summaries do not.
 - **Good:** Round close copies active WorkingFacts into one immutable FactSet and creates the next Turn/Round in the same close transaction.
@@ -144,10 +157,11 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 - Sequential A→B decision test: B sees A WorkingFact but not A raw action/private prompt/Narration.
 - WorkingFact persistence after database reopen, provenance source refs and StateRevision assertions.
 - Candidate authority rejection and actor/party projection filtering.
-- Close precondition, immutable FactSet, duplicate close and no duplicate next Round/revision.
+- Close precondition, immutable FactSet, duplicate close and no duplicate next Round/revision; automatic archive is captured from the closed round before the next Round is created.
 - A/B/C private next-round `AiContextBuilder` test with `previous_round_summary` and trace refs.
 - Archive restore test proving later Round/WorkingFact/FactSet rows are superseded and excluded from active projection.
 - Decision-scoped Provider test proving one action intent, server mechanics, idempotent replay and no second roll.
+- Async coordinator tests proving work signals only wake the worker, one in-flight Decision per Round, earliest-order/blocked-prefix scheduling, claim-lease expiry/late-result fencing, crash/replay idempotency, and submit/claim action snapshot CAS.
 - Existing turn, AI, narration retry, archive, migration, typecheck, build and projection regressions.
 
 ## 7. Wrong vs Correct
@@ -183,13 +197,17 @@ A failed or stale Round transition can then leave Turn and Round disagreeing, an
 const claim = await rounds.claimDecision(campaignId, roundId, decisionId, executionId);
 const proposal = await provider.stream(decisionContext(claim), hooks);
 
-await db.transaction((tx) => mutations.mutateIn(tx, {
-  campaignId,
-  expectedRevision: claim.stateRevision,
-  mutationId: `narrative-ai-apply:${executionId}`,
-  causeType: 'narrative_decision_apply',
-  causeId: executionId,
-}, async ({ stateRevision }) => {
+await db.transaction(async (tx) => {
+  const applyExpectedRevision = await mutations.latestCompatibleRevisionIn(
+    tx, campaignId, claim.stateRevision, ['turn_action_submit'],
+  );
+  await mutations.mutateIn(tx, {
+    campaignId,
+    expectedRevision: applyExpectedRevision,
+    mutationId: `narrative-ai-apply:${executionId}`,
+    causeType: 'narrative_decision_apply',
+    causeId: executionId,
+  }, async ({ stateRevision }) => {
   const outcome = await mechanics.resolveDecisionIn(tx, {
     ...decisionInput,
     proposal,
@@ -201,7 +219,8 @@ await db.transaction((tx) => mutations.mutateIn(tx, {
     outcomeId: outcome.outcomeId,
     stateRevision,
   });
-}));
+  });
+});
 ```
 
 The provider sees only the current actor's projected context; each apply is a normal short CAS transaction; close only copies already committed facts into the immutable FactSet.

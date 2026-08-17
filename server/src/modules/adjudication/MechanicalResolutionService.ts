@@ -17,6 +17,14 @@ import { TurnRepository } from '../turns/TurnRepository.js';
 import { AdjudicationRepository } from './AdjudicationRepository.js';
 import { AdjudicationService, type ActorMechanics, type MechanicalEffect, type TargetMechanics } from './AdjudicationService.js';
 
+export interface ActionSnapshot {
+  id: string;
+  playerId: string;
+  body: string;
+  submittedAt: string;
+  updatedAt: string;
+}
+
 export interface MechanicalResolutionInput {
   campaignId: string;
   turnId: string;
@@ -28,6 +36,8 @@ export interface MechanicalResolutionInput {
   proposals: readonly ActionIntentProposal[];
   /** Decision-scoped path: resolve only these actions, not the whole legacy Turn. */
   actionIds?: readonly string[];
+  /** Immutable action captured by the claim transaction. */
+  actionSnapshot?: ActionSnapshot;
 }
 
 export interface MechanicalResolutionResult {
@@ -86,6 +96,21 @@ export class MechanicalResolutionService {
     const actions = input.actionIds
       ? allActions.filter((action) => input.actionIds?.includes(action.id))
       : allActions;
+    if (input.actionSnapshot) {
+      const persisted = allActions.find((action) => action.id === input.actionSnapshot?.id);
+      if (!persisted || persisted.campaign_id !== input.campaignId
+        || persisted.player_id !== input.actionSnapshot.playerId) {
+        throw new AppError('STATE_CONFLICT', 'claim 时的玩家行动已不存在。');
+      }
+      const index = actions.findIndex((action) => action.id === input.actionSnapshot?.id);
+      if (index < 0) throw new AppError('STATE_CONFLICT', 'claim 时的玩家行动不在当前决策中。');
+      actions[index] = {
+        ...actions[index],
+        body: input.actionSnapshot.body,
+        submitted_at: input.actionSnapshot.submittedAt,
+        updated_at: input.actionSnapshot.updatedAt,
+      };
+    }
     if (actions.length === 0) {
       throw new AppError('AI_OUTPUT_INVALID', '当前回合没有可解释的玩家行动。');
     }

@@ -75,6 +75,34 @@ describe('CampaignMutationCoordinator', () => {
     await fixture.db.close();
   });
 
+  it('allows input-only action submissions to advance a claimed revision but rejects other intervening mutations', async () => {
+    const fixture = await makeFixture();
+    const coordinator = new CampaignMutationCoordinator(fixture.db);
+    await coordinator.run({
+      campaignId: fixture.campaignId,
+      mutationId: 'action-submit-1',
+      causeType: 'turn_action_submit',
+    }, async () => true);
+    expect(await coordinator.latestCompatibleRevisionIn(
+      fixture.db,
+      fixture.campaignId,
+      0,
+      ['turn_action_submit'],
+    )).toBe(1);
+    await coordinator.run({
+      campaignId: fixture.campaignId,
+      mutationId: 'world-change-1',
+      causeType: 'world_state_change',
+    }, async () => true);
+    await expect(coordinator.latestCompatibleRevisionIn(
+      fixture.db,
+      fixture.campaignId,
+      0,
+      ['turn_action_submit'],
+    )).rejects.toMatchObject({ code: 'STALE_STATE_REVISION' });
+    await fixture.db.close();
+  });
+
   it('rolls back head, ledger and business writes together', async () => {
     const fixture = await makeFixture();
     const coordinator = new CampaignMutationCoordinator(fixture.db);

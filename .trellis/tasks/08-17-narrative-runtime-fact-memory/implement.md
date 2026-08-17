@@ -37,10 +37,19 @@
 
 1. Implement `NarrativeRoundService` create/bootstrap/associate logic for active Turns and next-round creation.
 2. Backfill/compatibility behavior must associate existing Turns without fabricating old narrative facts; preserve legacy Turn/AI rows as readable audit data.
-3. Route action submission/lock/progress through the Round service. Mirror compatible `platform_turns.status` in the same coordinator transaction; remove live direct status writes from new paths.
+3. Route action submission/progress through the Round service. Keep `collecting` submit-capable while Decisions independently move through `submitted/processing/resolved`; only an explicit ready/close transition stops ordinary submissions. Mirror compatible `platform_turns.status` in the same coordinator transaction; remove live direct status writes from new paths.
 4. Implement participant and Decision creation/update with deterministic order `submitted_at ASC, action.id ASC`, one primary Decision per participant, and statuses `waiting/submitted/processing/resolved/skipped/needs_owner_attention`.
-5. Implement conditional claim, retry/owner attention, skip, and close guards. Add outbox events in the same transaction as lifecycle writes.
-6. Keep legacy whole-turn replay/display paths readable, but do not let them claim or mutate the live NarrativeRound authority.
+5. Implement conditional claim, retry/owner attention, skip, and close guards. A claim is allowed from a collecting Round but requires no earlier submitted unresolved Decision and no other processing Decision in the same Round. Add `narrative.round.work_available` outbox events in the same transaction as submit/owner transitions.
+6. Keep legacy whole-turn replay/display paths readable, but reject their live apply when an active NarrativeRound exists; they may only operate on explicit historical/compatibility data.
+
+## Phase 3.5 — Async work coordinator
+
+1. Add a `NarrativeWorkCoordinator`/worker seam that consumes `narrative.round.work_available` as a wake-up signal only; it must re-query the earliest eligible Decision using `submitted_at ASC, action_id ASC`.
+2. Make the claim mutation atomically enforce one in-flight Decision per Round and the blocked-prefix rule. Duplicate, delayed, or replayed outbox events must be harmless.
+3. After each Decision reaches mechanical apply and a terminal presentation attempt, re-check the Round and emit/retain another work signal when an eligible submitted Decision remains. The worker must not depend on one long-lived Round session.
+4. Use the campaign mutation/CAS boundary for action submit versus claim. Pre-claim edits are observed by the next claim; post-claim edits fail without changing the execution's context/action snapshot. While a Provider is running, apply may rebase over `turn_action_submit`-only revisions; any other intervening mutation remains stale.
+5. Add a test-only deterministic worker runner first; keep transport/queue implementation minimal and reuse the existing outbox delivery seam.
+6. Treat `platform_narrative_decisions.updated_at` as the claim lease timestamp. A process-local lease sweeper runs every 30 seconds; after five minutes without a committed mechanical outcome, it must CAS the Decision to `needs_owner_attention`, fail a still-running AI run with `WORKER_CLAIM_EXPIRED`, update the compatibility mirrors, and reject any late Provider apply. Preserve committed-outcome replay as a recoverable checkpoint instead of expiring it. The sweeper does not replace the future outbox-to-Provider consumer.
 
 ## Phase 4 — Decision-scoped resolution and WorkingFacts
 
@@ -51,7 +60,7 @@
    - current player's input only;
    - resolution contract.
 2. Add ContextBlock/ContextTrace source refs for WorkingFacts and `previous_round_summary`; assert denied actor-private facts are excluded before render.
-3. Add a decision-scoped AI claim/apply facade. Provider calls happen outside transactions and each claim stores a bounded context snapshot with expected StateRevision.
+3. Add a decision-scoped AI claim/apply facade. Provider calls happen outside transactions and each claim stores a bounded context/action snapshot with expected StateRevision.
 4. Refactor/extend `MechanicalResolutionService` with a singleton decision apply seam while preserving the existing all-actions compatibility wrapper.
 5. In one coordinator-owned Decision apply transaction:
    - CAS expected revision;
@@ -78,8 +87,9 @@
    - allocate one close StateRevision on first close;
    - copy/normalize active WorkingFacts into immutable RoundFactSet facts;
    - mark Round closed / Turn completed;
+   - create the automatic archive boundary from the closed round before the next Turn;
    - create next Turn + Round + participants;
-   - publish close/resolution events and create the automatic archive boundary.
+   - publish close/resolution events.
 5. Assert close does not call DiceService, reapply mechanics, or change historical StateRevisions.
 
 ## Phase 6 — ProjectedRoundSummary and next Context integration
@@ -104,11 +114,14 @@ Run focused tests after each phase, then the full suite. Required scenarios:
 - migration manifest and fresh SQLite bootstrap/rollback/failure;
 - one active Turn ↔ one NarrativeRound and no dual status authority;
 - participant/decision ordering and one decision per player;
+- action submit emits an idempotent work signal without making outbox order authoritative;
+- collecting Round accepts new submissions while one Decision resolves; one Round never has two processing Decisions;
+- earliest-prefix blocking, worker claim-lease expiry/late-result fencing, worker crash/replay and action-edit/claim CAS races;
 - A commits before B, B reads A WorkingFacts, B cannot read A raw action/narration/private data;
 - DB reopen preserves WorkingFacts and applied StateRevision provenance;
 - later Decision failure leaves earlier Decision committed and blocks close;
 - duplicate Decision claim/apply and duplicate Round close are idempotent;
-- server fact vs event evidence vs AI candidate authority boundary;
+- server fact vs event evidence vs AI candidate authority boundary, including rejection of `narration_result + runtime_state + authoritative`;
 - candidate cannot promote directly to authoritative RuntimeFact;
 - immutable FactSet and deterministic projection;
 - A/B/C actor-private next-round Context;
@@ -129,6 +142,7 @@ git diff --check
 
 - **After migration:** if schema or manifest tests fail, stop before changing services; migration must be corrected without editing prior migrations.
 - **After Round authority wiring:** verify all live Turn status mutations route through Round service before enabling decision-scoped resolution.
+- **After async coordinator wiring:** verify outbox is only a wake-up, one in-flight Decision per Round, blocked-prefix behavior and submit/claim CAS before enabling immediate scheduling.
 - **After decision apply:** verify StateRevision/CAS, effect rollback, idempotent outcome replay and WorkingFacts insertion in one transaction.
 - **After close:** verify no second FactSet, revision or next Round on replay.
 - **After archive integration:** verify restore supersedes later round/fact rows and active projection filters them.
