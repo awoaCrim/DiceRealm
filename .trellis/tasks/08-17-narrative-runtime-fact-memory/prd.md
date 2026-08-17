@@ -110,7 +110,7 @@ NarrativeRound
 - 新 round、decision、WorkingFact、RoundFactSet 查询默认排除 `superseded_at IS NOT NULL`；archive restore 必须按 round/turn watermark supersede later branch，并恢复快照内 active round/facts。
 - active next context 不能读取被 restore 作废的 RoundFactSet，即使其原始 AI run、turn entry 或 state revision 仍在审计表中。
 - restore 若把 earliest Decision 恢复为 `submitted`，必须在 supersede + snapshot restore 的同一事务内发布新的 `narrative.round.work_available`；旧 durable receipt 保留，不得无条件唤醒 `waiting`、`needs_owner_attention` 或 `closed`。
-- archive action replacement 必须优先原地更新快照内 action，并保护仍被 immutable adjudication audit 引用的 action，避免 restore 破坏 `platform_action_intents` FK。
+- archive action replacement 必须优先恢复快照内 action，并通过保留历史行 + `superseded_at` 标记保护仍被 immutable adjudication audit 引用的 action；active `(turn_id, player_id)` 允许在 restore 后创建新的 action id，避免 restore 破坏 `platform_action_intents` FK 或泄漏 later branch。
 - legacy Turn/AI records 保持可读；新 live round path 不得把旧 legacy run 的缺失 revision 当作可应用权威状态。
 
 ## 端到端验收场景
@@ -135,6 +135,7 @@ NarrativeRound
 - [ ] Minimal ProjectedRoundSummary 真正接入下一轮 `AiContextBuilder`，并通过 A/B/C private projection 验证 actor isolation。
 - [ ] Archive restore/supersede 后，作废 Round/WorkingFact/RoundFactSet 不会进入 active 下一轮 Context。
 - [ ] Archive restore 在原始 `work_available` 已有 durable receipt 时，仍会为恢复后的 earliest `submitted` Decision 发布 fresh wake-up；background runtime 能完成恢复后的 Decision，且旧 receipt 不被删除。
+- [ ] Restore 后的 later referenced Action 保留为 `superseded` audit history，不进入 owner/player view、participant auto-link、Decision ordering 或 Provider context；participant resubmit 创建新的 active Action ID、重新标记 requirement/Decision submitted 并发布 fresh wake-up。
 - [ ] RuntimeFact、ActorKnowledge、NarrativeFactExtractor、WorldTick/close contributor seam 已定义，但没有引入其完整长期持久化、AI orchestration 或世界模拟实现。
 - [ ] 临时 SQLite fixture 覆盖正常流程、重复提交、后续 Decision 失败、candidate 越权、Round close 幂等、projection privacy、archive supersede 和 migration rollback/failure。
 - [ ] 通过项目规定的 `typecheck`、focused tests、full test、build、migration manifest 检查和 `git diff --check`。

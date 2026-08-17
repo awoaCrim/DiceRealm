@@ -333,7 +333,8 @@ export class NarrativeRoundRepository {
     const rows = await this.executor.query<NarrativeDecisionRow>(
       `SELECT d.*
        FROM platform_narrative_decisions d
-       JOIN platform_actions a ON a.id = d.action_id AND a.turn_id = d.turn_id
+       JOIN platform_actions a
+         ON a.id = d.action_id AND a.turn_id = d.turn_id AND a.superseded_at IS NULL
        WHERE d.round_id = ? AND d.superseded_at IS NULL AND d.action_id IS NOT NULL
          AND d.status NOT IN ('resolved', 'skipped')
        ORDER BY a.submitted_at ASC, a.id ASC
@@ -389,9 +390,13 @@ export class NarrativeRoundRepository {
            SELECT 1
            FROM platform_narrative_decisions prior
            JOIN platform_actions prior_action
-             ON prior_action.id = prior.action_id AND prior_action.turn_id = prior.turn_id
+             ON prior_action.id = prior.action_id
+            AND prior_action.turn_id = prior.turn_id
+            AND prior_action.superseded_at IS NULL
            JOIN platform_actions current_action
-             ON current_action.id = d.action_id AND current_action.turn_id = d.turn_id
+             ON current_action.id = d.action_id
+            AND current_action.turn_id = d.turn_id
+            AND current_action.superseded_at IS NULL
            WHERE prior.round_id = d.round_id AND prior.superseded_at IS NULL
              AND prior.action_id IS NOT NULL
              AND prior.status NOT IN ('resolved', 'skipped')

@@ -1,6 +1,7 @@
-import { readFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { createSqliteDatabase } from './SqliteDatabaseAdapter.js';
@@ -219,6 +220,84 @@ describe('migration 009 combat tables', () => {
       expect(versions.map((row) => row.version)).toContain('009');
       expect(new Set(versions.map((row) => row.version)).size).toBe(versions.length);
     } finally {
+      await db.close();
+    }
+  });
+});
+
+describe('migration 019 action branch lifecycle', () => {
+  it('rebuilds the action FK graph, preserves audit references, and allows only one active action per slot', async () => {
+    const db = createSqliteDatabase(':memory:');
+    const beforeDir = mkdtempSync(join(tmpdir(), 'dnd-migration-before-'));
+    const afterDir = mkdtempSync(join(tmpdir(), 'dnd-migration-after-'));
+    const beforeNames = readdirSync(MIGRATIONS_DIR)
+      .filter((name) => name.endsWith('.sql') && name.slice(0, 3) !== '019')
+      .sort();
+    try {
+      for (const name of beforeNames) copyFileSync(join(MIGRATIONS_DIR, name), join(beforeDir, name));
+      copyFileSync(join(MIGRATIONS_DIR, '019_action_branch_lifecycle.sql'), join(afterDir, '019_action_branch_lifecycle.sql'));
+      await new MigrationRunner(db, beforeDir).run();
+
+      const now = '2026-08-17T00:00:00.000Z';
+      await db.execute('INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)', ['u019', 'user019', 'hash']);
+      await db.execute(
+        'INSERT INTO campaigns (id, owner_id, name, status, ruleset, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ['c019', 'u019', '战役019', 'active', 'dnd5e', now, now],
+      );
+      await db.execute(
+        'INSERT INTO platform_turns (id, campaign_id, number, status, locked_at, completed_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        ['t019', 'c019', 1, 'waiting_for_actions', null, null, now, now],
+      );
+      await db.execute(
+        'INSERT INTO platform_actions (id, turn_id, campaign_id, player_id, body, submitted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ['a019-old', 't019', 'c019', 'u019', '旧分支行动', now, now],
+      );
+      await db.execute(
+        'INSERT INTO platform_ai_runs (id, campaign_id, campaign_sequence, turn_id, attempt, idempotency_key, provider, model, status, context_json, result_json, error_code, error_json, raw_debug_json, started_at, completed_at, superseded_at, superseded_by_archive_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['run019', 'c019', 1, 't019', 1, 'run019-key', 'test', 'test', 'succeeded', '{}', '{}', null, null, null, now, now, null, null],
+      );
+      await db.execute(
+        `INSERT INTO platform_action_intents
+          (id, action_id, campaign_id, turn_id, actor_id, execution_id, intent_order,
+           source_input, mode, action_type, action_ref, target_ids_json,
+           declared_approach, desired_outcome, resource_choices_json, fallback_policy,
+           based_on_state_revision, created_at, superseded_at, superseded_by_archive_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ['intent019', 'a019-old', 'c019', 't019', 'u019', 'run019', 0, '旧证据', 'player_action', 'healing', null, '[]', null, null, '[]', 'continue', 0, now, null, null],
+      );
+
+      await new MigrationRunner(db, afterDir).run();
+
+      const oldAction = await db.query<{ id: string; superseded_at: string | null }>(
+        'SELECT id, superseded_at FROM platform_actions WHERE id = ?', ['a019-old'],
+      );
+      expect(oldAction).toEqual([{ id: 'a019-old', superseded_at: null }]);
+      expect(await db.query<{ action_id: string }>(
+        'SELECT action_id FROM platform_action_intents WHERE id = ?', ['intent019'],
+      )).toEqual([{ action_id: 'a019-old' }]);
+      expect(await db.query<{ issue: string }>('PRAGMA foreign_key_check')).toEqual([]);
+
+      const activeIndex = await db.query<{ sql: string }>(
+        "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'platform_actions_active_player_idx'",
+      );
+      expect(activeIndex[0].sql).toMatch(/CREATE UNIQUE INDEX/i);
+      expect(activeIndex[0].sql).toContain('WHERE superseded_at IS NULL');
+
+      await db.execute(
+        'UPDATE platform_actions SET superseded_at = ?, superseded_by_archive_id = NULL WHERE id = ?',
+        [now, 'a019-old'],
+      );
+      await db.execute(
+        'INSERT INTO platform_actions (id, turn_id, campaign_id, player_id, body, submitted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ['a019-new', 't019', 'c019', 'u019', '新分支行动', now, now],
+      );
+      await expect(db.execute(
+        'INSERT INTO platform_actions (id, turn_id, campaign_id, player_id, body, submitted_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ['a019-too-many', 't019', 'c019', 'u019', '重复 active 行动', now, now],
+      )).rejects.toThrow(/UNIQUE/i);
+    } finally {
+      rmSync(beforeDir, { recursive: true, force: true });
+      rmSync(afterDir, { recursive: true, force: true });
       await db.close();
     }
   });

@@ -422,6 +422,139 @@ describe('NarrativeRound runtime', () => {
     }
   });
 
+  it('isolates referenced later Actions across restore and wakes a participant that resubmits', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    const outbox = new OutboxRepository(db);
+    const workEventType = 'narrative.round.work_available';
+    let providerCalls = 0;
+    let currentActionId = '';
+    let currentActorId = '';
+    let b1ActionId = '';
+    let runtime: NarrativeWorkRuntime | undefined;
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A 在 checkpoint 前提交。' });
+      const initial = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const aDecision = initial.decisions.find((item) => item.actorId === contexts[0].playerId);
+      if (!aDecision?.actionId) throw new Error('expected A decision');
+      currentActionId = aDecision.actionId;
+      currentActorId = aDecision.actorId;
+
+      const archives = new ArchiveService(db, outbox);
+      const checkpoint = await archives.createManual(ownerCtx, 'A submitted, B waiting');
+      const provider = {
+        name: 'action-branch-scripted',
+        model: 'action-branch-test',
+        stream: async () => {
+          providerCalls += 1;
+          return {
+            actionIntents: [{
+              actionId: currentActionId, actorId: currentActorId, mode: 'player_action', actionType: 'healing',
+              actionRef: 'healing:basic', targetIds: [], declaredApproach: '恢复体力', desiredOutcome: '恢复一点生命',
+              resourceChoices: [], fallbackPolicy: 'continue',
+            }],
+          };
+        },
+      } as const;
+      const resolver = new NarrativeDecisionResolutionService(db, provider, outbox);
+      runtime = new NarrativeWorkRuntime(
+        db,
+        new NarrativeWorkCoordinator(db, outbox),
+        resolver,
+        5,
+      );
+
+      await runtime.runOnce();
+      expect(providerCalls).toBe(1);
+      await runtime.runOnce(); // consume A's post-resolution wake before B submits.
+
+      await turns.submitAction(contexts[1], turn.id, { body: 'B1 在 checkpoint 之后提交。' });
+      const b1View = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const bDecision = b1View.decisions.find((item) => item.actorId === contexts[1].playerId);
+      if (!bDecision?.actionId) throw new Error('expected B1 decision');
+      b1ActionId = bDecision.actionId;
+      currentActionId = bDecision.actionId;
+      currentActorId = bDecision.actorId;
+      await runtime.runOnce();
+      expect(providerCalls).toBe(2);
+      expect(await db.query(
+        'SELECT id FROM platform_action_intents WHERE action_id = ?', [b1ActionId],
+      )).toHaveLength(1);
+      await runtime.runOnce(); // consume B's post-resolution wake before closing the branch.
+
+      const cDecision = b1View.decisions.find((item) => item.actorId === contexts[2].playerId);
+      if (!cDecision) throw new Error('expected C decision');
+      await turns.submitAction(contexts[2], turn.id, { body: 'C 在后分支提交。' });
+      await narrative.skipDecision(turn.campaignId, turn.id, cDecision.id);
+      await narrative.closeRound(turn.campaignId, turn.id);
+
+      await archives.restore(ownerCtx, checkpoint.id);
+      const restored = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const restoredB = restored.decisions.find((item) => item.actorId === contexts[1].playerId);
+      expect(restoredB?.status).toBe('waiting');
+      expect(restoredB?.actionId).toBeNull();
+      const requirements = await db.query<{ submitted: number }>(
+        'SELECT submitted FROM platform_turn_requirements WHERE turn_id = ? AND player_id = ?',
+        [turn.id, contexts[1].playerId],
+      );
+      expect(requirements[0].submitted).toBe(0);
+
+      const ownerView = await turns.getView(ownerCtx, turn.id);
+      if (!('actions' in ownerView)) throw new Error('expected owner view');
+      expect(ownerView.actions.map((action) => action.playerId)).not.toContain(contexts[1].playerId);
+      const bPlayerView = await turns.getView(contexts[1], turn.id);
+      if (!('myAction' in bPlayerView)) throw new Error('expected player view');
+      expect(bPlayerView.myAction).toBeNull();
+      const b1Row = (await db.query<{ superseded_at: string | null }>(
+        'SELECT superseded_at FROM platform_actions WHERE id = ?', [b1ActionId],
+      ))[0];
+      expect(b1Row.superseded_at).not.toBeNull();
+
+      // The restored checkpoint still has A submitted. Consume that restored
+      // wake before B submits, so B2's wake is isolated to this resubmission.
+      currentActionId = aDecision.actionId;
+      currentActorId = aDecision.actorId;
+      await runtime.runOnce();
+      expect(providerCalls).toBe(3);
+      expect((await narrative.getRequiredByTurn(turn.campaignId, turn.id)).decisions
+        .find((item) => item.actorId === contexts[0].playerId)?.status).toBe('resolved');
+      await runtime.runOnce(); // consume A's post-resolution wake before B2 submits.
+
+      await turns.submitAction(contexts[1], turn.id, { body: 'B2 在 restore 后重新提交。' });
+      const b2Rows = await db.query<{ id: string; body: string; superseded_at: string | null }>(
+        'SELECT id, body, superseded_at FROM platform_actions WHERE turn_id = ? AND player_id = ? AND superseded_at IS NULL',
+        [turn.id, contexts[1].playerId],
+      );
+      expect(b2Rows).toHaveLength(1);
+      expect(b2Rows[0].id).not.toBe(b1ActionId);
+      expect(b2Rows[0].body).toBe('B2 在 restore 后重新提交。');
+      currentActionId = b2Rows[0].id;
+      const b2Decision = (await narrative.getRequiredByTurn(turn.campaignId, turn.id)).decisions
+        .find((item) => item.actorId === contexts[1].playerId);
+      if (!b2Decision) throw new Error('expected B2 decision');
+      currentActorId = b2Decision.actorId;
+      const afterB2Submit = await outbox.listPendingByConsumer(workEventType, NARRATIVE_WORK_CONSUMER_NAME);
+      expect(afterB2Submit).toHaveLength(1);
+      expect(JSON.parse(afterB2Submit[0].payload_json)).toMatchObject({
+        type: workEventType, roundId: turn.id, decisionId: restoredB?.id,
+      });
+
+      await runtime.runOnce();
+      expect(providerCalls).toBe(4);
+      const afterB2 = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      expect(afterB2.decisions.find((item) => item.actorId === contexts[1].playerId)?.status).toBe('resolved');
+      expect((await db.query<{ superseded_at: string | null }>(
+        'SELECT superseded_at FROM platform_actions WHERE id = ?', [b1ActionId],
+      ))[0].superseded_at).not.toBeNull();
+      expect((await db.query<{ superseded_at: string | null }>(
+        'SELECT superseded_at FROM platform_actions WHERE id = ?', [b2Rows[0].id],
+      ))[0].superseded_at).toBeNull();
+    } finally {
+      await runtime?.stop();
+      await db.close();
+    }
+  });
+
   it('advances durable work receipts past a full batch and after restart', async () => {
     const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
     const workEventType = 'narrative.round.work_available';

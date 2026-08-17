@@ -21,7 +21,7 @@
 
 ## Phase 2 — Migration and repositories
 
-1. Add `017_narrative_runtime_fact_memory.sql` with tables/indexes for:
+1. Add `017_narrative_runtime_fact_memory.sql` and the follow-up `018_narrative_work_consumer_receipts.sql` / `019_action_branch_lifecycle.sql` migrations with tables/indexes for:
    - rounds;
    - participants;
    - decisions;
@@ -29,7 +29,7 @@
    - one immutable FactSet per closed round;
    - immutable FactSet facts.
 2. Use SQLite-compatible parameter/DDL conventions and add all migration manifest/hash updates through the repository's migration tooling.
-3. Add active/superseded columns or joins for archive branch safety; add uniqueness for one round per Turn, one active participant per player, one active decision per player/action, and one FactSet per round.
+3. Add active/superseded columns or joins for archive branch safety; for `platform_actions`, preserve referenced audit rows, filter all runtime queries to active actions, and enforce uniqueness only for one active `(turn_id, player_id)` row.
 4. Add repositories with row mapping and no transaction ownership. Include methods for deterministic ordering, conditional lifecycle transitions, idempotent lookup, active projections and archive restore/supersede operations.
 5. Add temp SQLite migration/repository tests before service wiring.
 
@@ -111,7 +111,7 @@
 
 Run focused tests after each phase, then the full suite. Required scenarios:
 
-- migration manifest and fresh SQLite bootstrap/rollback/failure;
+- migration manifest and fresh/existing-schema SQLite bootstrap, action-FK upgrade, rollback and failure;
 - one active Turn ↔ one NarrativeRound and no dual status authority;
 - participant/decision ordering and one decision per player;
 - action submit emits an idempotent work signal without making outbox order authoritative;

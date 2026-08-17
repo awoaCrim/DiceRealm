@@ -68,6 +68,10 @@
     {
       "name": "018_narrative_work_consumer_receipts.sql",
       "sha256": "486abc750467e971e6c450c115a72feb1963b28f6e9336982275b161256062a5"
+    },
+    {
+      "name": "019_action_branch_lifecycle.sql",
+      "sha256": "0c6c3cbc8f6e0f33bd46b5c95cb14fdbfc72780ca4949d83efab42f17b5ef63d"
     }
   ]
 }

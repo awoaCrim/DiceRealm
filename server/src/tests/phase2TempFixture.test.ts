@@ -74,6 +74,7 @@ describe('approved migration set', () => {
       '016_server_adjudication_dice.sql',
       '017_narrative_runtime_fact_memory.sql',
       '018_narrative_work_consumer_receipts.sql',
+      '019_action_branch_lifecycle.sql',
     ]);
   });
 });

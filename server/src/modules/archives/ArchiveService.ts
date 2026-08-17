@@ -317,6 +317,7 @@ export class ArchiveService {
     // → 只 supersede number>N 的 later turns，保留 <=N 的既有 completed 历史。
     const turns = new TurnRepository(tx);
     await turns.supersedeTurnsAfterNumber(campaignId, snapshot.watermarks.turnNumber, archiveId, now);
+    await turns.supersedeActionsAfterNumber(campaignId, snapshot.watermarks.turnNumber, archiveId, now);
     await new NarrativeRoundRepository(tx).supersedeAfterRoundNumber(campaignId, snapshot.watermarks.turnNumber, archiveId, now);
     // 比被恢复存档更新的 archives（version 更大）一律 supersede；version counter 永不回退。
     await tx.execute(
@@ -540,7 +541,13 @@ export class ArchiveService {
         completedAt: current.turn.completedAt,
         updatedAt: now,
       });
-      await turns.replaceActions(existing.id, campaignId, current.actions.map((a) => fromSnapshotAction(existing.id, campaignId, a)));
+      await turns.replaceActions(
+        existing.id,
+        campaignId,
+        current.actions.map((a) => fromSnapshotAction(existing.id, campaignId, a)),
+        archiveId,
+        now,
+      );
       await turns.replaceRequirements(existing.id, campaignId, current.requirements.map((r) => fromSnapshotRequirement(existing.id, campaignId, r)));
     } else {
       await turns.insertTurn({
@@ -548,7 +555,13 @@ export class ArchiveService {
         locked_at: current.turn.lockedAt, completed_at: current.turn.completedAt,
         created_at: current.turn.createdAt, updated_at: now,
       });
-      await turns.replaceActions(current.turn.id, campaignId, current.actions.map((a) => fromSnapshotAction(current.turn.id, campaignId, a)));
+      await turns.replaceActions(
+        current.turn.id,
+        campaignId,
+        current.actions.map((a) => fromSnapshotAction(current.turn.id, campaignId, a)),
+        archiveId,
+        now,
+      );
       await turns.replaceRequirements(current.turn.id, campaignId, current.requirements.map((r) => fromSnapshotRequirement(current.turn.id, campaignId, r)));
     }
 

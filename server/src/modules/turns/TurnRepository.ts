@@ -23,6 +23,9 @@ export interface ActionRow {
   body: string;
   submitted_at: string;
   updated_at: string;
+  /** 019 action branch lifecycle：被存档恢复覆盖的历史行动仍保留供审计，但不再是 active action。 */
+  superseded_at?: string | null;
+  superseded_by_archive_id?: string | null;
 }
 
 export interface RequirementRow {
@@ -194,21 +197,30 @@ export class TurnRepository {
 
   async updateActionBody(actionId: string, body: string, updatedAt: string): Promise<boolean> {
     const result = await this.executor.execute(
-      'UPDATE platform_actions SET body = ?, updated_at = ? WHERE id = ?',
+      'UPDATE platform_actions SET body = ?, updated_at = ? WHERE id = ? AND superseded_at IS NULL',
       [body, updatedAt, actionId],
     );
     return result.changes === 1;
   }
 
+  /** 默认只返回当前 active branch 的 action；superseded action 只通过审计查询读取。 */
   async findActionByTurnPlayer(turnId: string, playerId: string): Promise<ActionRow | null> {
     const rows = await this.executor.query<ActionRow>(
-      'SELECT * FROM platform_actions WHERE turn_id = ? AND player_id = ?',
+      'SELECT * FROM platform_actions WHERE turn_id = ? AND player_id = ? AND superseded_at IS NULL',
       [turnId, playerId],
     );
     return rows[0] ?? null;
   }
 
   async listActionsByTurn(turnId: string): Promise<ActionRow[]> {
+    return this.executor.query<ActionRow>(
+      'SELECT * FROM platform_actions WHERE turn_id = ? AND superseded_at IS NULL ORDER BY submitted_at ASC, id ASC',
+      [turnId],
+    );
+  }
+
+  /** 审计/恢复用全量列表：包含当前 branch 与所有被 supersede 的历史 action。 */
+  async listAllActionsByTurn(turnId: string): Promise<ActionRow[]> {
     return this.executor.query<ActionRow>(
       'SELECT * FROM platform_actions WHERE turn_id = ? ORDER BY submitted_at ASC, id ASC',
       [turnId],
@@ -262,36 +274,66 @@ export class TurnRepository {
   }
 
   /**
-   * 恢复：把当前回合动作替换为快照动作（同 tx）。
-   * 已被 immutable adjudication audit 引用的 later action 不能物理删除；快照内动作则优先原地更新，
-   * 这样 archive restore 不会因 platform_action_intents 的 FK 破坏已落库的审计链。
+   * 恢复：把当前回合 action 切换到快照 branch（同 tx）。
+   * 快照外的 later action 永不物理删除：即使被 platform_action_intents 引用，也保留完整审计链，
+   * 只是标记 superseded。快照内 action 可重新激活；之后同一玩家提交会创建新的 action id，
+   * 避免把旧 branch 的 audit row 原地改写成新 branch 的证据。
    */
-  async replaceActions(turnId: string, campaignId: string, actions: ActionRow[]): Promise<void> {
-    const existing = await this.listActionsByTurn(turnId);
+  async replaceActions(
+    turnId: string,
+    campaignId: string,
+    actions: ActionRow[],
+    archiveId: string,
+    supersededAt: string,
+  ): Promise<void> {
+    const existing = await this.listAllActionsByTurn(turnId);
     const snapshotIds = new Set(actions.map((action) => action.id));
     for (const action of existing) {
-      if (snapshotIds.has(action.id)) continue;
-      const references = await this.executor.query<{ count: number }>(
-        'SELECT COUNT(*) AS count FROM platform_action_intents WHERE action_id = ?', [action.id],
+      if (action.superseded_at != null || snapshotIds.has(action.id)) continue;
+      await this.executor.execute(
+        `UPDATE platform_actions
+         SET superseded_at = ?, superseded_by_archive_id = ?
+         WHERE id = ? AND turn_id = ? AND superseded_at IS NULL`,
+        [supersededAt, archiveId, action.id, turnId],
       );
-      if (Number(references[0]?.count ?? 0) > 0) continue;
-      await this.executor.execute('DELETE FROM platform_actions WHERE id = ? AND turn_id = ?', [action.id, turnId]);
     }
     for (const action of actions) {
       const updated = await this.executor.execute(
         `UPDATE platform_actions
-         SET turn_id = ?, campaign_id = ?, player_id = ?, body = ?, submitted_at = ?, updated_at = ?
+         SET turn_id = ?, campaign_id = ?, player_id = ?, body = ?, submitted_at = ?, updated_at = ?,
+             superseded_at = NULL, superseded_by_archive_id = NULL
          WHERE id = ?`,
         [turnId, campaignId, action.player_id, action.body, action.submitted_at, action.updated_at, action.id],
       );
       if (updated.changes === 0) {
         await this.executor.execute(
-          `INSERT INTO platform_actions (id, turn_id, campaign_id, player_id, body, submitted_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          `INSERT INTO platform_actions
+             (id, turn_id, campaign_id, player_id, body, submitted_at, updated_at,
+              superseded_at, superseded_by_archive_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
           [action.id, turnId, campaignId, action.player_id, action.body, action.submitted_at, action.updated_at],
         );
       }
     }
+  }
+
+  /** 恢复没有 currentTurn 或切换到更早回合时，先把 watermark 之后的 action branch 一并 supersede。 */
+  async supersedeActionsAfterNumber(
+    campaignId: string,
+    number: number,
+    archiveId: string,
+    supersededAt: string,
+  ): Promise<void> {
+    await this.executor.execute(
+      `UPDATE platform_actions
+       SET superseded_at = ?, superseded_by_archive_id = ?
+       WHERE campaign_id = ? AND superseded_at IS NULL
+         AND turn_id IN (
+           SELECT id FROM platform_turns
+           WHERE campaign_id = ? AND number > ?
+         )`,
+      [supersededAt, archiveId, campaignId, campaignId, number],
+    );
   }
 
   async replaceRequirements(turnId: string, campaignId: string, requirements: RequirementRow[]): Promise<void> {

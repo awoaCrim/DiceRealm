@@ -69,11 +69,21 @@ This uses the existing action timestamp plus Decision status/state-revision CAS 
 
 ## 2. Persistence model
 
-Add migration `017_narrative_runtime_fact_memory.sql` and its manifest entry. Do not edit an applied migration. All new repositories depend on `DatabasePort`/`QueryExecutor`, use parameterized SQL, and receive the caller's transaction executor.
+Add migrations `017_narrative_runtime_fact_memory.sql`, `018_narrative_work_consumer_receipts.sql` and `019_action_branch_lifecycle.sql` with manifest entries. Do not edit an applied migration. Migration 019 must rebuild the SQLite action/FK dependency graph atomically so existing `platform_action_intents` references survive. All new repositories depend on `DatabasePort`/`QueryExecutor`, use parameterized SQL, and receive the caller's transaction executor.
 
 The exact JSON payload fields should be represented by shared contracts and bounded schemas; SQL stores JSON only for the variable fact payload/source arrays, not for lifecycle columns needed by queries.
 
-### 2.1 `platform_narrative_rounds`
+### 2.1 `platform_actions` branch lifecycle
+
+`platform_actions` is both the active input slot and the immutable parent of adjudication audit. Archive restore therefore uses versioned branch semantics:
+
+- active rows have `superseded_at IS NULL`; historical rows retain `superseded_at` and `superseded_by_archive_id` for audit;
+- migration 019 replaces table-level `UNIQUE (turn_id, player_id)` with a partial unique index over active rows only;
+- `listActionsByTurn`/`findActionByTurnPlayer` and all worker/context/view joins are active-only; all-history reads are explicit and limited to restore/audit paths;
+- restore marks snapshot-external actions superseded without deleting them, reactivates snapshot actions, and creates a new action id when a participant submits after restore;
+- active Decision ordering remains `submitted_at ASC, id ASC`, so a superseded later-branch action cannot block or reorder the restored branch.
+
+### 2.2 `platform_narrative_rounds`
 
 Core columns:
 
@@ -271,10 +281,11 @@ The existing automatic archive path must capture the current round/FactSet bound
 
 Every new table that represents active runtime history has `superseded_at`/`superseded_by_archive_id` or is joined to a row that does. `ArchiveService.supersedeHistory()` must:
 
-- supersede rounds/facts/fact sets after the snapshot's active turn watermark;
+- supersede rounds/facts/fact sets and actions after the snapshot's active turn watermark;
 - restore snapshot-contained active rows with their original content and new active markers;
+- for the restored current Turn, mark snapshot-external actions superseded while retaining their audit/FK rows;
 - leave later branch audit rows queryable only through all-history/admin paths;
-- ensure projection queries join only active round/fact-set/fact rows.
+- ensure projection, view, worker ordering and context queries join only active round/fact-set/fact/action rows.
 
 A restored historical branch may advance the live StateRevision via `archive_restore`; it never rewinds the revision head. A stale later Decision/apply or Narration retry must fail/reject because its execution/round/fact rows are superseded.
 
@@ -295,7 +306,7 @@ A restored historical branch may advance the live StateRevision via `archive_res
 - Narration failure: mechanical Decision/WorkingFacts remain committed; only presentation retry state changes, with no new StateRevision or round lifecycle mutation. The worker records the terminal narration attempt and may schedule the next Decision; a narration retry never re-runs mechanics.
 - Work signal duplication/crash: the worker re-queries the earliest eligible Decision and the one-in-flight guard makes duplicate delivery a no-op.
 - Duplicate claim/apply/close: existing execution/outcome/fact set is returned; no second mechanics, revision or next round.
-- Archive restore: later branch rows are superseded atomically; active projection filters them even though audit rows remain.
+- Archive restore: later branch rounds, facts and actions are superseded atomically; active projection filters them even though audit rows and action-intent FKs remain.
 
 ## 10. Verification strategy
 
@@ -309,7 +320,7 @@ Use fresh temporary SQLite fixtures and test at the narrowest useful boundaries 
 - context tests proving no previous raw action/narration leakage and actor-private projection isolation;
 - provenance tests proving deterministic facts vs evidence vs AI candidates;
 - archive tests proving later round/fact-set supersede and restored branch projection;
-- migration manifest/reset/rollback tests;
+- migration manifest/reset/rollback tests, including the 019 existing-schema FK/action-branch upgrade;
 - existing AI/adjudication/turn/archive regressions.
 
 Required repository checks remain:
