@@ -1,51 +1,10 @@
-# State Management
+# Contracts Frontend State Management Guidelines
 
-> How state is managed in this project.
+The contracts package owns no state. It describes values that may be stored in server state, local component state, URL state, or an event stream.
 
----
+- React Query cache policy belongs in `client/src/entities` and `client/src/app/providers/createQueryClient.ts`.
+- Local form state belongs in the feature component.
+- URL parameters and navigation state belong to React Router code.
+- Event payload visibility belongs to `events.ts` and server projection helpers, not to a client store.
 
-## Overview
-
-<!--
-Document your project's state management conventions here.
-
-Questions to answer:
-- What state management solution do you use?
-- How is local vs global state decided?
-- How do you handle server state?
-- What are the patterns for derived state?
--->
-
-(To be filled by the team)
-
----
-
-## State Categories
-
-<!-- Local state, global state, server state, URL state -->
-
-(To be filled by the team)
-
----
-
-## When to Use Global State
-
-<!-- Criteria for promoting state to global -->
-
-(To be filled by the team)
-
----
-
-## Server State
-
-<!-- How server data is cached and synchronized -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- State management mistakes your team has made -->
-
-(To be filled by the team)
+When a stateful UI needs a new field, first decide whether it is a domain contract field or a client-only view model. Only the former belongs here.

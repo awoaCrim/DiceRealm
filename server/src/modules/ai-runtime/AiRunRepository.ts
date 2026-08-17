@@ -1,6 +1,8 @@
 import type { AiRunStatus } from '@dnd/contracts';
 import type { QueryExecutor } from '../../platform/database/DatabasePort.js';
 
+export type AiRunKind = 'turn_resolution' | 'intent_interpretation' | 'mechanical_resolution' | 'narration';
+
 export interface AiRunRow {
   id: string;
   campaign_id: string;
@@ -22,6 +24,8 @@ export interface AiRunRow {
   superseded_by_archive_id: string | null;
   expected_state_revision: number | null;
   applied_state_revision: number | null;
+  run_kind: AiRunKind;
+  parent_run_id: string | null;
 }
 
 export interface AiRunInsertRow {
@@ -43,6 +47,8 @@ export interface AiRunInsertRow {
   completed_at: string | null;
   expected_state_revision?: number | null;
   applied_state_revision?: number | null;
+  run_kind?: AiRunKind;
+  parent_run_id?: string | null;
 }
 
 export class AiRunRepository {
@@ -74,12 +80,14 @@ export class AiRunRepository {
       `INSERT INTO platform_ai_runs
         (id, campaign_id, campaign_sequence, turn_id, attempt, idempotency_key,
          provider, model, status, context_json, result_json, error_code, error_json,
-         raw_debug_json, started_at, completed_at, expected_state_revision, applied_state_revision)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         raw_debug_json, started_at, completed_at, expected_state_revision, applied_state_revision,
+         run_kind, parent_run_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [row.id, row.campaign_id, row.campaign_sequence, row.turn_id, row.attempt,
        row.idempotency_key, row.provider, row.model, row.status, row.context_json,
        row.result_json, row.error_code, row.error_json, row.raw_debug_json,
-       row.started_at, row.completed_at, row.expected_state_revision ?? null, row.applied_state_revision ?? null],
+       row.started_at, row.completed_at, row.expected_state_revision ?? null, row.applied_state_revision ?? null,
+       row.run_kind ?? 'turn_resolution', row.parent_run_id ?? null],
     );
   }
 
@@ -119,6 +127,27 @@ export class AiRunRepository {
       [campaignId],
     );
     return rows[0] ?? null;
+  }
+
+  /**
+   * Semantic path checkpoint: mechanical state is committed, but narration is
+   * still retryable.  Keep the AI run running so an idempotent resolve can
+   * resume narration without claiming a second turn or revision.
+   */
+  async markMechanicalCommitted(
+    tx: QueryExecutor,
+    runId: string,
+    resultJson: string,
+    rawDebugJson: string,
+    appliedStateRevision: number,
+  ): Promise<boolean> {
+    const result = await tx.execute(
+      `UPDATE platform_ai_runs
+       SET run_kind = 'mechanical_resolution', result_json = ?, raw_debug_json = ?, applied_state_revision = ?
+       WHERE id = ? AND status = 'running'`,
+      [resultJson, rawDebugJson, appliedStateRevision, runId],
+    );
+    return result.changes === 1;
   }
 
   /** 条件成功：仅当仍为 running 时置 succeeded（防并发重复应用）。 */
@@ -167,5 +196,20 @@ export class AiRunRepository {
          AND ai_run_id IN (SELECT id FROM platform_ai_runs WHERE campaign_id = ? AND campaign_sequence > ?)`,
       [now, archiveId, campaignId, campaignId, watermark],
     );
+    const executionPredicate = '(SELECT id FROM platform_ai_runs WHERE campaign_id = ? AND campaign_sequence > ?)';
+    for (const table of [
+      'platform_action_intents',
+      'platform_adjudication_decisions',
+      'platform_roll_plans',
+      'platform_roll_records',
+      'platform_resolved_outcomes',
+      'platform_narration_attempts',
+    ]) {
+      await tx.execute(
+        `UPDATE ${table} SET superseded_at = ?, superseded_by_archive_id = ?
+         WHERE campaign_id = ? AND superseded_at IS NULL AND execution_id IN ${executionPredicate}`,
+        [now, archiveId, campaignId, campaignId, watermark],
+      );
+    }
   }
 }

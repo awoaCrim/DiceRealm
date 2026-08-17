@@ -5,7 +5,7 @@ import { createSqliteDatabase, type SqliteDatabaseAdapter } from '../database/Sq
 import { loadMigrationFile, TRACKING_TABLE_DDL } from '../database/migrations/MigrationRunner.js';
 import { acquireInstanceLock } from './InstanceLock.js';
 import { verifyMigrationManifest } from './migrationManifest.js';
-import { PHASE2_APPROVED_MIGRATION_FILENAMES } from './approvedMigrations.js';
+import { PHASE3_APPROVED_MIGRATION_FILENAMES } from './approvedMigrations.js';
 import {
   credentialKeyFileExists,
   loadCredentialCipher,
@@ -87,10 +87,10 @@ export async function runEnrollmentCommand(options: EnrollmentCoordinatorOptions
       assertPathAbsent(keyPath);
       database = openDatabase(databasePath);
       // init：只应用 literal 当前批准集合（frozen），
-      // 不因 manifest 未来新增 015+ 而静默扩展（015+ 需未来显式 hash-bound allowlist）。
+      // 不因 manifest 未来新增 017+ 而静默扩展（017+ 需未来显式 hash-bound allowlist）。
       await database.exec(TRACKING_TABLE_DDL);
       const freshApplied = await appliedMigrationVersions(database);
-      for (const filename of PHASE2_APPROVED_MIGRATION_FILENAMES) {
+      for (const filename of PHASE3_APPROVED_MIGRATION_FILENAMES) {
         const version = filename.slice(0, 3);
         if (freshApplied.includes(version)) {
           continue;
@@ -109,7 +109,7 @@ export async function runEnrollmentCommand(options: EnrollmentCoordinatorOptions
 
     // ---- command-specific guards ----
     if (options.command === 'enroll') {
-      const phase1Versions = PHASE2_APPROVED_MIGRATION_FILENAMES
+      const phase1Versions = PHASE3_APPROVED_MIGRATION_FILENAMES
         .map((filename) => filename.slice(0, 3))
         .filter((version) => Number(version) < 12);
       // M1 crash 窗口：012 已应用但无 platform_instance 行 → 允许以 fresh enrollment 安全恢复（跳过 012 重放）。

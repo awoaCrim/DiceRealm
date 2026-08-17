@@ -20,6 +20,9 @@ import type { AiProviderPort } from './AiProviderPort.js';
 import { CombatService } from '../combat/CombatService.js';
 import { CombatAiAdapter } from '../combat/CombatAiAdapter.js';
 import { CombatRepository } from '../combat/CombatRepository.js';
+import { AdjudicationService } from '../adjudication/AdjudicationService.js';
+import { DiceService } from '../adjudication/DiceService.js';
+import { MechanicalResolutionService } from '../adjudication/MechanicalResolutionService.js';
 import type { StartEncounterInput } from '@dnd/contracts';
 
 async function makeFixture(provider: AiProviderPort, options: { lockTurn?: boolean; combat?: boolean } = {}) {
@@ -138,6 +141,91 @@ describe('ai resolution service', () => {
     expect(JSON.stringify(debugPayload)).not.toContain('publicNarrative');
     expect(JSON.stringify(debugPayload)).not.toContain('raw_debug');
     await db.close();
+  });
+
+  it('commits semantic mechanics before narration and retries narration without rerolling', async () => {
+    let targetId = '';
+    let actionActors: string[] = [];
+    let semanticIntents: Array<Record<string, unknown>> = [];
+    let interpretationCalls = 0;
+    let narrationCalls = 0;
+    let narrationAvailable = false;
+    const provider = new ScriptedAiProvider(async (input) => {
+      if (input.stage === 'narration') {
+        narrationCalls += 1;
+        if (!narrationAvailable) throw new Error('narration unavailable');
+        return {
+          publicNarrative: '服务端裁定命中，敌人受伤。',
+          privateUpdates: [{ playerId: actionActors[0], content: '你确认这一击造成了伤害。' }],
+        };
+      }
+      interpretationCalls += 1;
+      return { actionIntents: semanticIntents };
+    });
+    const fixture = await makeFixture(provider);
+    const { db, ownerCtx, turn } = fixture;
+    try {
+      const outbox = new OutboxRepository(db);
+      const archives = new ArchiveService(db, outbox);
+      const combat = new CombatService(db, outbox, () => 0.5);
+      const encounter = await combat.start(ownerCtx, {
+        name: '机械裁定测试',
+        combatants: [{
+          name: '靶人', characterId: null, initiativeBonus: 0, hpCurrent: 20, hpMax: 20, ac: 10,
+          conditions: [], visibility: 'public', targetPlayerId: null,
+        }],
+      });
+      targetId = encounter.combatants[0].id;
+      const mechanics = JSON.stringify({ ac: 14, attackModifier: 5, hpCurrent: 10, hpMax: 10 });
+      await db.execute('UPDATE platform_characters SET sheet_json = ? WHERE campaign_id = ?', [mechanics, turn.campaignId]);
+      const actions = await db.query<{ id: string; player_id: string }>(
+        'SELECT id, player_id FROM platform_actions WHERE turn_id = ? ORDER BY submitted_at, id', [turn.id],
+      );
+      actionActors = actions.map((action) => action.player_id);
+      semanticIntents = actions.map((action) => ({
+        actionId: action.id, actorId: action.player_id, mode: 'player_action', actionType: 'attack',
+        actionRef: 'attack:basic', targetIds: [targetId], resourceChoices: [],
+      }));
+      const service = new AiResolutionService(
+        db, provider, outbox, archives,
+        new AiContextBuilder(db), new TurnResolutionValidator(db), new StateChangeMaterializer(db),
+        new CampaignMutationCoordinator(db),
+        new MechanicalResolutionService(db, outbox, new AdjudicationService(new DiceService(() => 0.5))),
+      );
+
+      await expect(service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'semantic-retry' }))
+        .rejects.toMatchObject({ code: 'AI_PROVIDER_FAILED' });
+      expect(interpretationCalls).toBe(1);
+      expect(narrationCalls).toBe(1);
+      expect(await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id])).toHaveLength(0);
+      expect(await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).toHaveLength(0);
+      expect((await db.query<{ status: string }>('SELECT status FROM platform_turns WHERE id = ?', [turn.id]))[0].status).toBe('resolving');
+      expect((await db.query<{ status: string }>('SELECT status FROM platform_ai_runs WHERE id = ?', [
+        (await db.query<{ id: string }>('SELECT id FROM platform_ai_runs WHERE turn_id = ?', [turn.id]))[0].id,
+      ]))[0].status).toBe('running');
+      expect(await db.query('SELECT id FROM platform_resolved_outcomes WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?)', [turn.id])).toHaveLength(1);
+      expect(await db.query('SELECT id FROM platform_roll_records WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?)', [turn.id])).toHaveLength(4);
+      expect((await db.query<{ hp_current: number }>('SELECT hp_current FROM platform_combatants WHERE id = ?', [targetId]))[0].hp_current).toBe(12);
+      expect((await db.query<{ count: number }>("SELECT COUNT(*) AS count FROM platform_campaign_state_revisions WHERE campaign_id = ? AND cause_type = 'ai_formal_apply'", [turn.campaignId]))[0].count).toBe(1);
+      expect((await db.query<{ status: string }>('SELECT status FROM platform_narration_attempts WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?) ORDER BY attempt', [turn.id])).map((row) => row.status)).toEqual(['failed']);
+
+      narrationAvailable = true;
+      const retried = await service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'semantic-retry' });
+      expect(retried.created).toBe(false);
+      expect(retried.run.status).toBe('succeeded');
+      expect(interpretationCalls).toBe(1);
+      expect(narrationCalls).toBe(2);
+      expect(await db.query('SELECT id FROM platform_roll_records WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?)', [turn.id])).toHaveLength(4);
+      expect((await db.query<{ hp_current: number }>('SELECT hp_current FROM platform_combatants WHERE id = ?', [targetId]))[0].hp_current).toBe(12);
+      expect((await db.query<{ entry_kind: string }>('SELECT entry_kind FROM platform_turn_entries WHERE turn_id = ? ORDER BY entry_index', [turn.id])).map((row) => row.entry_kind)).toEqual(['narrative', 'private_update']);
+      expect((await db.query<{ status: string }>('SELECT status FROM platform_narration_attempts WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?) ORDER BY attempt', [turn.id])).map((row) => row.status)).toEqual(['failed', 'succeeded']);
+      expect(await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).toHaveLength(1);
+      const replay = await service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'semantic-retry' });
+      expect(replay.created).toBe(false);
+      expect(narrationCalls).toBe(2);
+    } finally {
+      await db.close();
+    }
   });
 
   it('rejects a provider result when another authoritative mutation advances the head', async () => {
@@ -701,61 +789,23 @@ describe('ai resolution service', () => {
     await db.close();
   });
 
-  it('applies an AI combat command atomically with entries, archive and turn resolved', async () => {
-    const { db, ownerCtx, turn } = await makeFixture(
-      new ScriptedAiProvider(scriptedResolution({ publicNarrative: '占位。', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [] })),
+  it('rejects legacy numeric combat commands from the Provider', async () => {
+    const { db, service, ownerCtx, turn } = await makeFixture(
+      new ScriptedAiProvider(scriptedResolution({
+        publicNarrative: '不应采用 Provider 的数字机械命令。',
+        privateUpdates: [], diceResults: [], interactionRequests: [],
+        stateChanges: [{
+          kind: 'combat', targetId: 'enc-x',
+          patch: { command: 'apply_damage', actorCombatantId: 'actor', targetCombatantId: 'target', amount: 2 },
+          visibility: 'public',
+        }],
+      })),
       { combat: true },
     );
-    const outbox = new OutboxRepository(db);
-    const archives = new ArchiveService(db, outbox);
-    const combat = new CombatService(db, outbox, () => 0.5);
-    const combatAdapter = new CombatAiAdapter(combat, new CombatRepository(db));
-    const makeAi = (provider: AiProviderPort): AiResolutionService =>
-      new AiResolutionService(
-        db, provider, outbox, archives,
-        new AiContextBuilder(db), new TurnResolutionValidator(db),
-        new StateChangeMaterializer(db, combatAdapter),
-      );
-    // 建真实战斗并掷先攻（rng 0.5 → 战士先攻更高）。
-    const encounter = await combat.start(ownerCtx, {
-      name: 'AI 遭遇',
-      combatants: [
-        { name: '战士', characterId: null, initiativeBonus: 2, hpCurrent: 12, hpMax: 12, ac: 16, conditions: [], visibility: 'public', targetPlayerId: null },
-        { name: '地精', characterId: null, initiativeBonus: 0, hpCurrent: 5, hpMax: 5, ac: 10, conditions: [], visibility: 'public', targetPlayerId: null },
-      ],
-    });
-    const active = await combat.execute(ownerCtx, encounter.id, { kind: 'roll_initiative', payload: {} });
-    const fighter = active.combatants.find((c) => c.name === '战士')!;
-    const goblin = active.combatants.find((c) => c.name === '地精')!;
-    expect(active.activeCombatantId).toBe(fighter.id);
-    // AI 对非活动 actor 的命令 → STATE_CONFLICT，无任何 formal 写。
-    const conflictAi = makeAi(new ScriptedAiProvider(scriptedResolution({
-      publicNarrative: 'AI 尝试。', privateUpdates: [], diceResults: [],
-      stateChanges: [{ kind: 'combat', targetId: encounter.id, patch: { command: 'apply_damage', actorCombatantId: goblin.id, targetCombatantId: fighter.id, amount: 2 }, visibility: 'public' }],
-      interactionRequests: [],
-    })));
-    await expect(conflictAi.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'combat-conflict' })).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
-    expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).length).toBe(0);
-    expect((await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id])).length).toBe(0);
-    const hpAfterConflict = await db.query<{ hp_current: number }>('SELECT hp_current FROM platform_combatants WHERE id = ?', [fighter.id]);
-    expect(hpAfterConflict[0].hp_current).toBe(12); // 无状态变化
-    // 活动 actor 的合法命令：combat 更新与 entries/archive/turn resolved 原子。
-    await db.execute("UPDATE platform_turns SET status = 'locked' WHERE id = ?", [turn.id]);
-    const okAi = makeAi(new ScriptedAiProvider(scriptedResolution({
-      publicNarrative: 'AI 打击命中。', privateUpdates: [], diceResults: [],
-      stateChanges: [{ kind: 'combat', targetId: encounter.id, patch: { command: 'apply_damage', actorCombatantId: fighter.id, targetCombatantId: goblin.id, amount: 2 }, visibility: 'public' }],
-      interactionRequests: [],
-    })));
-    const ok = await okAi.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'combat-ok' });
-    expect(ok.run.status).toBe('succeeded');
-    const hpAfter = await db.query<{ hp_current: number }>('SELECT hp_current FROM platform_combatants WHERE id = ?', [goblin.id]);
-    expect(hpAfter[0].hp_current).toBe(3); // 5 - 2
-    const events = await db.query<{ event_type: string }>(
-      'SELECT event_type FROM platform_outbox_events WHERE campaign_id = ?', [ownerCtx.campaignId],
-    );
-    expect(events.map((e) => e.event_type)).toContain('turn.resolved');
-    expect(events.map((e) => e.event_type)).toContain('combat.updated');
-    expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).length).toBe(1);
+    await expect(service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'legacy-combat-rejected' }))
+      .rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
+    expect((await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id]))).toHaveLength(0);
+    expect((await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId]))).toHaveLength(0);
     await db.close();
   });
 

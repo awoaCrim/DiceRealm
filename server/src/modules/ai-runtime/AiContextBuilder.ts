@@ -7,6 +7,7 @@ import { CombatRepository } from '../combat/CombatRepository.js';
 
 const TURN_RESOLUTION_JSON_TEMPLATE = JSON.stringify({
   publicNarrative: '非空公开叙事',
+  actionIntents: [],
   privateUpdates: [],
   diceResults: [],
   stateChanges: [],
@@ -18,8 +19,9 @@ const TURN_RESOLUTION_JSON_TEMPLATE = JSON.stringify({
 const TURN_RESOLUTION_OUTPUT_INSTRUCTIONS = [
   '输出格式是强制契约：只返回一个 JSON 对象。',
   '不要输出解释、前后缀、Markdown 或 ``` 代码围栏。',
-  '必须包含以下完整顶层模板；除 publicNarrative 外，没有条目时使用空数组 []：',
+  '必须包含以下完整顶层模板；Intent interpretation 可以省略 publicNarrative，叙事将在服务端机械提交后单独生成；其他没有条目时使用空数组 []：',
   TURN_RESOLUTION_JSON_TEMPLATE,
+  'actionIntents 每项只表达 { actionId, actorId, mode, actionType, actionRef?, targetIds?, declaredApproach?, desiredOutcome?, resourceChoices?, fallbackPolicy? }；不得包含 DC、AC、攻击/豁免加值、伤害公式、伤害量或骰点。',
   'privateUpdates 每项为 { playerId, content }。',
   'diceResults 必须始终为 []；骰子、先攻、攻击、豁免与伤害由服务端权威计算，Provider 提供任何 diceResults 条目都会被拒绝。',
   'stateChanges 每项为 { kind, targetId, patch, visibility }，只能修改上下文中已有的稳定 id。',
@@ -40,6 +42,13 @@ export interface AiContextBuildOptions {
   actorId?: string;
   /** Stable logical action identity; current turn is the Phase 1 aggregate. */
   actionId?: string;
+  /**
+   * The intent stage gets a party-safe projection rather than the legacy GM
+   * workspace projection. Its Provider still receives every submitted action,
+   * but never receives owner-only facts, private character sheets, or hidden
+   * combatants.
+   */
+  stage?: 'turn_resolution' | 'intent_interpretation';
 }
 
 export interface AiContextPackage {
@@ -94,6 +103,7 @@ export function renderContextBlocks(
   return {
     campaignId,
     audience: 'owner_only',
+    stage: 'intent_interpretation',
     characters,
     messages: [
       // If the system policy is denied for an actor-scoped context, keep the
@@ -160,6 +170,16 @@ export class AiContextBuilder {
 
     const audience = options.audience ?? 'gm_only';
     const actionId = options.actionId ?? turnId;
+    const intentStage = options.stage === 'intent_interpretation';
+    const actionVisibility: ContextVisibility = intentStage ? 'party' : 'actor_private';
+    const contextCombat = audience === 'gm_only'
+      ? combat
+      : combat.map((encounter) => ({
+        ...encounter,
+        combatants: encounter.combatants.filter((combatant) =>
+          combatant.visibility === 'public'
+          || Boolean(options.actorId && combatant.targetPlayerId === options.actorId)),
+      })).filter((encounter) => encounter.combatants.length > 0);
     const sourceBlocks: ContextBlock[] = [
       makeBlock('system-policy', 'system_policy', SYSTEM_INSTRUCTIONS, ['system:runtime-contract'], 'system', 'server_only', 'P0'),
       makeBlock('ruleset-policy', 'ruleset_policy', `规则集身份：${campaign.ruleset}`, [`ruleset:${safeRefPart(campaign.ruleset)}`], 'ruleset', 'campaign', 'P0'),
@@ -171,9 +191,9 @@ export class AiContextBuilder {
         `玩家行动：\n- ${action.player_id}: ${action.body}`,
         [`action:${action.id}`],
         'actor',
-        'actor_private',
+        actionVisibility,
         'P0',
-        [action.player_id],
+        actionVisibility === 'actor_private' ? [action.player_id] : undefined,
       )),
       makeBlock(
         'approved-character-roster',
@@ -204,11 +224,16 @@ export class AiContextBuilder {
         fact.visibility === 'owner_only' ? 'P1' : 'P2',
         fact.visibility === 'player_private' ? fact.knownBy : undefined,
       )),
-      ...combat.map((encounter) => makeBlock(
+      ...contextCombat.map((encounter) => makeBlock(
         `encounter-${encounter.id}`,
         'scene_state',
-        `当前战斗（owner 视角）：\n- ${encounter.name} [${encounter.status}] 回合${encounter.round} 行动者${encounter.activeCombatantId ?? '无'}: ${encounter.combatants.map((c) => `${c.name}(${c.hpCurrent}/${c.hpMax} hp, ${c.initiative ?? '未掷先攻'})`).join(', ')}`,
-        [`encounter:${encounter.id}`], 'scene', 'gm_only', 'P1',
+        intentStage
+          ? `当前可见战斗：\n- ${encounter.name} [${encounter.status}]：${encounter.combatants
+            .filter((combatant) => combatant.visibility === 'public')
+            .map((combatant) => `${combatant.id} ${combatant.name}`)
+            .join(', ')}`
+          : `当前战斗（owner 视角）：\n- ${encounter.name} [${encounter.status}] 回合${encounter.round} 行动者${encounter.activeCombatantId ?? '无'}: ${encounter.combatants.map((c) => `${c.name}(${c.hpCurrent}/${c.hpMax} hp, ${c.initiative ?? '未掷先攻'})`).join(', ')}`,
+        [`encounter:${encounter.id}`], 'scene', intentStage ? 'party' : 'gm_only', 'P1',
       )),
       makeBlock('resolution-contract', 'resolution_contract', [
         '请严格按照 system 消息中的完整 JSON 模板输出结构化结算。',
@@ -232,12 +257,14 @@ export class AiContextBuilder {
     });
     // Keep the long-standing owner-safe context shape for existing Owner tooling,
     // while adding structured blocks/trace as a separate boundary.
-    const visibleActions = audience === 'gm_only'
+    const visibleActions = audience === 'gm_only' || intentStage
       ? actions
       : actions.filter((action) => Boolean(options.actorId && action.player_id === options.actorId));
     const visibleCharacters = audience === 'gm_only'
       ? approved
-      : approved.filter((character) => Boolean(options.actorId && character.playerId === options.actorId));
+      : intentStage || audience === 'party'
+        ? approved.map(({ id, playerId, name }) => ({ id, playerId, name }))
+        : approved.filter((character) => Boolean(options.actorId && character.playerId === options.actorId));
     const context = {
       campaignId,
       ruleset: campaign.ruleset,
@@ -246,7 +273,7 @@ export class AiContextBuilder {
       actions: visibleActions.map((a) => ({ playerId: a.player_id, body: a.body })),
       characters: visibleCharacters,
       worldFacts: visibleFacts,
-      combat,
+      combat: contextCombat,
       blocks: filtered.blocks,
       trace: filtered.trace,
     };

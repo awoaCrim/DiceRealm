@@ -1,51 +1,15 @@
-# Quality Guidelines
+# Contracts Frontend Quality Guidelines
 
-> Code quality standards for frontend development.
+- Treat shared schemas as the runtime source of truth for browser responses and request DTOs.
+- Export inferred types from the same schema; do not maintain a parallel client-only interface for the same payload.
+- Keep audience and visibility rules in the contract/server projection. The UI should render the already-projected data.
+- Use discriminated unions for variants such as campaign events and visibility-bearing values.
+- Test malformed payloads at the contract boundary. Component tests should focus on rendering and user behavior after parsing.
 
----
+```ts
+const turnEntryListEnvelopeSchema = z.object({
+  entries: z.array(turnEntrySchema),
+});
+```
 
-## Overview
-
-<!--
-Document your project's quality standards here.
-
-Questions to answer:
-- What patterns are forbidden?
-- What linting rules do you enforce?
-- What are your testing requirements?
-- What code review standards apply?
--->
-
-(To be filled by the team)
-
----
-
-## Forbidden Patterns
-
-<!-- Patterns that should never be used and why -->
-
-(To be filled by the team)
-
----
-
-## Required Patterns
-
-<!-- Patterns that must always be used -->
-
-(To be filled by the team)
-
----
-
-## Testing Requirements
-
-<!-- What level of testing is expected -->
-
-(To be filled by the team)
-
----
-
-## Code Review Checklist
-
-<!-- What reviewers should check -->
-
-(To be filled by the team)
+Do not put browser-only globals, React imports, query-cache operations, or ad hoc `JSON.parse` logic in `@dnd/contracts`.

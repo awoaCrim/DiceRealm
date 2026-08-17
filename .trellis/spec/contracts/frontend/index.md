@@ -1,39 +1,28 @@
-# Frontend Development Guidelines
+# `@dnd/contracts` Frontend Guidelines
 
-> Best practices for frontend development in this project.
+The frontend consumes the same shared schemas and inferred types as the server. This layer documents how the contract package should remain browser-safe; it does not contain React code.
 
----
+## Guideline index
 
-## Overview
+| Guide | Purpose |
+|---|---|
+| [Directory Structure](./directory-structure.md) | Shared schemas versus client-only envelope composition |
+| [Component Guidelines](./component-guidelines.md) | Component boundary expectations |
+| [Hook Guidelines](./hook-guidelines.md) | Hook/API separation |
+| [Quality Guidelines](./quality-guidelines.md) | Browser-facing schema quality |
+| [State Management](./state-management.md) | State ownership boundary |
+| [Type Safety](./type-safety.md) | Inferred types and opaque payloads |
 
-This directory contains guidelines for frontend development. Fill in each file with your project's specific conventions.
+## Before development
 
----
+1. Reuse an existing domain schema and enum where possible.
+2. Keep route envelope composition in `client/src/shared/lib/contractSchemas.ts`.
+3. Decide whether a value is a shared domain contract or client-only view state before adding it.
+4. Preserve server-owned visibility and projection semantics.
 
-## Guidelines Index
+## Quality check
 
-| Guide | Description | Status |
-|-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition | To fill |
-| [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | To fill |
-| [State Management](./state-management.md) | Local state, global state, server state | To fill |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
-| [Type Safety](./type-safety.md) | Type patterns, validation | To fill |
-
----
-
-## How to Fill These Guidelines
-
-For each guideline file:
-
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
-
----
-
-**Language**: All documentation should be written in **English**.
+- `npm run typecheck --workspace @dnd/contracts`
+- `npm run typecheck --workspace client`
+- Contract tests cover malformed and visibility-sensitive payloads.
+- No React, browser-global, query-cache, or transport code enters this package.

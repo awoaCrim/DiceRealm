@@ -206,11 +206,10 @@ describe('turn resolution validator', () => {
     await db.close();
   });
 
-  it('leaves creation membership/character validity to the formal apply layer (schema parses non-member targetPlayerId)', async () => {
+  it('rejects creation membership and character ownership before producing a formal outcome', async () => {
     const { db, campaignId } = await makeDb();
     const validator = new TurnResolutionValidator(db);
-    // 校验器不做 knownBy/characterId 的成员/归属预检：这些在 formal apply 内以 AI_OUTPUT_INVALID 拒绝。
-    const result = await validator.validate(campaignId, {
+    await expect(validator.validate(campaignId, {
       publicNarrative: 'x', privateUpdates: [], diceResults: [], stateChanges: [], interactionRequests: [],
       worldFactCreations: [
         { title: '私密', kind: 'lore', content: '幽灵所知。', visibility: 'player_private', knownBy: ['not-a-member'] },
@@ -221,9 +220,7 @@ describe('turn resolution validator', () => {
           { name: '哥布林', characterId: 'ch-from-another-campaign', initiativeBonus: 0, hpCurrent: 5, hpMax: 5, ac: 10, conditions: [], visibility: 'public', targetPlayerId: null },
         ],
       }],
-    });
-    expect(result.worldFactCreations[0].knownBy).toEqual(['not-a-member']);
-    expect(result.encounterStarts[0].combatants[0].characterId).toBe('ch-from-another-campaign');
+    })).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
     await db.close();
   });
 });

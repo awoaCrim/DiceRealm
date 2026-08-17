@@ -65,3 +65,13 @@
 2. 剧情展示通过后，删除规则资料 client/server/contracts；先保留数据库迁移文件直到所有生产引用清理完成。
 3. 删除迁移/manifest/schema 测试条目后立即运行 fresh in-memory schema 测试；旧数据库只走 Phase 3.5 的精确、带 backup 的兼容迁移，不添加泛化 destructive conversion。
 4. 最后运行全量 typecheck/build/browser 回归；不提交代码，除非用户另行明确要求提交。
+
+## Verification record (2026-08-16)
+
+- Focused contracts/client/server coverage: 17 files passed, 156 tests passed, 8 skipped.
+- Full repository suite: 80 files passed, 733 tests passed, 8 skipped with `env -u NODE_TLS_REJECT_UNAUTHORIZED NODE_ENV=development npm test -- --maxWorkers=1`.
+- `npm run typecheck` passed.
+- `npm run build` passed for server and client.
+- `git diff --check` passed.
+- Production-source search found no rules route/module/contract/UI references outside the intentionally retained `legacyRuleSourcesMigration` bridge and its tests; the rule-source migration is absent from the maintained manifest/schema.
+- The configured `server/.dev/dnd.sqlite` compatibility smoke and paired backup are recorded in `research/default-rule-removal-migration.md`; repository-root database artifacts were not used by the test suite.

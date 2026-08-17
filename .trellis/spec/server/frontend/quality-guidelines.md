@@ -1,51 +1,9 @@
-# Quality Guidelines
+# Server Frontend Boundary Quality Guidelines
 
-> Code quality standards for frontend development.
+- Treat HTTP JSON and SSE as public browser contracts; validate them with `@dnd/contracts`.
+- Keep response envelopes stable and use typed error codes.
+- Project audience-sensitive data on the server. Never send owner-only or another player's private entries and expect the browser to filter them.
+- Test route status, envelope shape, authorization, and reconnect/replay behavior in server HTTP tests.
+- Keep browser-only proxy/TLS fixture behavior isolated to `scripts/phase4-browser-validation.ts` and test fixtures; do not weaken production security for a browser test.
 
----
-
-## Overview
-
-<!--
-Document your project's quality standards here.
-
-Questions to answer:
-- What patterns are forbidden?
-- What linting rules do you enforce?
-- What are your testing requirements?
-- What code review standards apply?
--->
-
-(To be filled by the team)
-
----
-
-## Forbidden Patterns
-
-<!-- Patterns that should never be used and why -->
-
-(To be filled by the team)
-
----
-
-## Required Patterns
-
-<!-- Patterns that must always be used -->
-
-(To be filled by the team)
-
----
-
-## Testing Requirements
-
-<!-- What level of testing is expected -->
-
-(To be filled by the team)
-
----
-
-## Code Review Checklist
-
-<!-- What reviewers should check -->
-
-(To be filled by the team)
+This layer is intentionally not a React layer. Client UI quality rules live in the client package specs.

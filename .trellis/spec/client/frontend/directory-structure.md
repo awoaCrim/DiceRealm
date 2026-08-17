@@ -1,54 +1,32 @@
-# Directory Structure
+# Client Frontend Directory Structure
 
-> How frontend code is organized in this project.
+The client is a Vite React application organized by application wiring, domain data hooks, user-facing features, and shared primitives.
 
----
+## Layout
 
-## Overview
-
-<!--
-Document your project's frontend directory structure here.
-
-Questions to answer:
-- Where do components live?
-- How are features/modules organized?
-- Where are shared utilities?
-- How are assets organized?
--->
-
-(To be filled by the team)
-
----
-
-## Directory Layout
-
-```
-<!-- Replace with your actual structure -->
-src/
-├── ...
-└── ...
+```text
+client/src/
+├── main.tsx, App.tsx             # browser entry and app composition
+├── app/                           # providers, router, auth/realtime boundaries
+├── api/<domain>/                  # request functions; no React state
+├── entities/<domain>/             # React Query hooks and query-key use
+├── features/<feature>/            # pages and feature-specific UI
+├── features/story/                # shared turn-entry/story rendering
+├── shared/api/                    # platformRequest and HTTP errors
+├── shared/lib/                    # query keys, schema envelopes, safe readers
+├── shared/ui/                     # reusable presentational primitives
+├── styles.css                     # global styles
+└── tests/                         # browser/fixture tests
 ```
 
----
+## Organization rules
 
-## Module Organization
+- Keep API functions small and transport-focused (`api/campaigns/campaignApi.ts`).
+- Keep query/mutation hooks in the matching entity module (`entities/turn/turnQueries.ts`).
+- Put route-level pages and workflows in `features`; do not make pages reach directly into `fetch`.
+- Put reusable async/error/presentation primitives in `shared/ui` only when they are not domain-specific.
+- Keep router/provider/realtime lifecycle code under `app`.
 
-<!-- How should new features be organized? -->
+## Naming
 
-(To be filled by the team)
-
----
-
-## Naming Conventions
-
-<!-- File and folder naming rules -->
-
-(To be filled by the team)
-
----
-
-## Examples
-
-<!-- Link to well-organized modules as examples -->
-
-(To be filled by the team)
+Use PascalCase for React components, camelCase for API/query modules, `useX` for hooks, and `.test.tsx` for Testing Library tests. Import shared package contracts from `@dnd/contracts`; use explicit relative imports for local modules.

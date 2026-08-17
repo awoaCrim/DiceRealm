@@ -190,17 +190,17 @@ describe('EnrollmentCoordinator enroll', () => {
   });
 });
 
-/** 构建含未来 016 迁移（current approved migration set 副本 + 016 + 匹配 manifest）的临时迁移目录。 */
-function migrationsWithFuture016(): { dir: string; manifestPath: string } {
-  const dir = tempDir('dnd-enroll-mig16-');
-  const names = ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015']
+/** 构建含未来 017 迁移（current approved migration set 副本 + 017 + 匹配 manifest）的临时迁移目录。 */
+function migrationsWithFuture017(): { dir: string; manifestPath: string } {
+  const dir = tempDir('dnd-enroll-mig17-');
+  const names = ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016']
     .map((version) => readdirSync(COMMITTED_MIGRATIONS_DIR).find((name) => name.startsWith(`${version}_`))!)
     .sort();
   for (const name of names) {
     cpSync(join(COMMITTED_MIGRATIONS_DIR, name), join(dir, name));
   }
-  writeFileSync(join(dir, '016_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
-  const allNames = [...names, '016_future_phase.sql'].sort();
+  writeFileSync(join(dir, '017_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
+  const allNames = [...names, '017_future_phase.sql'].sort();
   const manifest = {
     format: 1,
     files: allNames.map((name) => ({
@@ -245,7 +245,7 @@ describe('EnrollmentCoordinator init (final secure-ready contract)', () => {
         const admins = raw.prepare('SELECT COUNT(*) AS c FROM platform_administrators').get() as { c: number };
         expect(admins.c).toBe(0);
         const versions = raw.prepare('SELECT version FROM platform_migrations ORDER BY version').all().map((r) => (r as { version: string }).version);
-        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015']);
+        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016']);
       } finally {
         raw.close();
       }
@@ -254,10 +254,10 @@ describe('EnrollmentCoordinator init (final secure-ready contract)', () => {
     }
   });
 
-  it('init applies exactly the frozen current approved migration set and never silently applies a future 016 from the manifest', async () => {
+  it('init applies exactly the frozen current approved migration set and never silently applies a future 017 from the manifest', async () => {
     const dir = tempDir('dnd-init-frozen-');
     try {
-      const { dir: migrationsDir, manifestPath } = migrationsWithFuture016();
+      const { dir: migrationsDir, manifestPath } = migrationsWithFuture017();
       const databasePath = join(dir, 'fresh.sqlite');
       const keyPath = join(dir, '.dnd-ai-credential-key');
       const result = await runEnrollmentCommand({
@@ -271,11 +271,11 @@ describe('EnrollmentCoordinator init (final secure-ready contract)', () => {
       });
       expect(result.enrollmentState).toBe('ready');
       expect(result.sessionSecurityState).toBe('ready');
-      // 016 不得被静默应用（即使 manifest/迁移目录已含 016）。
+      // 017 不得被静默应用（即使 manifest/迁移目录已含 017）。
       const raw = new Database(databasePath, { readonly: true });
       try {
         const versions = raw.prepare('SELECT version FROM platform_migrations ORDER BY version').all().map((r) => (r as { version: string }).version);
-        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015']);
+        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016']);
         const future = raw.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type = 'table' AND name = 'future_phase_table'").get() as { c: number };
         expect(future.c).toBe(0);
       } finally {

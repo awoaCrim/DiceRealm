@@ -3,7 +3,6 @@ import { z } from 'zod';
 import {
   characterPatchSchema,
   isValidatedStateChange,
-  markStateChangeValidated,
   proposedStateChangeSchema,
   worldPatchSchema,
   type EncounterStartInput,
@@ -17,6 +16,7 @@ import { CharacterRepository, type CharacterRow } from '../characters/CharacterR
 import { WorldFactRepository } from '../world/WorldFactRepository.js';
 import { computeDerived } from '../characters/CharacterService.js';
 import type { CombatStateChangeApplier } from './CombatStateChangeApplier.js';
+import { createValidatedStateChange } from './ValidatedStateChangeFactory.js';
 
 export class StateChangeMaterializer {
   constructor(
@@ -85,7 +85,7 @@ export class StateChangeMaterializer {
     if (!parsed.success) {
       throw new AppError('AI_OUTPUT_INVALID', 'stateChanges 提案不符合结构化契约。');
     }
-    const validated = parsed.data.map((change) => markStateChangeValidated(change));
+    const validated = parsed.data.map(createValidatedStateChange);
     await this.applyAll(tx, campaignId, validated, actorUserId, creations);
   }
 

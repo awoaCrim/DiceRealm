@@ -1,51 +1,35 @@
-# Quality Guidelines
+# Contracts Backend Quality Guidelines
 
-> Code quality standards for backend development.
+## Required patterns
 
----
+- Keep TypeScript `strict`-compatible and export runtime schemas together with inferred types.
+- Use Zod objects for request, response, event, and persisted-view contracts. Use `.strict()` where unknown keys would be unsafe or ambiguous, as in `turnResolutionShapeSchema` and `aiNarrationAttemptViewSchema`.
+- Normalize safe defaults in the schema (`.default([])`) when older provider payloads may omit an empty collection.
+- Test both accepted and rejected values. Existing tests in `packages/contracts/src/*.test.ts` assert trimming, bounds, visibility rules, malformed archive versions, and discriminated unions.
+- Keep helpers deterministic and side-effect free.
 
-## Overview
+## Forbidden patterns
 
-<!--
-Document your project's quality standards here.
+- Do not use `any` or make consumers cast unvalidated JSON into a contract type.
+- Do not use a type assertion as a substitute for a schema parse.
+- Do not duplicate the same enum or envelope in server/client packages.
+- Do not put transport, storage, React, or environment concerns in a contract module.
 
-Questions to answer:
-- What patterns are forbidden?
-- What linting rules do you enforce?
-- What are your testing requirements?
-- What code review standards apply?
--->
+## Test checklist
 
-(To be filled by the team)
+For a new or changed schema, add tests for:
 
----
+- a valid representative payload;
+- missing, empty, overlong, and wrong-type fields;
+- cross-field rules (`superRefine`);
+- unknown keys when strictness is intentional;
+- a round trip through the public barrel export when relevant.
 
-## Forbidden Patterns
+## Example
 
-<!-- Patterns that should never be used and why -->
+```ts
+const parsed = turnResolutionSchema.parse(providerValue);
+expect(parsed.privateUpdates).toEqual([]); // omitted empty collections normalize here
+```
 
-(To be filled by the team)
-
----
-
-## Required Patterns
-
-<!-- Patterns that must always be used -->
-
-(To be filled by the team)
-
----
-
-## Testing Requirements
-
-<!-- What level of testing is expected -->
-
-(To be filled by the team)
-
----
-
-## Code Review Checklist
-
-<!-- What reviewers should check -->
-
-(To be filled by the team)
+Keep comments focused on an invariant or compatibility reason. Avoid historical phase/task narration in contract code.

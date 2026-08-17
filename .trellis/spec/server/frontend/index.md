@@ -1,39 +1,28 @@
-# Frontend Development Guidelines
+# Server Frontend Boundary Guidelines
 
-> Best practices for frontend development in this project.
+The `server` package has no React frontend. These documents define the server-side rules for the HTTP and SSE boundaries consumed by the client.
 
----
+## Guideline index
 
-## Overview
+| Guide | Purpose |
+|---|---|
+| [Directory Structure](./directory-structure.md) | Where browser-facing server code lives |
+| [Component Guidelines](./component-guidelines.md) | Keep presentation out of the server |
+| [Hook Guidelines](./hook-guidelines.md) | Coordinate endpoint changes with client hooks |
+| [Quality Guidelines](./quality-guidelines.md) | HTTP/SSE contract and security checks |
+| [State Management](./state-management.md) | Durable state and event ownership |
+| [Type Safety](./type-safety.md) | DTO, event, and error typing |
 
-This directory contains guidelines for frontend development. Fill in each file with your project's specific conventions.
+## Before development
 
----
+1. Identify the shared contract and client API/hook consuming the endpoint.
+2. Keep authorization, visibility, and data projection on the server.
+3. Add an HTTP/SSE test for the changed boundary.
+4. Keep browser-only test proxy/TLS behavior isolated from production configuration.
 
-## Guidelines Index
+## Quality check
 
-| Guide | Description | Status |
-|-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition | To fill |
-| [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | To fill |
-| [State Management](./state-management.md) | Local state, global state, server state | To fill |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
-| [Type Safety](./type-safety.md) | Type patterns, validation | To fill |
-
----
-
-## How to Fill These Guidelines
-
-For each guideline file:
-
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
-
----
-
-**Language**: All documentation should be written in **English**.
+- Route status and error envelope tests pass.
+- Owner/player/private projections are asserted at the server boundary.
+- SSE live and replay paths use the same projection rules.
+- No React, CSS, browser state, or UI-specific presentation logic is added to `server/src`.

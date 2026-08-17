@@ -133,6 +133,7 @@ const runDetailFixture: AiRunDetail = {
   context: {},
   result: {},
   rawDebug: {},
+  narrationAttempts: [],
 };
 
 const emptyEncounter: Encounter = {

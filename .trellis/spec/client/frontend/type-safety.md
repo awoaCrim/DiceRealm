@@ -1,51 +1,27 @@
-# Type Safety
+# Client Frontend Type Safety
 
-> Type safety patterns in this project.
+## Network boundary
 
----
+All API modules call `platformRequest` with a schema from `client/src/shared/lib/contractSchemas.ts`:
 
-## Overview
+```ts
+return platformRequest(`/api/campaigns/${campaignId}`, {
+  responseSchema: campaignDetailEnvelopeSchema,
+});
+```
 
-<!--
-Document your project's type safety conventions here.
+`platformRequest` parses success responses and normalizes failures to `PlatformHttpError`. A feature should receive a typed value or a typed error, never an unvalidated response body.
 
-Questions to answer:
-- What type system do you use?
-- How are types organized?
-- What validation library do you use?
-- How do you handle type inference?
--->
+## Shared types and opaque data
 
-(To be filled by the team)
+- Import domain types/schemas from `@dnd/contracts`.
+- Compose route envelopes in `contractSchemas.ts` rather than redefining domain fields in a feature.
+- Treat `TurnEntry.payload` and owner AI debug data as `unknown`. Narrow them with `safeSheet` readers; malformed entries get a safe fallback, not an exception or raw JSON.
+- Use discriminated unions and explicit nullable values from the shared contract.
 
----
+## Forbidden shortcuts
 
-## Type Organization
-
-<!-- Where types are defined, shared types vs local types -->
-
-(To be filled by the team)
-
----
-
-## Validation
-
-<!-- Runtime validation patterns (Zod, Yup, io-ts, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Common Patterns
-
-<!-- Type utilities, generics, type guards -->
-
-(To be filled by the team)
-
----
-
-## Forbidden Patterns
-
-<!-- any, type assertions, etc. -->
-
-(To be filled by the team)
+- No `any` for API data.
+- No `as` cast to make a response compile.
+- No duplicated error-code strings or status assumptions outside `PlatformHttpError`/shared contracts.
+- No client-side reimplementation of server visibility rules.

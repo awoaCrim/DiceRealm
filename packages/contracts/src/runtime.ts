@@ -55,7 +55,57 @@ export const stateRevisionSchema = z.object({
 }).strict();
 export type StateRevision = z.infer<typeof stateRevisionSchema>;
 
-export const actionIntentSchema = z.object({ actionId: z.string().min(1), campaignId: z.string().min(1), actorId: z.string().min(1), input: z.string().min(1) }).strict();
+export const actionModeSchema = z.enum(['player_action', 'npc_action', 'owner_command']);
+export type ActionMode = z.infer<typeof actionModeSchema>;
+
+export const actionTypeSchema = z.enum([
+  'ability_check',
+  'attack',
+  'saving_throw',
+  'healing',
+  'use_action',
+  'improvised_action',
+]);
+export type ActionType = z.infer<typeof actionTypeSchema>;
+
+export const fallbackPolicySchema = z.enum(['stop_on_failure', 'continue', 'ask_player']);
+export type FallbackPolicy = z.infer<typeof fallbackPolicySchema>;
+
+/** Provider-facing action interpretation. Mechanical values are deliberately absent. */
+export const actionIntentProposalSchema = z.object({
+  actionId: z.string().min(1),
+  actorId: z.string().min(1),
+  mode: actionModeSchema,
+  actionType: actionTypeSchema,
+  actionRef: z.string().trim().min(1).max(160).optional(),
+  targetIds: z.array(z.string().min(1)).max(64).default([]),
+  declaredApproach: z.string().max(4_000).optional(),
+  desiredOutcome: z.string().max(4_000).optional(),
+  resourceChoices: z.array(z.string().trim().min(1).max(160)).max(32).default([]),
+  fallbackPolicy: fallbackPolicySchema.optional(),
+}).strict();
+export type ActionIntentProposal = z.infer<typeof actionIntentProposalSchema>;
+
+/**
+ * Normalized runtime intent. Optional defaults keep the pre-adjudication
+ * compatibility contract readable, while formal server paths should use the
+ * stricter normalizedActionIntentSchema exported from adjudication.ts.
+ */
+export const actionIntentSchema = z.object({
+  actionId: z.string().min(1),
+  campaignId: z.string().min(1),
+  actorId: z.string().min(1),
+  input: z.string().min(1),
+  mode: actionModeSchema.default('player_action'),
+  actionType: actionTypeSchema.default('improvised_action'),
+  actionRef: z.string().trim().min(1).max(160).optional(),
+  targetIds: z.array(z.string().min(1)).max(64).default([]),
+  declaredApproach: z.string().max(4_000).optional(),
+  desiredOutcome: z.string().max(4_000).optional(),
+  resourceChoices: z.array(z.string().trim().min(1).max(160)).max(32).default([]),
+  fallbackPolicy: fallbackPolicySchema.optional(),
+  basedOnStateRevision: z.number().int().nonnegative().optional(),
+}).strict();
 export type ActionIntent = z.infer<typeof actionIntentSchema>;
 /**
  * Generic runtime summary contract. This is not the formal AI turn outcome;

@@ -1,54 +1,44 @@
-# Directory Structure
+# Contracts Backend Directory Structure
 
-> How backend code is organized in this project.
+`@dnd/contracts` is the repository's shared runtime-contract package. It contains domain schemas and inferred TypeScript types, not database access, HTTP handlers, or UI code.
 
----
+## Layout
 
-## Overview
-
-<!--
-Document your project's backend directory structure here.
-
-Questions to answer:
-- How are modules/packages organized?
-- Where does business logic live?
-- Where are API endpoints defined?
-- How are utilities and helpers organized?
--->
-
-(To be filled by the team)
-
----
-
-## Directory Layout
-
-```
-<!-- Replace with your actual structure -->
-src/
-├── ...
-└── ...
+```text
+packages/contracts/
+├── package.json
+├── tsconfig.json
+└── src/
+    ├── <domain>.ts          # Zod schemas, exported inferred types, helpers
+    ├── <domain>.test.ts     # schema and helper contract tests
+    └── index.ts             # public barrel exports
 ```
 
----
+Current domain modules include `auth.ts`, `campaign.ts`, `character.ts`, `combat.ts`, `turn.ts`, `ai.ts`, `events.ts`, `archive.ts`, `world.ts`, `runtime.ts`, `adjudication.ts`, and `errors.ts`.
 
-## Module Organization
+## Module organization
 
-<!-- How should new features/modules be organized? -->
+- Keep one domain or cross-layer contract family per file.
+- Define the runtime schema first, then export the corresponding type with `z.infer`.
+- Put pure helpers next to the schema they interpret. For example, event visibility helpers live in `events.ts` beside `campaignEventSchema`.
+- Add the module to `src/index.ts`; consumers import from `@dnd/contracts`, not from a deep source path.
+- Put focused schema tests beside the module, such as `src/ai.test.ts` and `src/events.test.ts`.
 
-(To be filled by the team)
+## Naming
 
----
+- Use `camelCase` for schema constants and `PascalCase` for inferred types.
+- Use the suffix `Schema` for Zod schemas and `Input`, `View`, `Result`, `Envelope`, or `Projection` for their role in a boundary.
+- Keep file names lowercase and domain-oriented (`turn.ts`, `runtime.ts`).
 
-## Naming Conventions
+## Example
 
-<!-- File and folder naming rules -->
+```ts
+// packages/contracts/src/campaign.ts
+export const campaignSummarySchema = campaignSchema
+  .pick({ id: true, name: true, status: true, ruleset: true, updatedAt: true })
+  .extend({ role: z.enum(['owner', 'player']) });
 
-(To be filled by the team)
+export type CampaignSummary = z.infer<typeof campaignSummarySchema>;
+```
 
----
-
-## Examples
-
-<!-- Link to well-organized modules as examples -->
-
-(To be filled by the team)
+Do not put `better-sqlite3`, Express request types, React components, or environment access in this package.

@@ -29,15 +29,16 @@
 - [x] Server typecheck passes.
 - [x] Full repository tests, typecheck, and build pass.
 - [x] `git diff --check` passes.
-- [ ] Independent Trellis check confirms behavior-only refactoring and narrow interfaces (review agents were isolated at stale HEAD without `.trellis` or the dirty worktree, so they correctly reported blocked; direct parent-worktree review found no task-attributable issue).
+- [x] Independent Trellis check confirms behavior-only refactoring and narrow interfaces (current-tree review completed; the retained migration comments are historical immutable artifacts and are not supported deployment documentation).
 
 ## Verification record
 
-- Focused composition/database/security/AI/combat/vertical tests: 114 passed.
-- Full suite: 77 files passed; 694 passed, 8 skipped.
+- Focused composition/database/migration tests: 39 passed (`npx vitest run --config vitest.config.ts server/src/platform/database/database.test.ts server/src/platform/database/legacyRuleSourcesMigration.test.ts server/src/platform/database/migration*test.ts server/src/tests/platform-composition.test.ts server/src/tests/httpTestHarness.test.ts`).
+- Current-tree full suite: 80 files passed; 733 tests passed, 8 skipped with `NODE_ENV=development npm test -- --maxWorkers=1`.
 - Root typecheck and production server/client builds passed.
 - `git diff --check` passed.
-- Immutable migration SQL comments that mention historical cross-database portability were left unchanged to avoid rewriting versioned migration artifacts; current code, package metadata, and authoritative v1 decisions are SQLite-only.
+- The shell session exports `NODE_ENV=production`; bare `npm test` therefore loads React's production test-utils path and fails before assertions. The documented test command explicitly uses the development test runtime and one worker, which passes.
+- Immutable migration SQL comments that mention historical cross-database portability were left unchanged to avoid rewriting versioned migration artifacts; current code, package metadata, and authoritative v1 decisions are SQLite-only. Current composition/startup comments use invariant-focused wording.
 
 ## Rollback points
 

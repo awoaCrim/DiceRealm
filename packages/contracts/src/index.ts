@@ -9,3 +9,4 @@ export * from './events.js';
 export * from './errors.js';
 export * from './world.js';
 export * from './runtime.js';
+export * from './adjudication.js';

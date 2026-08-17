@@ -57,6 +57,13 @@ export async function migrateLegacyRuleSourcesDatabase(options: {
   const maintained = [...options.approvedMigrationFilenames]
     .filter((name) => name !== LEGACY_MIGRATION_NAME)
     .sort(compareNames);
+  // Keep the previous pre-adjudication baseline as a read-only admission shape
+  // so the retired-rule cleanup can still fail closed safely on a database that
+  // has not yet crossed the explicit 016 schema boundary. It never applies 016.
+  const maintainedCandidates = [maintained];
+  if (maintained.some((name) => name.startsWith('016_'))) {
+    maintainedCandidates.push(maintained.filter((name) => !name.startsWith('016_')));
+  }
 
   // If 011 is still approved, this is the pre-removal application and there
   // is no compatibility bridge to run. This also prevents an accidental
@@ -70,14 +77,15 @@ export async function migrateLegacyRuleSourcesDatabase(options: {
   try {
     source.pragma('foreign_keys = ON');
     const rows = readMigrationRows(source);
-    const maintainedRows = migrationRowsFor(maintained);
-    const legacyRows = migrationRowsFor([...maintained, LEGACY_MIGRATION_NAME].sort(compareNames));
+    const maintainedRows = maintainedCandidates.map((candidate) => migrationRowsFor(candidate));
+    const legacyRows = maintainedCandidates.map((candidate) =>
+      migrationRowsFor([...candidate, LEGACY_MIGRATION_NAME].sort(compareNames)));
 
     const hasLegacyMarker = rows.some(
       (row) => row.version === LEGACY_MIGRATION_VERSION || row.name === LEGACY_MIGRATION_NAME,
     );
     const ruleSourcesObject = readRuleSourcesObject(source);
-    if (sameMigrationRows(rows, maintainedRows)) {
+    if (maintainedRows.some((candidate) => sameMigrationRows(rows, candidate))) {
       if (ruleSourcesObject !== undefined) {
         throw new LegacyRuleSourcesMigrationError(
           '拒绝自动迁移：维护迁移集合中仍存在未标记来源的 platform_rule_sources 对象。',
@@ -95,7 +103,7 @@ export async function migrateLegacyRuleSourcesDatabase(options: {
       }
       return { migrated: false };
     }
-    if (!sameMigrationRows(rows, legacyRows)) {
+    if (!legacyRows.some((candidate) => sameMigrationRows(rows, candidate))) {
       throw new LegacyRuleSourcesMigrationError(
         '拒绝自动迁移：数据库的 platform_migrations 集合不是维护集合或唯一批准的 011 legacy 集合。',
       );

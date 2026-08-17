@@ -1,51 +1,17 @@
-# Logging Guidelines
+# Contracts Backend Logging Guidelines
 
-> How logging is done in this project.
+`@dnd/contracts` is a pure library and must not log. It has no logger, console calls, network access, or environment reads.
 
----
+## What belongs in this package
 
-## Overview
+- Zod schemas and pure contract helpers, such as `eventDefaultAudience` and `canReadEvent`.
+- Error-code and payload definitions that other layers can validate.
+- Tests that report failures through the test runner.
 
-<!--
-Document your project's logging conventions here.
+## What does not belong here
 
-Questions to answer:
-- What logging library do you use?
-- What are the log levels and when to use each?
-- What should be logged?
-- What should NOT be logged (PII, secrets)?
--->
+- Logging provider calls, user prompts, credentials, raw AI output, SQL, or stack traces.
+- Adding diagnostic fields solely for logging. If a field is required for a public or owner-safe DTO, define its contract explicitly and document its visibility.
+- Formatting operational messages. Server startup and route layers own operational diagnostics.
 
-(To be filled by the team)
-
----
-
-## Log Levels
-
-<!-- When to use each level: debug, info, warn, error -->
-
-(To be filled by the team)
-
----
-
-## Structured Logging
-
-<!-- Log format, required fields -->
-
-(To be filled by the team)
-
----
-
-## What to Log
-
-<!-- Important events to log -->
-
-(To be filled by the team)
-
----
-
-## What NOT to Log
-
-<!-- Sensitive data, PII, secrets -->
-
-(To be filled by the team)
+A schema failure should be surfaced as a parse/safe-parse result to the caller. The caller decides whether it becomes an HTTP error, a test failure, or a safe UI fallback.

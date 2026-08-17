@@ -76,6 +76,22 @@ describe('ai context builder', () => {
       expect(promptText).toContain(`"${key}"`);
     }
     expect(promptText).toContain('没有条目时使用空数组 []');
+
+    const intentPackage = await builder.buildForTurn(created.campaign.id, turn.id, db, {
+      audience: 'party', stage: 'intent_interpretation', actionId: turn.id,
+    });
+    const intentText = intentPackage.prompt.messages.map((message) => message.content).join('\n');
+    expect(intentText).toContain('搜索房间');
+    expect(intentText).toContain('警戒门口');
+    expect(intentText).not.toContain('给 A');
+    expect(intentText).not.toContain('密信');
+    const intentCharacters = intentPackage.context.characters as Array<Record<string, unknown>>;
+    expect(intentCharacters).toEqual([
+      expect.objectContaining({ playerId: aCtx.playerId, name: '薇拉' }),
+      expect.objectContaining({ playerId: bCtx.playerId, name: '卡恩' }),
+    ]);
+    expect(intentCharacters[0]).not.toHaveProperty('sheet');
+    expect(intentPackage.context.combat).toEqual([]);
     await db.close();
   });
 

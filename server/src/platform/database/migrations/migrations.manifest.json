@@ -56,6 +56,10 @@
     {
       "name": "015_campaign_state_revision.sql",
       "sha256": "5354c2323de8cf53f90dac7d0c8b1e08765a0e308aaec2aeb1b3aba0a80847db"
+    },
+    {
+      "name": "016_server_adjudication_dice.sql",
+      "sha256": "4e09731817dff3861fbca57612a09e3ff1544dd803192b626f3c40d4dee4fa1b"
     }
   ]
 }

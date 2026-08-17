@@ -1,59 +1,16 @@
-# Component Guidelines
+# Contracts Frontend Component Guidelines
 
-> How components are built in this project.
+There are no components in `@dnd/contracts`. React components consume contract-derived types but must not be defined here.
 
----
+## Boundary rule
 
-## Overview
+A component should receive a parsed contract value, not an unvalidated `unknown` response. Route envelopes are composed in `client/src/shared/lib/contractSchemas.ts` and parsed by `platformRequest` before a feature component renders them.
 
-<!--
-Document your project's component conventions here.
+```ts
+// client/src/shared/lib/contractSchemas.ts
+export const campaignListEnvelopeSchema = z.object({
+  campaigns: z.array(campaignSummarySchema),
+});
+```
 
-Questions to answer:
-- What component patterns do you use?
-- How are props defined?
-- How do you handle composition?
-- What accessibility standards apply?
--->
-
-(To be filled by the team)
-
----
-
-## Component Structure
-
-<!-- Standard structure of a component file -->
-
-(To be filled by the team)
-
----
-
-## Props Conventions
-
-<!-- How props should be defined and typed -->
-
-(To be filled by the team)
-
----
-
-## Styling Patterns
-
-<!-- How styles are applied (CSS modules, styled-components, Tailwind, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Accessibility
-
-<!-- A11y requirements and patterns -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Component-related mistakes your team has made -->
-
-(To be filled by the team)
+Keep presentation decisions in `client/src/features` or `client/src/shared/ui`; keep shape and visibility decisions in the shared schema/server projection. Do not add UI-specific optional fields to a domain contract merely to simplify one component.

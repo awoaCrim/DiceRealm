@@ -6,6 +6,7 @@ import { visibilitySchema } from './visibility.js';
 export const aiPromptSchema = z.object({
   campaignId: z.string().min(1),
   audience: visibilitySchema,
+  stage: z.enum(['turn_resolution', 'intent_interpretation', 'narration']).optional(),
   /** Provider 的完整对话输入；system 指令只作为 role=system 的 message 存在，避免双份持久化。 */
   messages: z.array(
     z.object({
@@ -90,11 +91,25 @@ export const aiRunViewSchema = z.object({
 });
 export type AiRunView = z.infer<typeof aiRunViewSchema>;
 
+/** Owner-safe narration attempt summary; request/raw provider data stays server-side. */
+export const aiNarrationAttemptViewSchema = z.object({
+  id: z.string().min(1),
+  attempt: z.number().int().positive(),
+  stateRevision: z.number().int().nonnegative(),
+  status: z.enum(['running', 'succeeded', 'failed']),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  createdAt: z.string(),
+  completedAt: z.string().nullable(),
+}).strict();
+export type AiNarrationAttemptView = z.infer<typeof aiNarrationAttemptViewSchema>;
+
 /** owner AI run 详情：附加 context/result/rawDebug（仅 owner view，普通 player 不可读）。 */
 export const aiRunDetailSchema = aiRunViewSchema.extend({
   context: z.unknown(),
   result: z.unknown(),
   rawDebug: z.unknown(),
+  narrationAttempts: z.array(aiNarrationAttemptViewSchema).default([]),
 });
 export type AiRunDetail = z.infer<typeof aiRunDetailSchema>;
 

@@ -1,1 +1,7 @@
 {"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/server/backend/schema-reset-boundary.md", "reason": "Verify bounded legacy rule-source migration and fail-closed reset boundary"}
+{"file": ".trellis/spec/server/backend/database-guidelines.md", "reason": "Verify SQLite transaction, backup, and migration conventions"}
+{"file": ".trellis/spec/client/frontend/story-history.md", "reason": "Verify Player/Owner turn history and safe entry rendering"}
+{"file": ".trellis/spec/client/frontend/quality-guidelines.md", "reason": "Verify client query, projection, and test boundaries"}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Review storage-to-HTTP-to-UI data flow and deletion boundary"}
+{"file": ".trellis/tasks/08-16-room-links-rules-materials/research/default-rule-removal-migration.md", "reason": "Verify the user-approved exact legacy migration behavior"}

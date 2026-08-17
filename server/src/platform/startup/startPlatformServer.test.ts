@@ -328,14 +328,14 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
     }
   });
 
-  it('rejects an ordinary startup DB with a future 016 applied even when the manifest includes it (frozen current approved migration set acceptance)', async () => {
+  it('rejects an ordinary startup DB with a future 017 applied even when the manifest includes it (frozen current approved migration set acceptance)', async () => {
     const dir = tempDir('dnd-startup-frozen-');
     try {
-      // 运行时迁移目录：current approved migration set committed 副本 + 未来 016 + 匹配 manifest（16 项）。
+      // 运行时迁移目录：current approved migration set committed 副本 + 未来 017 + 匹配 manifest（17 项）。
       const migrationsDir = join(dir, 'migrations');
       mkdirSync(migrationsDir, { recursive: true });
-      copyMigrations(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015'], migrationsDir);
-      writeFileSync(join(migrationsDir, '016_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
+      copyMigrations(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016'], migrationsDir);
+      writeFileSync(join(migrationsDir, '017_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
       const names = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
       const manifest = {
         format: 1,
@@ -346,19 +346,48 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
       };
       writeFileSync(join(migrationsDir, 'migrations.manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
 
-      // DB：current approved migration set committed 应用 + 016 手工应用（已应用集合 = 16）。
+      // DB：current approved migration set committed 应用 + 017 手工应用（已应用集合 = 17）。
       const databasePath = join(dir, 'db.sqlite');
-      applyMigrations(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015']);
+      applyMigrations(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016']);
       const raw = new Database(databasePath);
       raw.exec('BEGIN');
-      raw.exec(readFileSync(join(migrationsDir, '016_future_phase.sql'), 'utf8'));
+      raw.exec(readFileSync(join(migrationsDir, '017_future_phase.sql'), 'utf8'));
       raw.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)')
-        .run('016', '016_future_phase.sql', new Date().toISOString());
+        .run('017', '017_future_phase.sql', new Date().toISOString());
       raw.exec('COMMIT');
       raw.close();
 
       const opts = baseOptions({ host: '127.0.0.1', port: 0, databasePath }, { migrationsDir });
       await expect(startPlatformServer(opts)).rejects.toThrow(/批准集合不一致/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a ready database missing migration 016 without auto-applying it or listening', async () => {
+    const dir = tempDir('dnd-startup-missing-adjudication-migration-');
+    try {
+      const { databasePath, keyPath } = await createReadyDb(dir);
+      const raw = new Database(databasePath);
+      raw.prepare("DELETE FROM platform_migrations WHERE version = '016'").run();
+      raw.close();
+
+      let listenCalls = 0;
+      const opts = baseOptions({ host: '127.0.0.1', port: 0, databasePath }, {
+        credentialKeyPath: keyPath,
+        listen: async () => {
+          listenCalls += 1;
+          return { stopAccepting: async () => undefined, destroyConnections: async () => undefined };
+        },
+      });
+      await expect(startPlatformServer(opts)).rejects.toThrow(/批准集合不一致/);
+      expect(listenCalls).toBe(0);
+      const check = new Database(databasePath, { readonly: true });
+      try {
+        expect(check.prepare("SELECT COUNT(*) AS count FROM platform_migrations WHERE version = '016'").get()).toEqual({ count: 0 });
+      } finally {
+        check.close();
+      }
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

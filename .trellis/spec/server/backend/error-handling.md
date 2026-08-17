@@ -1,51 +1,32 @@
-# Error Handling
+# Server Error Handling
 
-> How errors are handled in this project.
+Server errors converge on the shared `AppErrorCode` contract and the `errorMiddleware` response envelope.
 
----
+## Application errors
 
-## Overview
+Use `AppError` for expected domain, authorization, validation, provider, and conflict failures:
 
-<!--
-Document your project's error handling conventions here.
+```ts
+if (member.role !== 'owner') {
+  throw new AppError('FORBIDDEN', '你没有权限执行此操作。');
+}
+```
 
-Questions to answer:
-- What error types do you define?
-- How are errors propagated?
-- How are errors logged?
-- How are errors returned to clients?
--->
+`AppError` supplies the default HTTP status from `DEFAULT_HTTP_STATUS`; override the status only when the route has a deliberate exception. Add new codes to `@dnd/contracts/src/errors.ts` first, then update the status map and tests.
 
-(To be filled by the team)
+## Route boundary
 
----
+- Parse request bodies with the shared Zod schema before calling a service.
+- Wrap async route handlers with `asyncHandler` so rejections reach `errorMiddleware`.
+- Register `errorMiddleware` after all routes and before the JSON 404 fallback.
+- Do not return raw exceptions, SQL text, stack traces, HTML, or provider responses.
 
-## Error Types
+The middleware maps `AppError` directly, `ZodError` and malformed client bodies to `VALIDATION_ERROR`, oversized bodies to `PAYLOAD_TOO_LARGE`, and unknown failures to a generic `INTERNAL_ERROR` response.
 
-<!-- Custom error classes/types -->
+## Authorization and existence
 
-(To be filled by the team)
+Use the same safe code/message where revealing resource existence would leak information. `CampaignService.getForMember` returns `CAMPAIGN_NOT_FOUND` for a non-member instead of exposing a forbidden campaign.
 
----
+## Tests
 
-## Error Handling Patterns
-
-<!-- Try-catch patterns, error propagation -->
-
-(To be filled by the team)
-
----
-
-## API Error Responses
-
-<!-- Standard error response format -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Error handling mistakes your team has made -->
-
-(To be filled by the team)
+For new errors, assert both code and status in route tests, and assert the generic response for unexpected failures. Keep user-facing messages stable enough for recovery UI, but let the code be the programmatic discriminator.

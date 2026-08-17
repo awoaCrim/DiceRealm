@@ -1,9 +1,10 @@
 import type { ProposedStateChange, ResolvedOutcome } from '@dnd/contracts';
-import { aiResolutionProposalSchema, markStateChangeValidated, resolvedOutcomeSchema } from '@dnd/contracts';
+import { aiResolutionProposalSchema, resolvedOutcomeSchema } from '@dnd/contracts';
 import type { QueryExecutor } from '../../platform/database/DatabasePort.js';
 import { AppError } from '../../platform/http/AppError.js';
 import { WorldFactRepository } from '../world/WorldFactRepository.js';
 import { CharacterRepository } from '../characters/CharacterRepository.js';
+import { createValidatedStateChange } from './ValidatedStateChangeFactory.js';
 
 const MAX_SCHEMA_ISSUES = 20;
 const MAX_SCHEMA_PATH_SEGMENTS = 12;
@@ -68,6 +69,13 @@ export class TurnResolutionValidator {
     if (proposal.diceResults.length > 0) {
       throw domainValidationError(['diceResults'], 'provider_dice_results_not_allowed');
     }
+    // Once the semantic intent path is used, no legacy mechanical proposal may
+    // travel beside it. This prevents a Provider from selecting an intent while
+    // smuggling numeric combat commands/creation payloads through the legacy
+    // state-change union.
+    if (proposal.actionIntents.length > 0 && (proposal.stateChanges.length > 0 || proposal.worldFactCreations.length > 0 || proposal.encounterStarts.length > 0)) {
+      throw domainValidationError(['actionIntents'], 'provider_mechanical_fields_not_allowed');
+    }
     const memberIds = new Set(
       (await this.executor.query<{ user_id: string }>(
         "SELECT user_id FROM campaign_members WHERE campaign_id = ? AND role = 'player'", [campaignId],
@@ -103,15 +111,71 @@ export class TurnResolutionValidator {
         throw domainValidationError(['interactionRequests', index, 'targetPlayerId'], 'not_campaign_member');
       }
     }
+    for (const [index, change] of proposal.stateChanges.entries()) {
+      if (change.kind === 'combat') {
+        throw domainValidationError(['stateChanges', index], 'provider_combat_commands_not_allowed');
+      }
+    }
+    const normalizedCreations = await this.validateCreationMembers(campaignId, proposal, memberIds);
     await this.validateStateChangeTargets(campaignId, proposal.stateChanges);
     // Parse the formal shape only after all server/domain checks pass, then add
-    // the opaque runtime brand at this server-owned seam. The exported formal
+    // the opaque runtime brand at the server-owned seam. The exported formal
     // schema itself never manufactures ValidatedStateChange values.
-    const formal = resolvedOutcomeSchema.parse({ ...proposal, diceResults: [] });
+    const formal = resolvedOutcomeSchema.parse({
+      ...proposal,
+      ...normalizedCreations,
+      diceResults: [],
+    });
     return {
       ...formal,
-      stateChanges: formal.stateChanges.map(markStateChangeValidated),
+      stateChanges: formal.stateChanges.map(createValidatedStateChange),
     };
+  }
+
+  private async validateCreationMembers(
+    campaignId: string,
+    proposal: {
+      worldFactCreations: Array<{ visibility: string; knownBy: string[] }>;
+      encounterStarts: Array<{ combatants: Array<{ characterId: string | null; hpCurrent: number; hpMax: number; visibility: string; targetPlayerId: string | null }> }>;
+    },
+    memberIds: ReadonlySet<string>,
+  ): Promise<{ worldFactCreations: typeof proposal.worldFactCreations }> {
+    const worldFactCreations = proposal.worldFactCreations.map((creation, index) => {
+      const knownBy = [...new Set(creation.knownBy)];
+      if (creation.visibility === 'player_private') {
+        if (knownBy.length === 0) {
+          throw domainValidationError(['worldFactCreations', index, 'knownBy'], 'known_by_required');
+        }
+        for (const playerId of knownBy) {
+          if (!memberIds.has(playerId)) {
+            throw domainValidationError(['worldFactCreations', index, 'knownBy'], 'not_campaign_member');
+          }
+        }
+      } else if (knownBy.length > 0) {
+        throw domainValidationError(['worldFactCreations', index, 'knownBy'], 'visibility_scope_mismatch');
+      }
+      return { ...creation, knownBy };
+    });
+
+    const characters = new Map(
+      (await new CharacterRepository(this.executor).listByCampaign(campaignId))
+        .filter((character) => character.status === 'approved')
+        .map((character) => [character.id, character]),
+    );
+    for (const [encounterIndex, encounter] of proposal.encounterStarts.entries()) {
+      for (const [combatantIndex, combatant] of encounter.combatants.entries()) {
+        if (combatant.hpCurrent > combatant.hpMax) {
+          throw domainValidationError(['encounterStarts', encounterIndex, 'combatants', combatantIndex, 'hpCurrent'], 'hp_above_max');
+        }
+        if (combatant.visibility === 'player_private' && combatant.targetPlayerId && !memberIds.has(combatant.targetPlayerId)) {
+          throw domainValidationError(['encounterStarts', encounterIndex, 'combatants', combatantIndex, 'targetPlayerId'], 'not_campaign_member');
+        }
+        if (combatant.characterId !== null && !characters.has(combatant.characterId)) {
+          throw domainValidationError(['encounterStarts', encounterIndex, 'combatants', combatantIndex, 'characterId'], 'character_not_approved_in_campaign');
+        }
+      }
+    }
+    return { worldFactCreations };
   }
 
   private async validateStateChangeTargets(campaignId: string, stateChanges: readonly ProposedStateChange[]): Promise<void> {

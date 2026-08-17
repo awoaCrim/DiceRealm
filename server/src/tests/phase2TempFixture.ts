@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { PHASE2_APPROVED_MIGRATION_FILENAMES } from '../platform/ops/approvedMigrations.js';
+import { PHASE3_APPROVED_MIGRATION_FILENAMES } from '../platform/ops/approvedMigrations.js';
 
 /**
  * Phase 2 测试隔离 fixture（Task 0）。
@@ -30,7 +30,7 @@ export function assertSafePhase2Path(path: string): void {
 }
 
 /** 当前 Phase 批准的 migration 集合（与生产 frozen constant 同源）。 */
-export const APPROVED_MIGRATION_FILENAMES: string[] = [...PHASE2_APPROVED_MIGRATION_FILENAMES];
+export const APPROVED_MIGRATION_FILENAMES: string[] = [...PHASE3_APPROVED_MIGRATION_FILENAMES];
 
 export interface Phase2TempFixture {
   /** 唯一 mkdtemp 根目录（绝对路径）。 */

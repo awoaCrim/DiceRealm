@@ -1,51 +1,17 @@
-# Logging Guidelines
+# Server Logging Guidelines
 
-> How logging is done in this project.
+The server currently uses the platform console rather than a structured logging library. Keep diagnostics deliberate and never turn logs into a second data/API channel.
 
----
+## Allowed logging
 
-## Overview
+- Startup may emit a short warning when an optional AI provider configuration is incomplete (`server/src/index.ts`).
+- The CLI may write user-requested output to its injected `stdout`/`stderr` sinks (`server/src/cli/platformCli.ts`).
+- Tests may log progress for a dedicated browser/fixture runner when the output is explicitly test-only.
 
-<!--
-Document your project's logging conventions here.
+## Prohibited logging
 
-Questions to answer:
-- What logging library do you use?
-- What are the log levels and when to use each?
-- What should be logged?
-- What should NOT be logged (PII, secrets)?
--->
+Never log API keys, decrypted credentials, password values, session tokens, CSRF tokens, full user prompts, raw provider responses, SQL parameters containing secrets, or private player content. Error middleware intentionally sends a fixed generic response and does not log or expose stack/SQL details to clients.
 
-(To be filled by the team)
+## Operational rule
 
----
-
-## Log Levels
-
-<!-- When to use each level: debug, info, warn, error -->
-
-(To be filled by the team)
-
----
-
-## Structured Logging
-
-<!-- Log format, required fields -->
-
-(To be filled by the team)
-
----
-
-## What to Log
-
-<!-- Important events to log -->
-
-(To be filled by the team)
-
----
-
-## What NOT to Log
-
-<!-- Sensitive data, PII, secrets -->
-
-(To be filled by the team)
+If a new diagnostic is needed, prefer a stable event/code and a short, redacted message. Do not add `console.log` to domain services or route handlers as a substitute for tests. Keep logs safe under both development and production configuration.

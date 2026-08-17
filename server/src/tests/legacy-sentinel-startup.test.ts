@@ -9,6 +9,7 @@ import { StartupSecurityError } from '../platform/startup/StartupSecurityGate.js
 import { runEnrollmentCommand } from '../platform/ops/EnrollmentCoordinator.js';
 import { fileURLToPath } from 'node:url';
 import { captureLegacySnapshot, makeLegacyFixture } from './phase2LegacySentinel.js';
+import { PHASE3_APPROVED_MIGRATION_FILENAMES } from '../platform/ops/approvedMigrations.js';
 import { createExistingDb001_010, commitMigrationsDir, commitManifestPath, tempDir } from './phase2StartupHelpers.js';
 
 describe('legacy sentinel startup (Phase 2 fail-closed)', () => {
@@ -67,7 +68,7 @@ describe('legacy sentinel startup (Phase 2 fail-closed)', () => {
           expect(rows, legacy).toEqual([]);
         }
         const platform = raw.prepare('SELECT version FROM platform_migrations ORDER BY version').all() as Array<{ version: string }>;
-        expect(platform.length).toBe(14);
+        expect(platform.length).toBe(PHASE3_APPROVED_MIGRATION_FILENAMES.length);
       } finally {
         raw.close();
       }

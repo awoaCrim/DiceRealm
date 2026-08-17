@@ -1,54 +1,13 @@
-# Directory Structure
+# Server Frontend Layer
 
-> How frontend code is organized in this project.
+The `server` package contains no React or browser UI source. Its frontend-facing boundary is the HTTP and SSE contract consumed by `client`.
 
----
+Do not add components, hooks, CSS, or browser state to `server/src`. For a new browser-facing field, update `@dnd/contracts`, the server route/service projection, and the client package separately.
 
-## Overview
+Relevant server-side files are:
 
-<!--
-Document your project's frontend directory structure here.
+- `server/src/routes/` for HTTP endpoint wiring;
+- `server/src/platform/realtime/` for SSE transport and event projection;
+- `server/src/tests/*-http.test.ts` for browser-facing integration coverage.
 
-Questions to answer:
-- Where do components live?
-- How are features/modules organized?
-- Where are shared utilities?
-- How are assets organized?
--->
-
-(To be filled by the team)
-
----
-
-## Directory Layout
-
-```
-<!-- Replace with your actual structure -->
-src/
-├── ...
-└── ...
-```
-
----
-
-## Module Organization
-
-<!-- How should new features be organized? -->
-
-(To be filled by the team)
-
----
-
-## Naming Conventions
-
-<!-- File and folder naming rules -->
-
-(To be filled by the team)
-
----
-
-## Examples
-
-<!-- Link to well-organized modules as examples -->
-
-(To be filled by the team)
+Client component and hook rules belong in `.trellis/spec/client/frontend/`.

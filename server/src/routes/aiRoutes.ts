@@ -8,6 +8,7 @@ import { getCampaignContext, requireCampaignMember } from '../platform/http/camp
 import { asyncHandler } from '../platform/http/errorMiddleware.js';
 import { AiResolutionService } from '../modules/ai-runtime/AiResolutionService.js';
 import { AiRunRepository, type AiRunRow } from '../modules/ai-runtime/AiRunRepository.js';
+import { AdjudicationRepository, type NarrationAttemptRow } from '../modules/adjudication/AdjudicationRepository.js';
 import { TurnEntryRepository, projectEntries, type TurnEntryRow } from '../modules/ai-runtime/TurnEntryRepository.js';
 import { TurnRepository } from '../modules/turns/TurnRepository.js';
 import { requireOwner } from '../modules/campaigns/CampaignAccess.js';
@@ -73,7 +74,15 @@ export function createAiRouter(executor: QueryExecutor, ai: AiResolutionService,
     const run = await new AiRunRepository(executor).findById(stringParam(req, 'runId'));
     if (!run || run.campaign_id !== ctx.campaignId) throw new AppError('NOT_FOUND', 'AI run 不存在。');
     // owner-only 详情：附加 context/result/rawDebug（普通 player 不可读）。
-    res.json({ run: { ...toView(run), context: JSON.parse(run.context_json), result: run.result_json ? JSON.parse(run.result_json) : null, rawDebug: run.raw_debug_json ? JSON.parse(run.raw_debug_json) : null } });
+    // Narration attempts 只投影受控状态/错误摘要；request_json 和 Provider 原文不通过 HTTP 暴露。
+    const attempts = await new AdjudicationRepository(executor).listNarrationAttempts(executor, run.id);
+    res.json({ run: {
+      ...toView(run),
+      context: JSON.parse(run.context_json),
+      result: run.result_json ? JSON.parse(run.result_json) : null,
+      rawDebug: run.raw_debug_json ? JSON.parse(run.raw_debug_json) : null,
+      narrationAttempts: attempts.map(toNarrationAttemptView),
+    } });
   }));
 
   router.get('/turns/:turnId/entries', asyncHandler(async (req: Request, res: Response) => {
@@ -107,6 +116,31 @@ function toView(row: AiRunRow) {
     turnId: row.turn_id, attempt: row.attempt, idempotencyKey: row.idempotency_key,
     provider: row.provider, model: row.model, status: row.status, errorCode: row.error_code,
     startedAt: row.started_at, completedAt: row.completed_at, superseded: row.superseded_at !== null,
+  };
+}
+
+function toNarrationAttemptView(row: NarrationAttemptRow) {
+  let errorCode: string | null = null;
+  let errorMessage: string | null = null;
+  if (row.error_json) {
+    try {
+      const parsed = JSON.parse(row.error_json) as { code?: unknown; message?: unknown };
+      errorCode = typeof parsed.code === 'string' ? parsed.code : null;
+      errorMessage = typeof parsed.message === 'string' ? parsed.message : null;
+    } catch {
+      // The row is internal diagnostic data; malformed error JSON is not a reason
+      // to fail an otherwise valid Owner detail response.
+    }
+  }
+  return {
+    id: row.id,
+    attempt: row.attempt,
+    stateRevision: row.state_revision,
+    status: row.status,
+    errorCode,
+    errorMessage,
+    createdAt: row.created_at,
+    completedAt: row.completed_at,
   };
 }
 

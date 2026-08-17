@@ -210,7 +210,7 @@ export class TurnRepository {
 
   async listActionsByTurn(turnId: string): Promise<ActionRow[]> {
     return this.executor.query<ActionRow>(
-      'SELECT * FROM platform_actions WHERE turn_id = ? ORDER BY submitted_at ASC',
+      'SELECT * FROM platform_actions WHERE turn_id = ? ORDER BY submitted_at ASC, id ASC',
       [turnId],
     );
   }

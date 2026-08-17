@@ -8,7 +8,7 @@ import type { DatabasePort } from '../../platform/database/DatabasePort.js';
 import { createSqliteDatabase } from '../../platform/database/SqliteDatabaseAdapter.js';
 import { acquireInstanceLock, type InstanceLock } from '../../platform/ops/InstanceLock.js';
 import { verifyMigrationManifest } from '../../platform/ops/migrationManifest.js';
-import { PHASE2_APPROVED_MIGRATION_FILENAMES } from '../../platform/ops/approvedMigrations.js';
+import { PHASE3_APPROVED_MIGRATION_FILENAMES } from '../../platform/ops/approvedMigrations.js';
 import { assertExistingRegularFileNotSymlink } from '../../platform/ops/platformPaths.js';
 import type { EventStreamRuntime } from '../../platform/realtime/EventStreamService.js';
 import { createPlatformApp, type CreatePlatformAppOptions, type PlatformApp } from '../../app.js';
@@ -90,7 +90,7 @@ export async function defaultListen(app: express.Express, port: number, host: st
 /**
  * 可测试启动 coordinator（生产 `index.ts` 的薄入口只调用它）。
  *
- * 生产顺序固定为（Phase 2）：
+ * Production startup order is fixed:
  *   load config / canonicalize DB path
  *   → require existing regular non-symlink DB（普通 startup 永不创建 DB）
  *   → acquire InstanceLock（在 new Database 之前）
@@ -170,7 +170,7 @@ export async function startPlatformServer(options: StartPlatformServerOptions): 
   };
 
   try {
-    // Phase 2：普通 server 永不静默创建 DB；必须已存在且为普通非 symlink 文件。
+    // Ordinary startup never silently creates a database; it requires an existing regular non-symlink file.
     assertExistingRegularFileNotSymlink(config.databasePath);
     emit('path.verify');
 
@@ -188,19 +188,22 @@ export async function startPlatformServer(options: StartPlatformServerOptions): 
     const legacyMigration = await migrateLegacyRuleSourcesDatabase({
       databasePath: config.databasePath,
       credentialKeyPath,
-      approvedMigrationFilenames: PHASE2_APPROVED_MIGRATION_FILENAMES,
+      // The retired-rule bridge accepts only the current maintained schema (and
+      // its one explicitly supported pre-016 compatibility shape); it never
+      // applies the new adjudication migration as a side effect.
+      approvedMigrationFilenames: PHASE3_APPROVED_MIGRATION_FILENAMES,
     });
     if (legacyMigration.migrated) {
       emit('legacy-rule-sources.migrate');
     }
 
-    // Phase 2：普通 startup 不执行一般 pending migration；前面的 bridge 只处理已删除规则资料的精确 legacy 状态，之后仍由安全门按状态分流。
-    // approved 集合必须是 literal frozen 当前维护集合（PHASE2_APPROVED_MIGRATION_FILENAMES），
-    // 不得从 manifest 派生——未来 manifest 新增 015+ 不得静默扩展 ordinary-startup 验收。
+    // Ordinary startup does not apply arbitrary pending migrations; the bridge handles only the exact retired-rule compatibility shape before the security gate.
+    // The application gate uses the explicit current approved set. It never
+    // derives approval from the manifest, so future migrations remain fail-closed.
     const gate = await runStartupSecurityGate({
       db: database,
       keyPath: credentialKeyPath,
-      approvedMigrationFilenames: [...PHASE2_APPROVED_MIGRATION_FILENAMES],
+      approvedMigrationFilenames: [...PHASE3_APPROVED_MIGRATION_FILENAMES],
     });
     emit('security.verify');
 

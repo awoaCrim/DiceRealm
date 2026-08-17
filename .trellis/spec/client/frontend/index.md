@@ -1,40 +1,31 @@
-# Frontend Development Guidelines
+# Client Frontend Guidelines
 
-> Best practices for frontend development in this project.
+These guidelines describe the Vite/React client under `client/src`.
 
----
+## Guideline index
 
-## Overview
+| Guide | Purpose |
+|---|---|
+| [Directory Structure](./directory-structure.md) | `app`, `api`, `entities`, `features`, and shared boundaries |
+| [Component Guidelines](./component-guidelines.md) | Typed React components, accessibility, and safe rendering |
+| [Hook Guidelines](./hook-guidelines.md) | TanStack Query hooks and mutation invalidation |
+| [State Management](./state-management.md) | Server, local, URL, and realtime state ownership |
+| [Quality Guidelines](./quality-guidelines.md) | Testing, security, and forbidden client shortcuts |
+| [Type Safety](./type-safety.md) | Contract parsing and opaque-payload handling |
+| [Story History](./story-history.md) | Turn history projection and entry rendering |
 
-This directory contains guidelines for frontend development. Fill in each file with your project's specific conventions.
+## Before development
 
----
+1. Read the relevant feature and entity files before adding a new hook or component.
+2. Confirm the endpoint schema in `client/src/shared/lib/contractSchemas.ts` and the matching `@dnd/contracts` module.
+3. Reuse the query-key helper and `AsyncState` where applicable.
+4. For audience-sensitive data, verify the server projection and add a role-specific test.
 
-## Guidelines Index
+## Quality check
 
-| Guide | Description | Status |
-|-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition | To fill |
-| [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | To fill |
-| [State Management](./state-management.md) | Local state, global state, server state | To fill |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
-| [Type Safety](./type-safety.md) | Type patterns, validation | To fill |
-| [Story History](./story-history.md) | Per-turn story history and safe entry rendering | Active |
+- `npm run typecheck --workspace client`
+- Focused `npm test -- client/src/...`
+- `npm run build --workspace client`
+- For browser fixture work, run the dedicated Phase 4 command with TLS verification enabled.
 
----
-
-## How to Fill These Guidelines
-
-For each guideline file:
-
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
-
----
-
-**Language**: All documentation should be written in **English**.
+All documentation in this directory is written against the current codebase, not an aspirational frontend architecture.

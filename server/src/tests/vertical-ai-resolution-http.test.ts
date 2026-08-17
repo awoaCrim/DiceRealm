@@ -154,9 +154,10 @@ describe('HTTP server-side AI vertical flow', () => {
       const ownerRunDetailRes = await fetch(`${aiBase}/runs/${run.run.id}`, { headers: { cookie: owner.cookieJar.header() } });
       expect(ownerRunDetailRes.status).toBe(200);
       const ownerRunDetailText = await ownerRunDetailRes.text();
-      const ownerRunDetail = JSON.parse(ownerRunDetailText) as { run: { context: unknown; rawDebug: unknown } };
+      const ownerRunDetail = JSON.parse(ownerRunDetailText) as { run: { context: unknown; rawDebug: unknown; narrationAttempts: unknown[] } };
       expect(ownerRunDetail.run.context).toBeTruthy();
       expect(ownerRunDetail.run.rawDebug).toBeTruthy();
+      expect(ownerRunDetail.run.narrationAttempts).toEqual([]);
       expect(ownerRunDetailText).not.toContain('_json');
 
       // 手动存档（label trimmed）+ 恢复：此时 AI 结算后回合 2 为 waiting，手动快照 currentTurn = 回合 2。

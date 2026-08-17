@@ -1,38 +1,30 @@
-# Backend Development Guidelines
+# `@dnd/contracts` Backend Guidelines
 
-> Best practices for backend development in this project.
+`@dnd/contracts` is the shared runtime-contract package. It contains Zod schemas, inferred TypeScript types, pure visibility/event helpers, and shared error codes. It has no database, HTTP, logging, or UI runtime.
 
----
+## Guideline index
 
-## Overview
+| Guide | Purpose |
+|---|---|
+| [Directory Structure](./directory-structure.md) | Domain modules, barrel exports, and tests |
+| [Database Guidelines](./database-guidelines.md) | How database-backed DTOs are represented without coupling to SQLite |
+| [Error Handling](./error-handling.md) | Shared error codes and response envelope |
+| [Quality Guidelines](./quality-guidelines.md) | Schema-first validation and tests |
+| [Logging Guidelines](./logging-guidelines.md) | Pure-package logging boundary |
 
-This directory contains guidelines for backend development. Fill in each file with your project's specific conventions.
+## Before development
 
----
+1. Find the existing domain contract before creating a new module or enum.
+2. Define the Zod runtime schema before its inferred type.
+3. Check both server consumers and client envelope composition for compatibility.
+4. Add accepted, rejected, and cross-field validation tests.
+5. Export new public modules from `src/index.ts`.
 
-## Guidelines Index
+## Quality check
 
-| Guide | Description | Status |
-|-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | To fill |
-| [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
-| [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
+- `npm run typecheck --workspace @dnd/contracts`
+- `npm test -- packages/contracts/src`
+- Confirm no storage, Express, React, environment, or logging dependency was added.
+- Confirm public DTOs use camelCase and explicit nullable/enum fields.
 
----
-
-## How to Fill These Guidelines
-
-For each guideline file:
-
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
-
----
-
-**Language**: All documentation should be written in **English**.
+The contract package is the source of truth for shared wire shapes; do not duplicate these definitions in server or client packages.

@@ -1,51 +1,22 @@
-# State Management
+# Client State Management
 
-> How state is managed in this project.
+Use the smallest state mechanism that matches the lifetime of the data.
 
----
+## State categories
 
-## Overview
+- **Server state:** TanStack Query under `client/src/entities`. Cache keys include resource IDs; mutations invalidate affected queries.
+- **Local UI/form state:** `useState` in the owning feature/page (`LoginPage`, `OwnerArchivesPage`, `TurnStoryHistory`).
+- **URL state:** React Router params/search params for campaign IDs, return paths, and route selection.
+- **Realtime state:** `RealtimeSession`/`RealtimeBoundary` owns the connection lifecycle and invalidates or refreshes queries; it is not a second domain store.
 
-<!--
-Document your project's state management conventions here.
+There is no global Redux-style store and no global auth context. `AppProviders` provides the Query client and router, while `authRequiredBus` coordinates protected-query logout behavior.
 
-Questions to answer:
-- What state management solution do you use?
-- How is local vs global state decided?
-- How do you handle server state?
-- What are the patterns for derived state?
--->
+## Mutation rule
 
-(To be filled by the team)
+After a successful mutation, invalidate the canonical query keys rather than manually patching several copies of server data. For restore operations, invalidate turns, campaign data, and archives together because the server may supersede history.
 
----
+## Common mistakes
 
-## State Categories
-
-<!-- Local state, global state, server state, URL state -->
-
-(To be filled by the team)
-
----
-
-## When to Use Global State
-
-<!-- Criteria for promoting state to global -->
-
-(To be filled by the team)
-
----
-
-## Server State
-
-<!-- How server data is cached and synchronized -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- State management mistakes your team has made -->
-
-(To be filled by the team)
+- Treating array position as the current turn; use domain sequence (`currentTurnEntry`).
+- Dropping completed story turns when a waiting turn appears.
+- Keeping stale private data in a cache after authentication changes; clear the Query cache on `AUTH_REQUIRED`.

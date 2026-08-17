@@ -1,6 +1,6 @@
 import type { AiPrompt, AiProviderPublicConfig } from '@dnd/contracts';
 
-/** 公开 preview delta：2B 只有 text；Phase 3 扩展结构化增量。 */
+/** Public preview deltas currently carry text; providers may emit structured deltas later. */
 export interface AiPreviewDelta {
   kind: 'text';
   text: string;

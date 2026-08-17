@@ -3,7 +3,9 @@ import { visibilitySchema, type Visibility } from './visibility.js';
 import { worldFactInputSchema } from './world.js';
 import { encounterStartSchema } from './combat.js';
 import {
+  actionIntentProposalSchema,
   stateChangeSchema,
+  type ActionIntentProposal,
   type StateChange,
   type ValidatedStateChange,
 } from './runtime.js';
@@ -59,9 +61,15 @@ export const interactionRequestSchema = z.object({
 
 export type InteractionRequest = z.infer<typeof interactionRequestSchema>;
 
-/** 公开叙事必填非空：空叙事视为无效输出（invalid 测试不再依赖 combat 触发）。 */
-export const turnResolutionSchema = z.object({
-  publicNarrative: z.string().min(1),
+/**
+ * The legacy turn-resolution path still requires publicNarrative.  The new
+ * intent-interpretation path may omit it because narration is a separate
+ * Provider call after the server commits mechanical state.
+ */
+const turnResolutionShapeSchema = z.object({
+  publicNarrative: z.string().min(1).optional(),
+  /** Provider interpretation only; all mechanical effects remain server-owned. */
+  actionIntents: z.array(actionIntentProposalSchema).default([]),
   /** 这些集合语义上允许“无条目”；Provider 省略时统一规范化为 []，已提供条目仍走原嵌套 schema。 */
   privateUpdates: z.array(privateUpdateSchema).default([]),
   diceResults: z.array(diceResultSchema).default([]),
@@ -71,6 +79,12 @@ export const turnResolutionSchema = z.object({
   worldFactCreations: z.array(worldFactInputSchema).default([]),
   /** AI 发起遭遇（创建式：encounter/combatant id 由服务端生成；rollInitiative 默认 true 服务端掷先攻）。 */
   encounterStarts: z.array(encounterStartSchema).default([]),
+}).strict();
+
+export const turnResolutionSchema = turnResolutionShapeSchema.superRefine((value, ctx) => {
+  if (value.actionIntents.length === 0 && !value.publicNarrative) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['publicNarrative'], message: 'legacy turn resolution 必须包含公开叙事。' });
+  }
 });
 
 /** Provider-facing output: every state change and dice result is still a proposal. */
@@ -84,12 +98,17 @@ export type AiResolutionProposal = z.infer<typeof aiResolutionProposalSchema>;
  * ownership/visibility/domain checks remain the validator's job, and only that
  * server validator may create the formal branded outcome.
  */
-export const resolvedOutcomeSchema = aiResolutionProposalSchema.extend({ diceResults: z.tuple([]) });
+export const resolvedOutcomeSchema = turnResolutionShapeSchema.extend({ diceResults: z.tuple([]) }).superRefine((value, ctx) => {
+  if (value.actionIntents.length === 0 && !value.publicNarrative) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['publicNarrative'], message: 'legacy turn resolution 必须包含公开叙事。' });
+  }
+});
 
 /** Formal result after schema + server/domain validation. */
 export type ResolvedOutcome = Omit<AiResolutionProposal, 'diceResults' | 'stateChanges'> & {
   diceResults: [];
   stateChanges: ValidatedStateChange[];
+  actionIntents: ActionIntentProposal[];
 };
 
 /** Backward-compatible name for the Provider proposal contract. */

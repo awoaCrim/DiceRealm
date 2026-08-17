@@ -1,59 +1,25 @@
-# Component Guidelines
+# Client Component Guidelines
 
-> How components are built in this project.
+Use small function components with typed props. Pages compose feature sections; shared UI components handle repeated loading, error, and layout behavior.
 
----
+## Component boundaries
 
-## Overview
+- A component consumes parsed contract data or a hook result; it does not parse arbitrary network JSON.
+- Use `AsyncState` for a single block's loading/empty/error/retry presentation. Feature pages may compose higher-level domain states such as locked or resolving.
+- Keep mutations in entity hooks and pass callbacks/data into presentational components.
+- Reuse `TurnEntries` and `TurnStoryHistory` for owner/player story rendering; do not duplicate visibility filtering in a page.
 
-<!--
-Document your project's component conventions here.
+```tsx
+export function AsyncState({ status, label, errorMessage, onRetry, children }: AsyncStateProps) {
+  if (status === 'error') {
+    return <div role="alert"><p>{label}加载失败。</p>{onRetry && <button onClick={onRetry}>重试</button>}</div>;
+  }
+  return status === 'ready' ? <>{children}</> : <div role="status">正在加载{label}…</div>;
+}
+```
 
-Questions to answer:
-- What component patterns do you use?
-- How are props defined?
-- How do you handle composition?
-- What accessibility standards apply?
--->
+## Props and styling
 
-(To be filled by the team)
+Define a local `Props` interface when props are non-trivial. Use semantic HTML, existing class-name conventions, and the shared `styles.css`; this project does not use Tailwind or CSS-in-JS.
 
----
-
-## Component Structure
-
-<!-- Standard structure of a component file -->
-
-(To be filled by the team)
-
----
-
-## Props Conventions
-
-<!-- How props should be defined and typed -->
-
-(To be filled by the team)
-
----
-
-## Styling Patterns
-
-<!-- How styles are applied (CSS modules, styled-components, Tailwind, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Accessibility
-
-<!-- A11y requirements and patterns -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Component-related mistakes your team has made -->
-
-(To be filled by the team)
+Interactive controls need accessible names, keyboard behavior, and visible state. Do not render raw JSON or unknown payloads directly; use safe readers and a fallback message.

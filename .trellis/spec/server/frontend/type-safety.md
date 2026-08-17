@@ -1,51 +1,9 @@
-# Type Safety
+# Server Frontend Boundary Type Safety
 
-> Type safety patterns in this project.
+- Use `@dnd/contracts` schemas for browser request and response shapes.
+- Map database rows to camelCase DTOs before returning them.
+- Use discriminated unions for SSE event variants and explicit visibility projections.
+- Treat provider debug data and opaque entry payloads as `unknown`; do not expose or cast them into a client shape without a deliberate safe contract.
+- Keep HTTP error codes synchronized with `appErrorCodes` and `DEFAULT_HTTP_STATUS`.
 
----
-
-## Overview
-
-<!--
-Document your project's type safety conventions here.
-
-Questions to answer:
-- What type system do you use?
-- How are types organized?
-- What validation library do you use?
-- How do you handle type inference?
--->
-
-(To be filled by the team)
-
----
-
-## Type Organization
-
-<!-- Where types are defined, shared types vs local types -->
-
-(To be filled by the team)
-
----
-
-## Validation
-
-<!-- Runtime validation patterns (Zod, Yup, io-ts, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Common Patterns
-
-<!-- Type utilities, generics, type guards -->
-
-(To be filled by the team)
-
----
-
-## Forbidden Patterns
-
-<!-- any, type assertions, etc. -->
-
-(To be filled by the team)
+The server may use Express types internally, but Express request/response types must not leak into shared contracts or client code.

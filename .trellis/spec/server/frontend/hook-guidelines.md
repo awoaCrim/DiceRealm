@@ -1,51 +1,12 @@
-# Hook Guidelines
+# Server Frontend Hook Guidelines
 
-> How hooks are used in this project.
+The `server` package defines no React hooks. It exposes async HTTP/SSE behavior that client hooks consume.
 
----
+When changing a hook-facing endpoint:
 
-## Overview
+1. Update the shared request/response contract.
+2. Keep the route thin and put authorization/projection in the service.
+3. Add a server HTTP test for success and failure/visibility cases.
+4. Update the matching client API function and React Query hook.
 
-<!--
-Document your project's hook conventions here.
-
-Questions to answer:
-- What custom hooks do you have?
-- How do you handle data fetching?
-- What are the naming conventions?
-- How do you share stateful logic?
--->
-
-(To be filled by the team)
-
----
-
-## Custom Hook Patterns
-
-<!-- How to create and structure custom hooks -->
-
-(To be filled by the team)
-
----
-
-## Data Fetching
-
-<!-- How data fetching is handled (React Query, SWR, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Naming Conventions
-
-<!-- Hook naming rules (use*, etc.) -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Hook-related mistakes your team has made -->
-
-(To be filled by the team)
+Do not introduce a server-side cache or hook-like abstraction merely to mirror the client query layer.

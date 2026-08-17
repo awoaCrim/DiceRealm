@@ -24,6 +24,7 @@ import { APPROVED_MIGRATION_FILENAMES } from '../../tests/phase2TempFixture.js';
 
 const COMMITTED_MIGRATIONS_DIR = fileURLToPath(new URL('../database/migrations/', import.meta.url));
 const COMMITTED_MANIFEST_PATH = fileURLToPath(new URL('../database/migrations/migrations.manifest.json', import.meta.url));
+const MANIFEST_MIGRATION_FILENAMES = [...APPROVED_MIGRATION_FILENAMES];
 
 function tempDir(prefix: string): string {
   return mkdtempSync(join(tmpdir(), prefix));
@@ -133,8 +134,8 @@ describe('migrationManifest vs build helper contract', () => {
       manifestPath: COMMITTED_MANIFEST_PATH,
     });
     // manifest 测试断言当前 approved set，避免迁移目录与维护集合漂移。
-    expect(report.files.length).toBe(APPROVED_MIGRATION_FILENAMES.length);
-    expect(report.files.map((file) => file.name)).toEqual([...APPROVED_MIGRATION_FILENAMES].sort());
+    expect(report.files.length).toBe(MANIFEST_MIGRATION_FILENAMES.length);
+    expect(report.files.map((file) => file.name)).toEqual([...MANIFEST_MIGRATION_FILENAMES].sort());
   });
 
   it('rejects the same failure cases as the TS verifier (rogue SQL, duplicate, invalid hash, missing, extra, tamper)', () => {
@@ -223,7 +224,7 @@ describe('migrationManifest verification', () => {
       migrationsDir: COMMITTED_MIGRATIONS_DIR,
       manifestPath: COMMITTED_MANIFEST_PATH,
     });
-    expect(report.files.length).toBe(APPROVED_MIGRATION_FILENAMES.length);
+    expect(report.files.length).toBe(MANIFEST_MIGRATION_FILENAMES.length);
     expect(report.files.map((file) => file.name)).toEqual(
       sortMigrationFilenames(report.files.map((file) => file.name)),
     );

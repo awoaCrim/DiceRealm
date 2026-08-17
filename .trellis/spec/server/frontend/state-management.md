@@ -1,51 +1,9 @@
-# State Management
+# Server Frontend State Boundary
 
-> How state is managed in this project.
+The server owns durable domain state and event ordering; it does not own browser UI state.
 
----
+- Database transactions and campaign revisions define authoritative state transitions.
+- The outbox and SSE projection define ordered realtime notifications.
+- Client React Query caches and local expansion/form state are responsible for presentation state.
 
-## Overview
-
-<!--
-Document your project's state management conventions here.
-
-Questions to answer:
-- What state management solution do you use?
-- How is local vs global state decided?
-- How do you handle server state?
-- What are the patterns for derived state?
--->
-
-(To be filled by the team)
-
----
-
-## State Categories
-
-<!-- Local state, global state, server state, URL state -->
-
-(To be filled by the team)
-
----
-
-## When to Use Global State
-
-<!-- Criteria for promoting state to global -->
-
-(To be filled by the team)
-
----
-
-## Server State
-
-<!-- How server data is cached and synchronized -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- State management mistakes your team has made -->
-
-(To be filled by the team)
+Do not add server-side UI stores or duplicate client query invalidation logic. If a mutation changes data, return the canonical DTO/event and let the client invalidate the affected query keys.
