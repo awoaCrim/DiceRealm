@@ -60,6 +60,10 @@
     {
       "name": "016_server_adjudication_dice.sql",
       "sha256": "4e09731817dff3861fbca57612a09e3ff1544dd803192b626f3c40d4dee4fa1b"
+    },
+    {
+      "name": "017_narrative_runtime_fact_memory.sql",
+      "sha256": "85b1e48ff2a654e47b1e8895d91267b8ec753285edba20c909cab460fc8d246f"
     }
   ]
 }

@@ -29,6 +29,8 @@ import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordi
 import { MechanicalResolutionService } from '../adjudication/MechanicalResolutionService.js';
 import { AdjudicationRepository, type NarrationAttemptRow } from '../adjudication/AdjudicationRepository.js';
 import { NarrationService } from '../adjudication/NarrationService.js';
+import { NarrativeRoundService } from '../narrative-runtime/NarrativeRoundService.js';
+import { NarrativeDecisionResolutionService } from '../narrative-runtime/NarrativeDecisionResolutionService.js';
 
 type NarrationPreparation =
   | { kind: 'running' }
@@ -49,6 +51,9 @@ type ClaimResult =
   | { kind: 'narration_finalize'; run: AiRunRow };
 
 export class AiResolutionService {
+  private readonly narrativeRound: NarrativeRoundService;
+  private readonly decisionResolution: NarrativeDecisionResolutionService;
+
   constructor(
     private readonly executor: DatabasePort,
     private readonly provider: AiProviderPort,
@@ -59,7 +64,19 @@ export class AiResolutionService {
     private readonly materializer: StateChangeMaterializer,
     private readonly mutations: CampaignMutationCoordinator = new CampaignMutationCoordinator(executor),
     private readonly mechanical: MechanicalResolutionService = new MechanicalResolutionService(executor, outbox),
-  ) {}
+  ) {
+    this.narrativeRound = new NarrativeRoundService(executor, outbox, this.mutations);
+    this.decisionResolution = new NarrativeDecisionResolutionService(
+      executor,
+      provider,
+      outbox,
+      context,
+      validator,
+      this.mutations,
+      this.narrativeRound,
+      mechanical,
+    );
+  }
 
   get publicConfig(): AiProviderPort['publicConfig'] {
     return this.provider.publicConfig;
@@ -71,6 +88,16 @@ export class AiResolutionService {
 
   get model(): string {
     return this.provider.model;
+  }
+
+  /** New causal path: resolve exactly one NarrativeDecision without a whole-round transaction. */
+  async resolveDecision(
+    ctx: CampaignAuthContext,
+    roundId: string,
+    decisionId: string,
+    input: ResolveTurnInput,
+  ): Promise<{ created: boolean; run: AiRunView }> {
+    return this.decisionResolution.resolveDecision(ctx, roundId, decisionId, input);
   }
 
   async resolveTurn(ctx: CampaignAuthContext, turnId: string, input: ResolveTurnInput): Promise<{ created: boolean; run: AiRunView }> {
@@ -221,6 +248,12 @@ export class AiResolutionService {
         const attempt = (await runs.maxAttempt(tx, turnId)) + 1;
         const campaignSequence = await runs.nextCampaignSequence(tx, campaignId);
         const now = new Date().toISOString();
+        // NarrativeRound is the live lifecycle authority; Turn is mirrored only
+        // after the round transition succeeds in this same transaction.
+        await this.narrativeRound.ensureForTurnIn(tx, campaignId, turnId);
+        if (!(await this.narrativeRound.markProcessingForTurnIn(tx, turnId, stateRevision, now))) {
+          throw new AppError('STATE_CONFLICT', '叙事回合已不在结算许可状态。');
+        }
         if (!(await turns.markResolving(turnId, now))) {
           throw new AppError('STATE_CONFLICT', '回合已不在结算许可状态。');
         }
@@ -300,6 +333,7 @@ export class AiResolutionService {
         worldFactCreations: resolution.worldFactCreations,
         encounterStarts: resolution.encounterStarts,
       });
+      await this.narrativeRound.finalizeLegacyTurnIn(tx, campaignId, turnId, stateRevision, runId);
       // 3) 写 entries 与 interaction requests。
       const now = new Date().toISOString();
       const entriesRepo = new TurnEntryRepository(tx);
@@ -411,6 +445,7 @@ export class AiResolutionService {
         if (!(await runs.markMechanicalCommitted(tx, runId, resultJson, rawDebugJson, stateRevision))) {
           throw new AppError('STATE_CONFLICT', 'AI mechanical run 已被并发更新。');
         }
+        await this.narrativeRound.finalizeLegacyTurnIn(tx, campaignId, turnId, stateRevision, runId, mechanical.outcome);
         await this.outbox.publishIn(tx, { type: 'owner.debug', campaignId, runId, kind: 'result' });
 
         // Turn lifecycle is authoritative runtime state, so it commits with
@@ -724,7 +759,7 @@ export class AiResolutionService {
     return completed;
   }
 
-  private async createNextTurn(tx: QueryExecutor, campaignId: string): Promise<void> {
+  private async createNextTurn(tx: QueryExecutor, campaignId: string): Promise<string> {
     const turns = new TurnRepository(tx);
     const characters = new CharacterRepository(tx);
     const playerIds = await characters.listApprovedPlayerIds(campaignId);
@@ -738,6 +773,8 @@ export class AiResolutionService {
     for (const playerId of playerIds) {
       await turns.insertRequirement(turnId, campaignId, playerId);
     }
+    await this.narrativeRound.ensureForTurnIn(tx, campaignId, turnId);
+    return turnId;
   }
 
   /** fail tx：run failed + turn=needs_owner_attention + preview.failed；无正式写。
@@ -781,9 +818,14 @@ export class AiResolutionService {
         mutationId: `ai-fail:${runId}`,
         causeType: 'ai_failure',
         causeId: runId,
-      }, async () => {
+      }, async ({ stateRevision }) => {
         if (!(await runs.markFailed(tx, runId, code, errorJson, rawDebugJson, now))) {
           throw new AppError('STATE_CONFLICT', 'AI run 已被并发更新。');
+        }
+        // NarrativeRound owns the live failure lifecycle; Turn mirrors it in
+        // the same transaction so a retry can claim from owner-attention.
+        if (!(await this.narrativeRound.markNeedsOwnerAttentionForTurnIn(tx, turnId, stateRevision, now))) {
+          throw new AppError('STATE_CONFLICT', '叙事回合无法进入 Owner attention。');
         }
         // 条件更新（仅当 turn 仍 resolving）：若并发已把 turn 改成其它状态，失败路径不写半截正式状态。
         await tx.execute(

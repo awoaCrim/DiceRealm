@@ -1,0 +1,9 @@
+{"file":".trellis/spec/server/backend/index.md","reason":"本 task 跨 contracts、database、AI context、turn lifecycle、archive 和 visibility；先读取后端总索引与 pre-development checklist。"}
+{"file":".trellis/spec/server/backend/database-guidelines.md","reason":"NarrativeRound、WorkingFacts、RoundFactSet 和 archive restore 都需要新的 SQLite migration、transaction owner、outbox 与 rollback 语义。"}
+{"file":".trellis/spec/server/backend/runtime-contract-state-safety.md","reason":"每个 Decision apply、Round close、archive restore 都必须经过 CampaignMutationCoordinator、expected StateRevision、CAS 和 idempotency ledger。"}
+{"file":".trellis/spec/server/backend/server-adjudication-dice-authority.md","reason":"Decision-scoped mechanical resolution 必须复用 server-owned intent/adjudication/dice/outcome/narration 边界，禁止 Provider 伪造机械事实。"}
+{"file":".trellis/spec/server/backend/ai-structured-output.md","reason":"新的 decision Provider path 仍需遵守严格 structured output、bounded diagnostics、proposal/resolved outcome 分界和失败回滚。"}
+{"file":".trellis/spec/server/backend/turn-entry-projection.md","reason":"下一轮 Context 与 Round projection 要保持现有 Owner/player/private audience boundary，不能泄漏 turn entries 或 raw history。"}
+{"file":".trellis/spec/server/backend/quality-guidelines.md","reason":"跨层实现需要遵循 route/service/repository 分层、schema validation、fresh SQLite tests、typecheck/build/full test 质量门槛。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"任务跨 contracts、runtime state、AI context、persistence、events、archive 和 client-facing projection，需要使用跨层数据流与边界检查。"}
+{"file":".trellis/spec/server/backend/narrative-runtime-fact-memory.md","reason":"本 task 的具体 round/decision/fact/projection/archive contracts、authority matrix 和 transaction boundary。"}

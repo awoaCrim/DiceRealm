@@ -51,6 +51,22 @@ export function createAiRouter(executor: QueryExecutor, ai: AiResolutionService,
     res.json({ runs: runs.map(toView) });
   }));
 
+  router.post('/turns/:turnId/decisions/:decisionId/runs', requireRouteOwner, jsonBodyBudget('ai'), asyncHandler(async (req: Request, res: Response) => {
+    const ctx = getCampaignContext(req);
+    const turnId = stringParam(req, 'turnId');
+    await requireTurnInCampaign(executor, ctx.campaignId, turnId);
+    const input = resolveTurnInputSchema.parse(req.body);
+    const result = await ai.resolveDecision(ctx, turnId, stringParam(req, 'decisionId'), input);
+    res.status(result.created ? 201 : 200).json({ run: result.run });
+  }));
+
+  router.post('/rounds/:roundId/decisions/:decisionId/runs', requireRouteOwner, jsonBodyBudget('ai'), asyncHandler(async (req: Request, res: Response) => {
+    const ctx = getCampaignContext(req);
+    const input = resolveTurnInputSchema.parse(req.body);
+    const result = await ai.resolveDecision(ctx, stringParam(req, 'roundId'), stringParam(req, 'decisionId'), input);
+    res.status(result.created ? 201 : 200).json({ run: result.run });
+  }));
+
   router.post('/turns/:turnId/runs', requireRouteOwner, jsonBodyBudget('ai'), asyncHandler(async (req: Request, res: Response) => {
     const ctx = getCampaignContext(req);
     const input = resolveTurnInputSchema.parse(req.body);

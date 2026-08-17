@@ -6,7 +6,7 @@ import { visibilitySchema } from './visibility.js';
 export const aiPromptSchema = z.object({
   campaignId: z.string().min(1),
   audience: visibilitySchema,
-  stage: z.enum(['turn_resolution', 'intent_interpretation', 'narration']).optional(),
+  stage: z.enum(['turn_resolution', 'intent_interpretation', 'decision_interpretation', 'narration']).optional(),
   /** Provider 的完整对话输入；system 指令只作为 role=system 的 message 存在，避免双份持久化。 */
   messages: z.array(
     z.object({

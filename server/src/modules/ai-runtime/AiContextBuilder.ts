@@ -1,9 +1,19 @@
-import type { AiPrompt, Authority, ContextBlock, ContextTrace, ContextVisibility } from '@dnd/contracts';
+import type {
+  AiPrompt,
+  Authority,
+  ContextBlock,
+  ContextTrace,
+  ContextVisibility,
+  ProjectedRoundSummary,
+  WorkingFact,
+} from '@dnd/contracts';
 import type { QueryExecutor } from '../../platform/database/DatabasePort.js';
 import { CharacterRepository } from '../characters/CharacterRepository.js';
 import { TurnRepository } from '../turns/TurnRepository.js';
 import { WorldFactRepository } from '../world/WorldFactRepository.js';
 import { CombatRepository } from '../combat/CombatRepository.js';
+import { NarrativeRoundRepository } from '../narrative-runtime/NarrativeRoundRepository.js';
+import { RoundProjectionService } from '../narrative-runtime/RoundProjectionService.js';
 
 const TURN_RESOLUTION_JSON_TEMPLATE = JSON.stringify({
   publicNarrative: '非空公开叙事',
@@ -40,15 +50,18 @@ export interface AiContextBuildOptions {
   audience?: ContextVisibility;
   /** Required when constructing an actor-specific context. */
   actorId?: string;
-  /** Stable logical action identity; current turn is the Phase 1 aggregate. */
+  /** Stable logical action identity; current turn is the legacy aggregate. */
   actionId?: string;
+  /** Decision-scoped narrative context options. */
+  roundId?: string;
+  decisionId?: string;
   /**
    * The intent stage gets a party-safe projection rather than the legacy GM
    * workspace projection. Its Provider still receives every submitted action,
    * but never receives owner-only facts, private character sheets, or hidden
    * combatants.
    */
-  stage?: 'turn_resolution' | 'intent_interpretation';
+  stage?: 'turn_resolution' | 'intent_interpretation' | 'decision_interpretation';
 }
 
 export interface AiContextPackage {
@@ -97,13 +110,14 @@ export function renderContextBlocks(
   campaignId: string,
   characters: Array<{ id: string; playerId: string; name: string }>,
   blocks: readonly ContextBlock[],
+  stage: AiPrompt['stage'] = 'intent_interpretation',
 ): AiPrompt {
   const system = blocks.find((block) => block.type === 'system_policy');
   const userBlocks = blocks.filter((block) => block.type !== 'system_policy');
   return {
     campaignId,
     audience: 'owner_only',
-    stage: 'intent_interpretation',
+    stage,
     characters,
     messages: [
       // If the system policy is denied for an actor-scoped context, keep the
@@ -169,9 +183,42 @@ export class AiContextBuilder {
     }));
 
     const audience = options.audience ?? 'gm_only';
-    const actionId = options.actionId ?? turnId;
     const intentStage = options.stage === 'intent_interpretation';
+    const decisionStage = options.stage === 'decision_interpretation';
+    const narrativeRepository = new NarrativeRoundRepository(executor);
+    const projection = new RoundProjectionService(executor);
+    const candidateRound = options.roundId
+      ? await narrativeRepository.findById(options.roundId)
+      : await narrativeRepository.findByTurnId(turnId);
+    const narrativeRound = candidateRound
+      && candidateRound.campaign_id === campaignId
+      && candidateRound.turn_id === turnId
+      ? candidateRound
+      : null;
+    const candidateDecision = options.decisionId
+      ? await narrativeRepository.findDecisionById(options.decisionId)
+      : null;
+    const decision = candidateDecision
+      && narrativeRound
+      && candidateDecision.campaign_id === campaignId
+      && candidateDecision.round_id === narrativeRound.id
+      && candidateDecision.turn_id === turnId
+      && (!options.actorId || candidateDecision.actor_id === options.actorId)
+      ? candidateDecision
+      : null;
+    const currentActionId = decision?.action_id ?? options.actionId;
+    const scopedActions = decisionStage && currentActionId
+      ? actions.filter((action) => action.id === currentActionId)
+      : actions;
+    const actionId = options.actionId ?? currentActionId ?? options.decisionId ?? turnId;
     const actionVisibility: ContextVisibility = intentStage ? 'party' : 'actor_private';
+    const projectionAudience = narrativeAudienceFromContext(audience);
+    const previousRoundSummary = narrativeRound
+      ? await projection.projectLatestClosedBefore(campaignId, turn.number, projectionAudience, options.actorId)
+      : null;
+    const currentWorkingFacts = decisionStage && narrativeRound
+      ? await projection.projectWorkingFacts(narrativeRound.id, projectionAudience, options.actorId)
+      : [];
     const contextCombat = audience === 'gm_only'
       ? combat
       : combat.map((encounter) => ({
@@ -185,7 +232,27 @@ export class AiContextBuilder {
       makeBlock('ruleset-policy', 'ruleset_policy', `规则集身份：${campaign.ruleset}`, [`ruleset:${safeRefPart(campaign.ruleset)}`], 'ruleset', 'campaign', 'P0'),
       makeBlock('campaign-runtime', 'campaign_runtime', `战役：${campaign.name}（规则集 ${campaign.ruleset}）\n战役状态：${campaign.status}`, [`campaign:${campaignId}`], 'campaign', 'campaign', 'P0'),
       makeBlock('turn-runtime', 'scene_state', `当前回合 #${turn.number}，已锁定。`, [`turn:${turnId}`], 'scene', 'party', 'P0'),
-      ...actions.map((action) => makeBlock(
+      ...(previousRoundSummary ? [makeBlock(
+        'previous-round-summary',
+        'previous_round_summary',
+        renderRoundSummary(previousRoundSummary),
+        previousRoundSummary.sourceRefs.length > 0 ? previousRoundSummary.sourceRefs.slice(0, 32) : [`round:${previousRoundSummary.roundId}`],
+        'scene',
+        projectionVisibility(audience),
+        'P1',
+        audience === 'actor_private' && options.actorId ? [options.actorId] : undefined,
+      )] : []),
+      ...(currentWorkingFacts.length > 0 ? [makeBlock(
+        'current-round-working-facts',
+        'working_fact',
+        renderWorkingFacts(currentWorkingFacts),
+        [...new Set(currentWorkingFacts.flatMap((fact) => fact.provenance.sourceRefs))].slice(0, 32),
+        'scene',
+        projectionVisibility(audience),
+        'P1',
+        audience === 'actor_private' && options.actorId ? [options.actorId] : undefined,
+      )] : []),
+      ...scopedActions.map((action) => makeBlock(
         `recent-action-${action.id}`,
         'recent_action',
         `玩家行动：\n- ${action.player_id}: ${action.body}`,
@@ -258,8 +325,8 @@ export class AiContextBuilder {
     // Keep the long-standing owner-safe context shape for existing Owner tooling,
     // while adding structured blocks/trace as a separate boundary.
     const visibleActions = audience === 'gm_only' || intentStage
-      ? actions
-      : actions.filter((action) => Boolean(options.actorId && action.player_id === options.actorId));
+      ? scopedActions
+      : scopedActions.filter((action) => Boolean(options.actorId && action.player_id === options.actorId));
     const visibleCharacters = audience === 'gm_only'
       ? approved
       : intentStage || audience === 'party'
@@ -273,13 +340,48 @@ export class AiContextBuilder {
       actions: visibleActions.map((a) => ({ playerId: a.player_id, body: a.body })),
       characters: visibleCharacters,
       worldFacts: visibleFacts,
+      previousRoundSummary,
+      workingFacts: currentWorkingFacts,
       combat: contextCombat,
       blocks: filtered.blocks,
       trace: filtered.trace,
     };
-    const prompt = renderContextBlocks(campaignId, approved.map((c) => ({ id: c.id, playerId: c.playerId, name: c.name })), filtered.blocks);
+    const prompt = renderContextBlocks(
+      campaignId,
+      approved.map((c) => ({ id: c.id, playerId: c.playerId, name: c.name })),
+      filtered.blocks,
+      decisionStage ? 'decision_interpretation' : intentStage ? 'intent_interpretation' : 'turn_resolution',
+    );
     return { prompt, context, blocks: filtered.blocks, trace: filtered.trace };
   }
+}
+
+function narrativeAudienceFromContext(audience: ContextVisibility): import('@dnd/contracts').NarrativeProjectionAudience {
+  if (audience === 'gm_only') return 'gm_only';
+  if (audience === 'server_only') return 'server_only';
+  if (audience === 'actor_private') return 'actor_private';
+  return 'party';
+}
+
+function projectionVisibility(audience: ContextVisibility): ContextVisibility {
+  if (audience === 'gm_only') return 'gm_only';
+  if (audience === 'server_only') return 'server_only';
+  if (audience === 'actor_private') return 'actor_private';
+  return 'party';
+}
+
+function renderRoundSummary(summary: ProjectedRoundSummary): string {
+  return [
+    `上一轮结构化事实（Round ${summary.roundNumber}，FactSet ${summary.factSetId}）：`,
+    ...summary.facts.map((fact) => `- [${fact.factKind}] ${JSON.stringify(fact.payload)}`),
+  ].join('\\n');
+}
+
+function renderWorkingFacts(facts: readonly WorkingFact[]): string {
+  return [
+    '当前轮已提交的结构化 WorkingFacts（不含前序 raw action 或 Narration）：',
+    ...facts.map((fact) => `- [${fact.factKind}] ${JSON.stringify(fact.payload)}`),
+  ].join('\\n');
 }
 
 function makeBlock(

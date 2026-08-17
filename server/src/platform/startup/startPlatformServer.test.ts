@@ -328,14 +328,14 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
     }
   });
 
-  it('rejects an ordinary startup DB with a future 017 applied even when the manifest includes it (frozen current approved migration set acceptance)', async () => {
+  it('rejects an ordinary startup DB with a future 018 applied even when the manifest includes it (frozen current approved migration set acceptance)', async () => {
     const dir = tempDir('dnd-startup-frozen-');
     try {
-      // 运行时迁移目录：current approved migration set committed 副本 + 未来 017 + 匹配 manifest（17 项）。
+      // 运行时迁移目录：current approved migration set committed 副本 + 未来 018 + 匹配 manifest（18 项）。
       const migrationsDir = join(dir, 'migrations');
       mkdirSync(migrationsDir, { recursive: true });
-      copyMigrations(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016'], migrationsDir);
-      writeFileSync(join(migrationsDir, '017_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
+      copyMigrations(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016', '017'], migrationsDir);
+      writeFileSync(join(migrationsDir, '018_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
       const names = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
       const manifest = {
         format: 1,
@@ -346,14 +346,14 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
       };
       writeFileSync(join(migrationsDir, 'migrations.manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');
 
-      // DB：current approved migration set committed 应用 + 017 手工应用（已应用集合 = 17）。
+      // DB：current approved migration set committed 应用 + 018 手工应用（已应用集合 = 18）。
       const databasePath = join(dir, 'db.sqlite');
-      applyMigrations(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016']);
+      applyMigrations(databasePath, ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016', '017']);
       const raw = new Database(databasePath);
       raw.exec('BEGIN');
-      raw.exec(readFileSync(join(migrationsDir, '017_future_phase.sql'), 'utf8'));
+      raw.exec(readFileSync(join(migrationsDir, '018_future_phase.sql'), 'utf8'));
       raw.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)')
-        .run('017', '017_future_phase.sql', new Date().toISOString());
+        .run('018', '018_future_phase.sql', new Date().toISOString());
       raw.exec('COMMIT');
       raw.close();
 

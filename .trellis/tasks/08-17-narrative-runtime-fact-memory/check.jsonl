@@ -1,0 +1,9 @@
+{"file":".trellis/spec/server/backend/index.md","reason":"质量检查需要按后端 spec index 的 checklist 验证 migration、auth、projection、transaction 和 cross-layer data flow。"}
+{"file":".trellis/spec/server/backend/database-guidelines.md","reason":"检查 migration manifest、SQLite portability、transaction ownership、outbox same-tx、active/superseded filtering 和 rollback。"}
+{"file":".trellis/spec/server/backend/runtime-contract-state-safety.md","reason":"检查 Decision/close/replay/stale/archive paths 是否只推进正确的 StateRevision，并验证 duplicate/rollback/CAS 语义。"}
+{"file":".trellis/spec/server/backend/server-adjudication-dice-authority.md","reason":"检查 sequential decision mechanics、roll immutability、narration separation、raw action isolation 和 no Provider numeric authority。"}
+{"file":".trellis/spec/server/backend/ai-structured-output.md","reason":"检查 decision Provider schema、bounded diagnostics、candidate boundary、failure persistence 和无 raw output 泄漏。"}
+{"file":".trellis/spec/server/backend/turn-entry-projection.md","reason":"检查 A/B/C actor projection、next Context 的 previous_round_summary、active turn scope 和 player/private DTO 不泄漏。"}
+{"file":".trellis/spec/server/backend/quality-guidelines.md","reason":"检查 focused/full tests、typecheck、build、fresh temp SQLite、route/service/repository boundaries 和 git diff --check。"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"用跨层 review 检查 Round 状态、facts、revision、outbox、archive 和 AI context 是否形成完整可追踪数据流。"}
+{"file":".trellis/spec/server/backend/narrative-runtime-fact-memory.md","reason":"按新增 code-spec 验证 Round authority、WorkingFacts provenance、FactSet immutability、projection privacy 和 archive supersede。"}

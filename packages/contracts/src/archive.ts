@@ -4,6 +4,13 @@ import { turnSummarySchema, turnActionSchema } from './turn.js';
 import { worldFactKindSchema } from './world.js';
 import { characterStatusSchema } from './character.js';
 import { encounterStatusSchema } from './combat.js';
+import {
+  narrativeDecisionSchema,
+  narrativeRoundParticipantSchema,
+  narrativeRoundSchema,
+  roundFactSetSchema,
+  workingFactSchema,
+} from './narrative.js';
 
 /** 存档 contract：owner 创建/恢复；真实快照 + 真实恢复，不物理删除历史。 */
 
@@ -134,6 +141,16 @@ export const archiveSnapshotEncounterSchema = z.object({
 });
 export type ArchiveSnapshotEncounter = z.infer<typeof archiveSnapshotEncounterSchema>;
 
+/** 当前 active NarrativeRound 的可选快照；旧 v2 snapshot 没有此字段时走兼容恢复。 */
+export const archiveSnapshotNarrativeSchema = z.object({
+  round: narrativeRoundSchema,
+  participants: z.array(narrativeRoundParticipantSchema),
+  decisions: z.array(narrativeDecisionSchema),
+  workingFacts: z.array(workingFactSchema),
+  factSet: roundFactSetSchema.nullable(),
+}).strict();
+export type ArchiveSnapshotNarrative = z.infer<typeof archiveSnapshotNarrativeSchema>;
+
 /** 快照：schemaVersion=2；在 v1 公共字段基础上加入必填完整 encounters（可空数组，无战斗=[]）。 */
 export const archiveSnapshotV2Schema = z.object({
   schemaVersion: z.literal(2),
@@ -143,6 +160,8 @@ export const archiveSnapshotV2Schema = z.object({
   worldFacts: z.array(archiveSnapshotWorldFactSchema),
   currentTurn: archiveSnapshotTurnSchema.nullable(),
   encounters: z.array(archiveSnapshotEncounterSchema),
+  /** Optional so old v2 archives remain readable without inventing facts. */
+  narrative: archiveSnapshotNarrativeSchema.nullable().optional(),
   watermarks: z.object({
     outboxSequence: z.number().int(),
     aiRunCampaignSequence: z.number().int(),

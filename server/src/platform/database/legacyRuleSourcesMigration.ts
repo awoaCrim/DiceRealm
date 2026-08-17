@@ -62,7 +62,7 @@ export async function migrateLegacyRuleSourcesDatabase(options: {
   // has not yet crossed the explicit 016 schema boundary. It never applies 016.
   const maintainedCandidates = [maintained];
   if (maintained.some((name) => name.startsWith('016_'))) {
-    maintainedCandidates.push(maintained.filter((name) => !name.startsWith('016_')));
+    maintainedCandidates.push(maintained.filter((name) => !name.startsWith('016_') && !name.startsWith('017_')));
   }
 
   // If 011 is still approved, this is the pre-removal application and there

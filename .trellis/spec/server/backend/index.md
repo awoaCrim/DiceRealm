@@ -16,6 +16,7 @@ These guidelines describe the Express/SQLite server under `server/src`. They doc
 | [Schema Reset Boundary](./schema-reset-boundary.md) | Safe removal of persisted features | Active |
 | [Runtime Contract & State Safety](./runtime-contract-state-safety.md) | Revision CAS, state changes, and stale-result rejection | Active |
 | [Server Adjudication & Dice Authority](./server-adjudication-dice-authority.md) | Server-owned mechanics and narration retry | Active |
+| [Narrative Runtime & Fact Memory](./narrative-runtime-fact-memory.md) | NarrativeRound lifecycle, WorkingFacts, RoundFactSet and actor projection | Active |
 
 ## Before development
 

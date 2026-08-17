@@ -72,6 +72,7 @@ describe('approved migration set', () => {
       '014_security_audit.sql',
       '015_campaign_state_revision.sql',
       '016_server_adjudication_dice.sql',
+      '017_narrative_runtime_fact_memory.sql',
     ]);
   });
 });

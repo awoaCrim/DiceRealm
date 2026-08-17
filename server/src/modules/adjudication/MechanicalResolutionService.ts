@@ -26,6 +26,8 @@ export interface MechanicalResolutionInput {
   appliedStateRevision: number;
   actorUserId: string;
   proposals: readonly ActionIntentProposal[];
+  /** Decision-scoped path: resolve only these actions, not the whole legacy Turn. */
+  actionIds?: readonly string[];
 }
 
 export interface MechanicalResolutionResult {
@@ -58,6 +60,17 @@ export class MechanicalResolutionService {
     this.repository = new AdjudicationRepository(executor);
   }
 
+  async resolveDecisionIn(
+    tx: QueryExecutor,
+    input: Omit<MechanicalResolutionInput, 'proposals' | 'actionIds'> & { proposal: ActionIntentProposal },
+  ): Promise<MechanicalResolutionResult> {
+    return this.resolveIn(tx, {
+      ...input,
+      actionIds: [input.proposal.actionId],
+      proposals: [input.proposal],
+    });
+  }
+
   async resolveIn(tx: QueryExecutor, input: MechanicalResolutionInput): Promise<MechanicalResolutionResult> {
     const existing = await this.repository.findOutcomeByExecution(tx, input.executionId);
     if (existing) {
@@ -69,9 +82,15 @@ export class MechanicalResolutionService {
       };
     }
     const turns = new TurnRepository(tx);
-    const actions = await turns.listActionsByTurn(input.turnId);
+    const allActions = await turns.listActionsByTurn(input.turnId);
+    const actions = input.actionIds
+      ? allActions.filter((action) => input.actionIds?.includes(action.id))
+      : allActions;
     if (actions.length === 0) {
       throw new AppError('AI_OUTPUT_INVALID', '当前回合没有可解释的玩家行动。');
+    }
+    if (input.actionIds && actions.length !== input.actionIds.length) {
+      throw new AppError('AI_OUTPUT_INVALID', '叙事决策引用的玩家行动不存在。');
     }
     const byActionId = new Map(input.proposals.map((proposal) => [proposal.actionId, proposal]));
     if (byActionId.size !== input.proposals.length || byActionId.size !== actions.length) {

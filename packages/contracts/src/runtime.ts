@@ -12,7 +12,8 @@ export type ContextVisibility = z.infer<typeof contextVisibilitySchema>;
 
 export const contextBlockTypeSchema = z.enum([
   'system_policy', 'ruleset_policy', 'campaign_runtime', 'scene_state',
-  'actor_state', 'actor_knowledge', 'recent_action', 'player_input', 'resolution_contract',
+  'actor_state', 'actor_knowledge', 'recent_action', 'player_input', 'working_fact',
+  'previous_round_summary', 'resolution_contract',
 ]);
 export type ContextBlockType = z.infer<typeof contextBlockTypeSchema>;
 

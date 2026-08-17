@@ -5,6 +5,7 @@ import type {
   ArchiveRestoreResult,
   ArchiveSnapshot,
   ArchiveSnapshotCharacter,
+  ArchiveSnapshotNarrative,
   ArchiveSnapshotRequirement,
   ArchiveSnapshotV2,
   TurnAction,
@@ -21,6 +22,17 @@ import { CombatRepository, type CombatantRow, type EncounterRow } from '../comba
 import { ArchiveRepository, type ArchiveRow } from './ArchiveRepository.js';
 import { AiRunRepository } from '../ai-runtime/AiRunRepository.js';
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
+import {
+  NarrativeRoundRepository,
+  mapNarrativeDecision,
+  mapNarrativeParticipant,
+  mapNarrativeRound,
+  mapRoundFact,
+  mapRoundFactSet,
+  mapWorkingFact,
+  narrativeFactToInsertRow,
+} from '../narrative-runtime/NarrativeRoundRepository.js';
+import { NarrativeRoundService } from '../narrative-runtime/NarrativeRoundService.js';
 
 /** 恢复两阶段 position 重排安全 offset：远大于任何真实 position 数量。 */
 const POSITION_RESTORE_OFFSET = 2_000_000;
@@ -115,7 +127,7 @@ export class ArchiveService {
       // 4) 先 supersede 旧历史（被恢复 archive 的 version 作为 archives 超水位）。
       await this.supersedeHistory(tx, ctx.campaignId, archive.id, archive.version, snapshot, now);
       // 5) 恢复快照状态。
-      const restoredTurnId = await this.restoreSnapshotState(tx, ctx.campaignId, snapshot, ctx.userId, now);
+      const restoredTurnId = await this.restoreSnapshotState(tx, ctx.campaignId, snapshot, ctx.userId, archive.id, now);
       // 5b) 选中 archive 自身解除 superseded，成为当前 active checkpoint；version > target 仍 superseded。
       //     使恢复后的 DTO superseded=false 且 listForCampaign 可见（产品语义：选中的存档成为当前状态）。
       await repo.clearSuperseded(archive.id);
@@ -208,6 +220,12 @@ export class ArchiveService {
       });
     }
 
+    const narrative = await this.captureNarrativeSnapshot(
+      tx,
+      campaignId,
+      currentTurnSnapshot?.turn.id,
+    );
+
     return {
       schemaVersion: 2,
       campaignId,
@@ -216,6 +234,7 @@ export class ArchiveService {
       worldFacts: factRows,
       currentTurn: currentTurnSnapshot,
       encounters,
+      narrative,
       watermarks: {
         outboxSequence: await archiveRepo.maxOutboxSequence(campaignId),
         aiRunCampaignSequence: await archiveRepo.maxAiRunSequence(campaignId),
@@ -224,6 +243,29 @@ export class ArchiveService {
         // 注意：这是恢复时 turns 的 supersede 水位，与 maxTurnNumber（含 superseded，防号码复用）语义不同。
         turnNumber: await new TurnRepository(tx).maxActiveTurnNumber(campaignId),
       },
+    };
+  }
+
+  private async captureNarrativeSnapshot(
+    tx: QueryExecutor,
+    campaignId: string,
+    currentTurnId?: string,
+  ): Promise<ArchiveSnapshotV2['narrative']> {
+    const repository = new NarrativeRoundRepository(tx);
+    const round = currentTurnId
+      ? await repository.findByTurnId(currentTurnId)
+      : (await repository.listByCampaign(campaignId)).filter((row) => row.status === 'closed').at(-1) ?? null;
+    if (!round) return null;
+    const factSet = await repository.findFactSetByRound(round.id);
+    const roundFacts = factSet
+      ? (await repository.listRoundFacts(factSet.id)).map((row) => mapRoundFact(row, factSet.id))
+      : [];
+    return {
+      round: mapNarrativeRound(round),
+      participants: (await repository.listParticipants(round.id)).map(mapNarrativeParticipant),
+      decisions: (await repository.listDecisions(round.id)).map(mapNarrativeDecision),
+      workingFacts: (await repository.listWorkingFacts(round.id)).map(mapWorkingFact),
+      factSet: factSet ? mapRoundFactSet(factSet, roundFacts) : null,
     };
   }
 
@@ -272,6 +314,7 @@ export class ArchiveService {
     // → 只 supersede number>N 的 later turns，保留 <=N 的既有 completed 历史。
     const turns = new TurnRepository(tx);
     await turns.supersedeTurnsAfterNumber(campaignId, snapshot.watermarks.turnNumber, archiveId, now);
+    await new NarrativeRoundRepository(tx).supersedeAfterRoundNumber(campaignId, snapshot.watermarks.turnNumber, archiveId, now);
     // 比被恢复存档更新的 archives（version 更大）一律 supersede；version counter 永不回退。
     await tx.execute(
       'UPDATE platform_archives SET superseded_at = ?, superseded_by_archive_id = ? WHERE campaign_id = ? AND superseded_at IS NULL AND version > ?',
@@ -295,12 +338,96 @@ export class ArchiveService {
     }
   }
 
+  private async restoreNarrativeSnapshot(
+    tx: QueryExecutor,
+    campaignId: string,
+    snapshot: ArchiveSnapshotNarrative,
+    restoredTurnId: string,
+    archiveId: string,
+    now: string,
+  ): Promise<void> {
+    const repository = new NarrativeRoundRepository(tx);
+    const roundRow = {
+      id: snapshot.round.id,
+      campaign_id: campaignId,
+      turn_id: snapshot.round.turnId,
+      number: snapshot.round.number,
+      status: snapshot.round.status,
+      decision_cursor: snapshot.round.decisionCursor,
+      last_state_revision: snapshot.round.lastStateRevision,
+      closed_at: snapshot.round.closedAt,
+      created_at: snapshot.round.createdAt,
+      updated_at: snapshot.round.updatedAt,
+      superseded_at: null,
+      superseded_by_archive_id: null,
+    } as const;
+    await repository.supersedeRoundContents(snapshot.round.id, archiveId, now);
+    await repository.restoreRound(roundRow, restoredTurnId, now);
+    for (const participant of snapshot.participants) {
+      await repository.restoreParticipant({
+        round_id: participant.roundId,
+        campaign_id: participant.campaignId,
+        player_id: participant.playerId,
+        character_id: participant.characterId,
+        participant_order: participant.participantOrder,
+        required: participant.required ? 1 : 0,
+        status: participant.status,
+        created_at: now,
+        updated_at: now,
+        superseded_at: null,
+        superseded_by_archive_id: null,
+      }, now);
+    }
+    for (const decision of snapshot.decisions) {
+      await repository.restoreDecision({
+        id: decision.id,
+        round_id: decision.roundId,
+        campaign_id: decision.campaignId,
+        turn_id: restoredTurnId,
+        action_id: decision.actionId,
+        actor_id: decision.actorId,
+        decision_order: decision.decisionOrder,
+        status: decision.status,
+        execution_id: decision.executionId,
+        outcome_id: decision.outcomeId,
+        claim_revision: decision.claimRevision,
+        applied_state_revision: decision.appliedStateRevision,
+        failure_code: decision.failureCode,
+        created_at: decision.createdAt,
+        updated_at: now,
+        superseded_at: null,
+        superseded_by_archive_id: null,
+      }, now);
+    }
+    for (const fact of snapshot.workingFacts) {
+      await repository.restoreWorkingFact(narrativeFactToInsertRow(fact), now);
+    }
+    if (snapshot.factSet) {
+      await repository.restoreFactSet({
+        id: snapshot.factSet.id,
+        campaign_id: snapshot.factSet.campaignId,
+        round_id: snapshot.factSet.roundId,
+        source_state_revision: snapshot.factSet.sourceStateRevision,
+        closed_at: snapshot.factSet.closedAt,
+        superseded_at: null,
+        superseded_by_archive_id: null,
+      });
+      for (const fact of snapshot.factSet.facts) {
+        await repository.restoreRoundFact({
+          ...narrativeFactToInsertRow(fact),
+          fact_set_id: snapshot.factSet.id,
+        }, now);
+      }
+    }
+  }
+
   /** 恢复快照状态：characters upsert + archive_restore audits；world facts upsert + 清除 superseded；currentTurn 恢复；completed 快照创建新 waiting turn（null 快照不开新回合）。 */
   private async restoreSnapshotState(
     tx: QueryExecutor,
     campaignId: string,
     snapshot: ArchiveSnapshot,
     actorUserId: string,
+    archiveId: string,
     now: string,
   ): Promise<string | null> {
     const chars = new CharacterRepository(tx);
@@ -370,9 +497,11 @@ export class ArchiveService {
     const current = snapshot.currentTurn;
     if (!current) {
       // 快照无 currentTurn（setup 或 idle-after-completed）：不开新回合。
-      // supersede 语义已由 supersedeHistory 按 turnNumber watermark 完成——
-      // setup(turnNumber=0) supersede 全部 later turns；idle-after-completed(turnNumber=N)
-      // 保留 <=N 历史。这里只恢复 characters/worldFacts，不创建/恢复任何回合。
+      // 如果是新 v2 snapshot，仍恢复最后一个 active closed NarrativeRound/FactSet；
+      // old v1/v2 snapshot 没有 narrative 字段时保持兼容，不捏造事实。
+      if (snapshot.schemaVersion === 2 && snapshot.narrative) {
+        await this.restoreNarrativeSnapshot(tx, campaignId, snapshot.narrative, snapshot.narrative.round.turnId, archiveId, now);
+      }
       return null;
     }
     const existing = await turns.findByNumber(campaignId, current.turn.number);
@@ -402,6 +531,18 @@ export class ArchiveService {
     // 新 id 占位同号）时返回 existing.id，而非快照里的 current.turn.id；insert 新行时返回快照 id。
     // completed 快照下方单独返回新 waiting turn id。
     const restoredTurnId = existing ? existing.id : current.turn.id;
+    const narrativeRepository = new NarrativeRoundRepository(tx);
+    // New runtime rows use the snapshot turn id as the deterministic round id.
+    // If archive restore had to replace the Turn row, rebind the same round
+    // aggregate instead of leaving two active round authorities for one number.
+    const restoredRound = await narrativeRepository.findById(current.turn.id, true);
+    if (restoredRound) {
+      await narrativeRepository.rebindRoundToTurn(restoredRound.id, restoredTurnId);
+      await narrativeRepository.clearSupersededForRound(restoredRound.id);
+    }
+    if (snapshot.schemaVersion === 2 && snapshot.narrative) {
+      await this.restoreNarrativeSnapshot(tx, campaignId, snapshot.narrative, restoredTurnId, archiveId, now);
+    }
 
     if (current.turn.status === 'completed') {
       // completed 快照：同 tx 创建新 waiting turn，number = 全局 MAX+1（含 superseded，不复用）。
@@ -419,6 +560,7 @@ export class ArchiveService {
       for (const playerId of [...new Set(approvedPlayerIds)]) {
         await turns.insertRequirement(newTurnId, campaignId, playerId);
       }
+      await new NarrativeRoundService(this.executor, this.outbox, this.mutations).ensureForTurnIn(tx, campaignId, newTurnId);
       return newTurnId;
     }
     // waiting/locked/needs_owner_attention 快照：恢复该状态，不自动开新回合。

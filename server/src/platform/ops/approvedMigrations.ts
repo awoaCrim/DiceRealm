@@ -25,8 +25,9 @@ export const PHASE2_APPROVED_MIGRATION_FILENAMES: readonly string[] = [
   '015_campaign_state_revision.sql',
 ];
 
-/** Current application schema: the maintained baseline plus server adjudication. */
+/** Current application schema: the maintained baseline, server adjudication and narrative runtime fact memory. */
 export const PHASE3_APPROVED_MIGRATION_FILENAMES: readonly string[] = [
   ...PHASE2_APPROVED_MIGRATION_FILENAMES,
   '016_server_adjudication_dice.sql',
+  '017_narrative_runtime_fact_memory.sql',
 ];

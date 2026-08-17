@@ -9,6 +9,7 @@ import { requireOwner, type CampaignAuthContext } from '../campaigns/CampaignAcc
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 import { CharacterRepository } from '../characters/CharacterRepository.js';
 import { TurnRepository, type ActionRow, type TurnRow } from './TurnRepository.js';
+import { NarrativeRoundService } from '../narrative-runtime/NarrativeRoundService.js';
 
 /**
  * TurnService：owner 开始回合、玩家提交/编辑行动、锁定与隐私投影。
@@ -20,14 +21,17 @@ import { TurnRepository, type ActionRow, type TurnRow } from './TurnRepository.j
 export class TurnService {
   private readonly repository: TurnRepository;
   private readonly mutations: CampaignMutationCoordinator;
+  private readonly narrative: NarrativeRoundService;
 
   constructor(
     private readonly executor: DatabasePort,
     private readonly outbox: EventPublisherPort,
     mutations?: CampaignMutationCoordinator,
+    narrative?: NarrativeRoundService,
   ) {
     this.repository = new TurnRepository(executor);
     this.mutations = mutations ?? new CampaignMutationCoordinator(executor);
+    this.narrative = narrative ?? new NarrativeRoundService(executor, outbox, this.mutations);
   }
 
   /** owner 开始新回合：campaign 行锁 → 无未终结回合 → distinct approved → MAX+1（锁内安全）→ insert turn+requirements。 */
@@ -66,6 +70,7 @@ export class TurnService {
       for (const playerId of playerIds) {
         await repo.insertRequirement(turnId, ctx.campaignId, playerId);
       }
+      await this.narrative.ensureForTurnIn(tx, ctx.campaignId, turnId);
       return mapSummary((await repo.findTurnById(turnId)) as TurnRow);
       });
       if (!execution.result) throw new AppError('INTERNAL_ERROR', '回合创建结果读取失败。');
@@ -90,7 +95,7 @@ export class TurnService {
         mutationId,
         causeType: 'turn_action_submit',
         causeId: turnId,
-      }, async () => {
+      }, async ({ stateRevision }) => {
       const repo = new TurnRepository(tx);
       // 1) 条件 no-op 更新 turn 行获得锁；未命中 → NOT_FOUND。
       const lockedRow = await repo.lockTurnRow(turnId, ctx.campaignId);
@@ -102,8 +107,11 @@ export class TurnService {
       if (!turn) {
         throw new AppError('NOT_FOUND', '回合不存在。');
       }
-      if (turn.status !== 'waiting_for_actions') {
-        if (turn.status === 'locked') {
+      // NarrativeRound owns the live lifecycle. Turn status is only the
+      // compatibility mirror used for legacy DTOs and old repositories.
+      const round = await this.narrative.ensureForTurnIn(tx, ctx.campaignId, turnId);
+      if (round.status !== 'collecting') {
+        if (round.status === 'ready') {
           throw new AppError('TURN_LOCKED', '回合已锁定，无法修改行动。');
         }
         throw new AppError('TURN_NOT_ACTIVE', '当前回合状态不允许提交行动。');
@@ -122,16 +130,20 @@ export class TurnService {
       const existing = await repo.findActionByTurnPlayer(turnId, playerId);
       const now = new Date().toISOString();
       let firstSubmit = false;
+      let actionId: string;
       if (existing) {
         await repo.updateActionBody(existing.id, input.body, now);
+        actionId = existing.id;
       } else {
+        actionId = nanoid(24);
         await repo.insertAction({
-          id: nanoid(24), turn_id: turnId, campaign_id: ctx.campaignId, player_id: playerId,
+          id: actionId, turn_id: turnId, campaign_id: ctx.campaignId, player_id: playerId,
           body: input.body, submitted_at: now, updated_at: now,
         });
         await repo.markRequirementSubmitted(turnId, playerId);
         firstSubmit = true;
       }
+      await this.narrative.linkSubmittedActionIn(tx, ctx.campaignId, turnId, playerId, actionId, now);
       // 6) 首次提交才发 progress 事件（锁前编辑不发，避免重复）。
       if (firstSubmit) {
         await this.outbox.publishIn(tx, {
@@ -142,12 +154,15 @@ export class TurnService {
       const submitted = await repo.countSubmitted(turnId);
       const total = await repo.countTotal(turnId);
       if (total > 0 && submitted >= total) {
+        // Advance the authoritative round first; Turn is only its same-tx
+        // compatibility mirror. Any failed mirror update rolls back both.
+        const didReady = await this.narrative.markReadyIn(tx, round.id, now, stateRevision);
+        if (!didReady) throw new AppError('STATE_CONFLICT', '叙事回合无法锁定。');
         const didLock = await repo.lockTurn(turnId, now);
-        if (didLock) {
-          await this.outbox.publishIn(tx, {
-            type: 'turn.locked', campaignId: ctx.campaignId, turnId,
-          });
-        }
+        if (!didLock) throw new AppError('STATE_CONFLICT', '兼容回合状态无法锁定。');
+        await this.outbox.publishIn(tx, {
+          type: 'turn.locked', campaignId: ctx.campaignId, turnId,
+        });
       }
       // 8) service 返回在 commit 后（transaction 提交后才 resolve）。
       return this.playerView(tx, turnId, playerId);
