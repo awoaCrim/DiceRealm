@@ -1,7 +1,9 @@
 import { nanoid } from 'nanoid';
 import {
+  aiPromptSchema,
   mechanicalResolvedOutcomeSchema,
   type ActionIntentProposal,
+  type AiPrompt,
   type AiRunView,
   type MechanicalResolvedOutcome,
   type ResolvedOutcome,
@@ -21,6 +23,11 @@ import { AdjudicationRepository } from '../adjudication/AdjudicationRepository.j
 import { MechanicalResolutionService, type ActionSnapshot, type MechanicalResolutionResult } from '../adjudication/MechanicalResolutionService.js';
 import { NarrativeRoundRepository } from './NarrativeRoundRepository.js';
 import { NarrativeRoundService } from './NarrativeRoundService.js';
+import { FactProvenanceService } from './FactProvenanceService.js';
+import {
+  NarrativeDecisionPresentationService,
+  NarrativePresentationRetryableError,
+} from './NarrativeDecisionPresentationService.js';
 
 interface ClaimedDecisionRun {
   kind: 'replay' | 'claimed';
@@ -34,6 +41,9 @@ interface ClaimedDecisionRun {
  * compatibility until callers migrate to this service.
  */
 export class NarrativeDecisionResolutionService {
+  private readonly presentation: NarrativeDecisionPresentationService;
+  private readonly factProvenance = new FactProvenanceService();
+
   constructor(
     private readonly executor: DatabasePort,
     private readonly provider: AiProviderPort,
@@ -43,7 +53,10 @@ export class NarrativeDecisionResolutionService {
     private readonly mutations: CampaignMutationCoordinator = new CampaignMutationCoordinator(executor),
     private readonly narrative: NarrativeRoundService = new NarrativeRoundService(executor, outbox, mutations),
     private readonly mechanical: MechanicalResolutionService = new MechanicalResolutionService(executor, outbox),
-  ) {}
+    presentation?: NarrativeDecisionPresentationService,
+  ) {
+    this.presentation = presentation ?? new NarrativeDecisionPresentationService(executor, outbox);
+  }
 
   async resolveDecision(
     ctx: CampaignAuthContext,
@@ -77,11 +90,20 @@ export class NarrativeDecisionResolutionService {
       // A crash can leave the immutable mechanics/outcome committed while the
       // run/decision completion metadata is still pending. Recover that
       // checkpoint without calling the Provider or allocating another revision.
-      if (claim.run.status === 'running' && await this.hasCommittedOutcome(claim.run.id)) {
-        await this.recoverCommittedApply(campaignId, roundId, decisionId, claim.run.id);
+      const committedOutcome = claim.run.status === 'running'
+        ? await this.hasCommittedOutcome(claim.run.id)
+        : false;
+      if (claim.run.status === 'running'
+        && (claim.run.run_kind === 'mechanical_resolution' || committedOutcome)) {
+        if (committedOutcome) {
+          await this.recoverCommittedApply(campaignId, roundId, decisionId, claim.run.id);
+        }
         const recovered = await new AiRunRepository(this.executor).findById(claim.run.id);
         if (!recovered) throw new AppError('INTERNAL_ERROR', '叙事决策恢复结果读取失败。');
-        return { created: false, run: this.toView(recovered) };
+        await this.presentNarration(campaignId, recovered, promptFromRun(recovered), runProvider);
+        const replayed = await new AiRunRepository(this.executor).findById(claim.run.id);
+        if (!replayed) throw new AppError('INTERNAL_ERROR', '叙事决策叙事结果读取失败。');
+        return { created: false, run: this.toView(replayed) };
       }
       return { created: false, run: this.toView(claim.run) };
     }
@@ -97,7 +119,12 @@ export class NarrativeDecisionResolutionService {
       const outcome = await this.validator.validate(campaignId, raw);
       const proposal = this.singleProposal(outcome, decisionId, roundId);
       await this.apply(campaignId, roundId, decisionId, runId, proposal);
+      await this.presentNarration(campaignId, claim.run, claim.prompt!, runProvider);
     } catch (error) {
+      // Mechanics are already committed when narration fails. Keep the
+      // Decision resolved and the run retryable; the worker will advance the
+      // next Decision from the terminal narration attempt.
+      if (error instanceof NarrativePresentationRetryableError) throw error;
       await this.fail(campaignId, roundId, decisionId, runId, error);
       if (error instanceof AppError) throw error;
       throw new AppError('AI_PROVIDER_FAILED', 'AI Provider 调用失败。');
@@ -274,14 +301,23 @@ export class NarrativeDecisionResolutionService {
         await this.narrative.markDecisionResolvedIn(tx, {
           campaignId, roundId, decisionId, executionId: runId, outcomeId: mechanical.outcomeId, stateRevision,
         });
-        const resultJson = JSON.stringify({ stage: 'narrative_decision', outcome: mechanical.outcome });
-        const rawDebugJson = JSON.stringify({ stage: 'narrative_decision', outcomeId: mechanical.outcomeId, decisionId, roundId });
-        if (!(await runs.markSucceeded(tx, runId, resultJson, rawDebugJson, new Date().toISOString(), stateRevision))) {
-          throw new AppError('STATE_CONFLICT', '叙事决策 AI run 已被并发更新。');
+        const resultJson = JSON.stringify({ stage: 'mechanical_resolution', outcome: mechanical.outcome });
+        const rawDebugJson = JSON.stringify({ stage: 'mechanical_resolution', outcomeId: mechanical.outcomeId, decisionId, roundId });
+        if (!(await runs.markMechanicalCommitted(tx, runId, resultJson, rawDebugJson, stateRevision))) {
+          throw new AppError('STATE_CONFLICT', '叙事决策机械提交已被并发更新。');
         }
-        await this.outbox.publishIn(tx, { type: 'owner.debug', campaignId, runId, kind: 'result' });
+        await this.outbox.publishIn(tx, { type: 'owner.debug', campaignId, runId, kind: 'mechanics_committed' });
       });
     });
+  }
+
+  private async presentNarration(
+    campaignId: string,
+    run: AiRunRow,
+    basePrompt: AiPrompt,
+    provider: AiProviderPort,
+  ): Promise<void> {
+    await this.presentation.present(campaignId, run.turn_id, run.id, provider, basePrompt);
   }
 
   private async hasCommittedOutcome(executionId: string): Promise<boolean> {
@@ -308,7 +344,7 @@ export class NarrativeDecisionResolutionService {
       if (!run || !decision || !outcomeRow) return;
       if (run.status === 'succeeded') return;
       if (decision.campaign_id !== campaignId || decision.round_id !== roundId
-        || decision.execution_id !== runId || decision.status !== 'processing') {
+        || decision.execution_id !== runId || !['processing', 'resolved'].includes(decision.status)) {
         throw new AppError('STATE_CONFLICT', '叙事决策恢复身份不匹配。');
       }
       const parsed = mechanicalResolvedOutcomeSchema.parse(JSON.parse(outcomeRow.outcome_json)) as unknown as MechanicalResolvedOutcome;
@@ -322,15 +358,18 @@ export class NarrativeDecisionResolutionService {
         tx, campaignId, roundId, decisionId, decision.action_id, runId,
         parsed.basedOnStateRevision, appliedRevision, mechanical,
       );
-      await this.narrative.markDecisionResolvedIn(tx, {
-        campaignId, roundId, decisionId, executionId: runId, outcomeId: outcomeRow.id, stateRevision: appliedRevision,
-      });
-      const resultJson = JSON.stringify({ stage: 'narrative_decision', outcome: parsed });
-      const rawDebugJson = JSON.stringify({ stage: 'narrative_decision', outcomeId: outcomeRow.id, decisionId, roundId, recovered: true });
-      if (!(await runs.markSucceeded(tx, runId, resultJson, rawDebugJson, new Date().toISOString(), appliedRevision))) {
-        throw new AppError('STATE_CONFLICT', '叙事决策恢复时 AI run 已被并发更新。');
+      if (decision.status === 'processing') {
+        await this.narrative.markDecisionResolvedIn(tx, {
+          campaignId, roundId, decisionId, executionId: runId, outcomeId: outcomeRow.id, stateRevision: appliedRevision,
+        });
       }
-      await this.outbox.publishIn(tx, { type: 'owner.debug', campaignId, runId, kind: 'recovered' });
+      const resultJson = JSON.stringify({ stage: 'mechanical_resolution', outcome: parsed });
+      const rawDebugJson = JSON.stringify({ stage: 'mechanical_resolution', outcomeId: outcomeRow.id, decisionId, roundId, recovered: true });
+      if ((run.run_kind !== 'mechanical_resolution' || run.applied_state_revision !== appliedRevision)
+        && !(await runs.markMechanicalCommitted(tx, runId, resultJson, rawDebugJson, appliedRevision))) {
+        throw new AppError('STATE_CONFLICT', '叙事决策机械恢复时 AI run 已被并发更新。');
+      }
+      await this.outbox.publishIn(tx, { type: 'owner.debug', campaignId, runId, kind: 'mechanics_recovered' });
     });
   }
 
@@ -347,44 +386,18 @@ export class NarrativeDecisionResolutionService {
   ): Promise<void> {
     const repository = new NarrativeRoundRepository(tx);
     if ((await repository.listWorkingFactsByExecution(roundId, executionId)).length > 0) return;
-    const outcomeId = mechanical.outcomeId;
-    const sourceRefs = [
-      `round:${roundId}`, `decision:${decisionId}`, `execution:${executionId}`,
-      `outcome:${outcomeId}`, `state-revision:${campaignId}:${appliedStateRevision}`,
-    ];
-    for (const [index, effect] of mechanical.effects.entries()) {
-      await this.narrative.recordWorkingFactIn(tx, {
-        id: `working-fact:${executionId}:effect:${index}`,
-        campaignId, roundId, decisionId, actionId,
-        factKind: effect.kind,
-        payload: { targetId: effect.targetId, delta: effect.delta, reason: effect.reason },
-        visibility: 'public', authority: 'server_mechanical', validationStatus: 'authoritative',
-        sourceKind: 'mechanical_resolved_outcome',
-        provenance: {
-          roundId, decisionId, actionId, executionId, outcomeId, eventId: null,
-          basedOnStateRevision, appliedStateRevision, sourceRefs,
-        },
-      });
-    }
-    if (mechanical.effects.length === 0) {
-      const intent = mechanical.outcome.intents[0];
-      await this.narrative.recordWorkingFactIn(tx, {
-        id: `working-fact:${executionId}:decision-resolved`,
-        campaignId, roundId, decisionId, actionId,
-        factKind: 'decision.resolved',
-        payload: {
-          actionType: intent?.actionType ?? 'unknown',
-          actionRef: intent?.actionRef ?? null,
-          targetIds: intent?.targetIds ?? [],
-        },
-        visibility: 'public', authority: 'runtime_state', validationStatus: 'authoritative',
-        sourceKind: 'narrative_decision',
-        provenance: {
-          roundId, decisionId, actionId, executionId, outcomeId, eventId: null,
-          basedOnStateRevision, appliedStateRevision, sourceRefs,
-        },
-      });
-    }
+    const facts = this.factProvenance.mechanicalOutcomeFacts({
+      campaignId,
+      roundId,
+      decisionId,
+      actionId,
+      executionId,
+      outcomeId: mechanical.outcomeId,
+      basedOnStateRevision,
+      appliedStateRevision,
+      outcome: mechanical.outcome,
+    });
+    for (const fact of facts) await this.narrative.recordWorkingFactIn(tx, fact);
   }
 
   private async fail(campaignId: string, roundId: string, decisionId: string, runId: string, error: unknown): Promise<void> {
@@ -450,6 +463,17 @@ export class NarrativeDecisionResolutionService {
       superseded: row.superseded_at !== null,
     };
   }
+}
+
+function promptFromRun(run: AiRunRow): AiPrompt {
+  try {
+    const parsed = JSON.parse(run.context_json) as { prompt?: unknown };
+    const prompt = aiPromptSchema.safeParse(parsed.prompt);
+    if (prompt.success) return prompt.data;
+  } catch {
+    // Fall through to the controlled state error below.
+  }
+  throw new AppError('STATE_CONFLICT', '叙事决策 AI run 缺少可恢复的 Provider context。');
 }
 
 function parseActionSnapshot(contextJson: string): ActionSnapshot | undefined {

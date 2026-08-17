@@ -160,6 +160,14 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 | Existing FactSet replay with a round from another campaign | `NOT_FOUND`/`STATE_CONFLICT`; never return the FactSet |
 | Archive restore of old v2 snapshot without `narrative` field | Restore legacy Turn state without inventing facts |
 
+### 4.1 Decision presentation checkpoint and deterministic contributors
+
+- The live Decision apply transaction commits the mechanical outcome, authoritative WorkingFacts, Decision `resolved` metadata and its applied StateRevision before narration starts. `NarrativeDecisionPresentationService` then owns only the narration attempt, `platform_turn_entries` presentation rows and final AI-run metadata.
+- A narration attempt with status `failed` is terminal for worker scheduling but remains retryable under the same execution/idempotency identity. Retry reads the stored mechanical outcome and may create only a new narration attempt; it must not call `MechanicalResolutionService`, create another Intent/RollPlan/RollRecord, append duplicate WorkingFacts, or allocate another StateRevision.
+- A `running` narration attempt is not presentation-terminal. The worker must retain its wake-up and block later unresolved Decisions until the attempt succeeds, fails, or exceeds the five-minute presentation lease. An expired attempt is CAS-marked `failed` with `NARRATION_ATTEMPT_EXPIRED`, then a new narration attempt may start.
+- If a process crash leaves a successful narration attempt while the parent AI run is still `running`, replay must finalize the run without inserting duplicate presentation entries.
+- `FactProvenanceService` is a pure server-owned contributor boundary. Mechanical effects and no-effect decision outcomes use stable fact IDs/source refs; state-transaction, event-evidence and GM-authored helpers may only produce authoritative records through the same `NarrativeRoundService.recordWorkingFactIn` allow-list. No contributor calls a Provider or promotes narration prose to runtime truth.
+
 ## 5. Good / Base / Bad Cases
 
 - **Good:** A claims at revision N; B submits while A's Provider is running; A applies at N+2 because the only intervening revision is `turn_action_submit`, while A still uses its immutable claim snapshot.

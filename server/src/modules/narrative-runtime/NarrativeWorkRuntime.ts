@@ -91,42 +91,67 @@ export class NarrativeWorkRuntime {
 
       const candidate = await this.coordinator.peekNext(event.campaignId, event.roundId);
       if (!candidate) {
-        // Closed/removed rounds have no future work; a later live transition
-        // publishes a fresh signal if it is still meaningful.
-        await this.markHandled(row.id);
+        // A stale wake-up can also be the last signal after a terminal
+        // narration/skip. Let the coordinator re-check the required Decision
+        // boundary and close the Round idempotently when appropriate.
+        await this.advanceAfterDecision(event, row.id);
         continue;
       }
       if (candidate.status !== 'submitted' && candidate.status !== 'processing') {
-        // needs_owner_attention is a deliberate blocked prefix. Skip this
-        // stale wake-up; Owner skip/retry emits another signal. A processing
-        // candidate is still eligible for resolver-owned crash recovery.
-        await this.markHandled(row.id);
+        // needs_owner_attention is a deliberate blocked prefix. It must not
+        // close the Round, but a terminal predecessor's wake-up can still be
+        // acknowledged after this check.
+        await this.advanceAfterDecision(event, row.id);
         continue;
       }
 
       this.activeRounds.add(event.roundId);
       const idempotencyKey = `narrative-work:${row.id}:${candidate.id}`;
       try {
-        const result = await this.worker.resolveDecisionInternal(
+        await this.worker.resolveDecisionInternal(
           event.campaignId,
           event.roundId,
           candidate.id,
           { idempotencyKey },
         );
-        if (result.run.status !== 'running') await this.markHandled(row.id);
+        await this.advanceAfterDecision(event, row.id);
       } catch (error) {
-        // A claim race is expected and must remain retryable. If the resolver
-        // already created a terminal run, the event is safely consumed even
-        // when the resolver surfaced that controlled failure to the caller.
-        if (await this.hasTerminalRun(event.campaignId, idempotencyKey)
-          || isTerminalNoWorkError(error)) {
+        // A narration failure is terminal for scheduling even though its
+        // mechanics run remains retryable. Provider/claim failures retain the
+        // older terminal-run and retry semantics.
+        const disposition = await this.advanceAfterDecision(event, row.id);
+        if (disposition === 'error' && (await this.hasTerminalRun(event.campaignId, idempotencyKey)
+          || isTerminalNoWorkError(error))) {
           await this.markHandled(row.id);
-        } else if (!(error instanceof AppError && error.code === 'STATE_CONFLICT')) {
+        } else if (disposition === 'error' && !(error instanceof AppError && error.code === 'STATE_CONFLICT')) {
           this.report(error);
         }
       } finally {
         this.activeRounds.delete(event.roundId);
       }
+    }
+  }
+
+  private async advanceAfterDecision(
+    event: { campaignId: string; roundId: string; decisionId: string },
+    eventId: string,
+  ): Promise<'handled' | 'retry' | 'error'> {
+    try {
+      const advancement = await this.coordinator.advanceAfterDecision(
+        event.campaignId,
+        event.roundId,
+        event.decisionId,
+      );
+      if (!advancement.presentationTerminal) {
+        if (advancement.retainSignal) return 'retry';
+        await this.markHandled(eventId);
+        return 'handled';
+      }
+      await this.markHandled(eventId);
+      return 'handled';
+    } catch (error) {
+      this.report(error);
+      return 'error';
     }
   }
 

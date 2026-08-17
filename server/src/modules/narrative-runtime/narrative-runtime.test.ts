@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { AiPrompt } from '@dnd/contracts';
 import type { CampaignAuthContext } from '../campaigns/CampaignAccess.js';
 import { resolveCampaignContext } from '../campaigns/CampaignAccess.js';
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
@@ -17,9 +18,16 @@ import {
 import { RoundProjectionService } from './RoundProjectionService.js';
 import { AiContextBuilder } from '../ai-runtime/AiContextBuilder.js';
 import { NarrativeDecisionResolutionService } from './NarrativeDecisionResolutionService.js';
+import { NARRATIVE_PRESENTATION_ATTEMPT_LEASE_MS } from './NarrativeDecisionPresentationService.js';
 import { NarrativeClaimLeaseSweeper } from './NarrativeClaimLeaseSweeper.js';
 import { NarrativeWorkCoordinator } from './NarrativeWorkCoordinator.js';
 import { NARRATIVE_WORK_CONSUMER_NAME, NarrativeWorkRuntime } from './NarrativeWorkRuntime.js';
+
+function narrationOutputFor(input: AiPrompt): { publicNarrative: string; privateUpdates: [] } | null {
+  return input.stage === 'narration'
+    ? { publicNarrative: '测试叙事：服务端已提交的结果。', privateUpdates: [] }
+    : null;
+}
 
 async function makeFixture() {
   const db = createSqliteDatabase(':memory:');
@@ -202,7 +210,7 @@ describe('NarrativeRound runtime', () => {
       const provider = {
         name: 'scripted',
         model: 'narrative-test',
-        stream: async () => ({
+        stream: async (input: AiPrompt) => narrationOutputFor(input) ?? ({
           actionIntents: [{
             actionId: decision.actionId,
             actorId: decision.actorId,
@@ -236,6 +244,233 @@ describe('NarrativeRound runtime', () => {
     }
   });
 
+  it('treats narration failure as terminal for scheduling, closes the Round, and retries only presentation', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    const outbox = new OutboxRepository(db);
+    let intentIndex = 0;
+    let narrationCalls = 0;
+    let failedFirstNarration = false;
+    const narrationPrompts: AiPrompt[] = [];
+    let runtime: NarrativeWorkRuntime | undefined;
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A 打开门。' });
+      await turns.submitAction(contexts[1], turn.id, { body: 'B 观察门内。' });
+      await turns.submitAction(contexts[2], turn.id, { body: 'C 记录现场。' });
+      const view = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      const decisions = view.decisions;
+      if (decisions.length !== 3 || decisions.some((decision) => !decision.actionId)) {
+        throw new Error('expected three submitted Decisions');
+      }
+
+      const provider = {
+        name: 'presentation-terminal-scripted',
+        model: 'presentation-terminal-test',
+        stream: async (input: AiPrompt) => {
+          if (input.stage === 'narration') {
+            narrationPrompts.push(input);
+            narrationCalls += 1;
+            if (!failedFirstNarration) {
+              failedFirstNarration = true;
+              throw new Error('narration provider unavailable');
+            }
+            return { publicNarrative: `第 ${narrationCalls} 次叙事`, privateUpdates: [] };
+          }
+          const decision = decisions[intentIndex++];
+          if (!decision?.actionId) throw new Error('unexpected extra intent interpretation');
+          return {
+            actionIntents: [{
+              actionId: decision.actionId,
+              actorId: decision.actorId,
+              mode: 'player_action',
+              actionType: 'healing',
+              actionRef: 'healing:basic',
+              targetIds: [],
+              declaredApproach: '继续行动',
+              desiredOutcome: '完成行动',
+              resourceChoices: [],
+              fallbackPolicy: 'continue',
+            }],
+          };
+        },
+      } as const;
+      const service = new NarrativeDecisionResolutionService(db, provider, outbox);
+      const coordinator = new NarrativeWorkCoordinator(db, outbox);
+      runtime = new NarrativeWorkRuntime(db, coordinator, service, 5);
+
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        await runtime.runOnce();
+        const current = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+        if (current.round.status === 'closed') break;
+      }
+
+      const closed = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
+      expect(closed.round.status).toBe('closed');
+      expect(closed.decisions.every((decision) => decision.status === 'resolved')).toBe(true);
+      expect(new Set(closed.workingFacts.map((fact) => fact.id)).size).toBe(closed.workingFacts.length);
+      expect(closed.workingFacts.every((fact) => fact.provenance.executionId
+        && fact.provenance.sourceRefs.some((ref) => ref.startsWith('state-revision:')))).toBe(true);
+      expect(narrationCalls).toBe(3);
+      expect(narrationPrompts).toHaveLength(3);
+      expect(narrationPrompts.every((prompt) => {
+        const content = prompt.messages.map((message) => message.content).join('\\n');
+        return !content.includes('A 打开门') && !content.includes('B 观察门内') && !content.includes('C 记录现场');
+      })).toBe(true);
+      expect(await db.query(
+        'SELECT id FROM platform_narrative_round_fact_sets WHERE round_id = ?', [turn.id],
+      )).toHaveLength(1);
+      expect(await db.query(
+        'SELECT id FROM platform_turns WHERE campaign_id = ?', [turn.campaignId],
+      )).toHaveLength(2);
+      expect(await db.query(
+        "SELECT id FROM platform_turn_entries WHERE turn_id = ? AND entry_kind = 'narrative'", [turn.id],
+      )).toHaveLength(2);
+      expect((await db.query<{ status: string }>(
+        'SELECT status FROM platform_narrative_rounds WHERE id = ?', [turn.id],
+      ))[0].status).toBe('closed');
+
+      const aDecision = decisions[0];
+      const aExecution = (await db.query<{ execution_id: string; idempotency_key: string }>(
+        'SELECT execution_id, idempotency_key FROM platform_ai_runs r '
+        + 'JOIN platform_narrative_decisions d ON d.execution_id = r.id '
+        + 'WHERE d.id = ?', [aDecision.id],
+      ))[0];
+      if (!aExecution) throw new Error('expected A execution');
+      expect((await db.query<{ status: string }>(
+        'SELECT status FROM platform_narration_attempts WHERE execution_id = ? ORDER BY attempt', [aExecution.execution_id],
+      )).map((row) => row.status)).toEqual(['failed']);
+      expect((await db.query<{ status: string }>(
+        'SELECT status FROM platform_ai_runs WHERE id = ?', [aExecution.execution_id],
+      ))[0].status).toBe('running');
+
+      const beforeRevision = (await db.query<{ revision: number }>(
+        'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [turn.campaignId],
+      ))[0].revision;
+      const beforeOutcomes = await db.query(
+        'SELECT id FROM platform_resolved_outcomes WHERE execution_id = ?', [aExecution.execution_id],
+      );
+      const beforeIntents = await db.query(
+        'SELECT id FROM platform_action_intents WHERE execution_id = ?', [aExecution.execution_id],
+      );
+      const beforeRollPlans = await db.query(
+        'SELECT id FROM platform_roll_plans WHERE execution_id = ?', [aExecution.execution_id],
+      );
+      const beforeRollRecords = await db.query(
+        'SELECT id FROM platform_roll_records WHERE execution_id = ?', [aExecution.execution_id],
+      );
+      const beforeFacts = await db.query(
+        'SELECT id FROM platform_narrative_working_facts WHERE round_id = ?', [turn.id],
+      );
+      const beforeFactSets = await db.query(
+        'SELECT id FROM platform_narrative_round_fact_sets WHERE round_id = ?', [turn.id],
+      );
+
+      const retry = await service.resolveDecision(ownerCtx, turn.id, aDecision.id, {
+        idempotencyKey: aExecution.idempotency_key,
+      });
+      expect(retry.created).toBe(false);
+      expect(retry.run.status).toBe('succeeded');
+      expect(narrationCalls).toBe(4);
+      expect((await db.query<{ status: string }>(
+        'SELECT status FROM platform_narration_attempts WHERE execution_id = ? ORDER BY attempt', [aExecution.execution_id],
+      )).map((row) => row.status)).toEqual(['failed', 'succeeded']);
+      expect((await db.query<{ revision: number }>(
+        'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [turn.campaignId],
+      ))[0].revision).toBe(beforeRevision);
+      expect(await db.query(
+        'SELECT id FROM platform_resolved_outcomes WHERE execution_id = ?', [aExecution.execution_id],
+      )).toHaveLength(beforeOutcomes.length);
+      expect(await db.query(
+        'SELECT id FROM platform_action_intents WHERE execution_id = ?', [aExecution.execution_id],
+      )).toHaveLength(beforeIntents.length);
+      expect(await db.query(
+        'SELECT id FROM platform_roll_plans WHERE execution_id = ?', [aExecution.execution_id],
+      )).toHaveLength(beforeRollPlans.length);
+      expect(await db.query(
+        'SELECT id FROM platform_roll_records WHERE execution_id = ?', [aExecution.execution_id],
+      )).toHaveLength(beforeRollRecords.length);
+      expect(await db.query(
+        'SELECT id FROM platform_narrative_working_facts WHERE round_id = ?', [turn.id],
+      )).toHaveLength(beforeFacts.length);
+      expect(await db.query(
+        'SELECT id FROM platform_narrative_round_fact_sets WHERE round_id = ?', [turn.id],
+      )).toHaveLength(beforeFactSets.length);
+      expect(await db.query(
+        "SELECT id FROM platform_turn_entries WHERE turn_id = ? AND entry_kind = 'narrative'", [turn.id],
+      )).toHaveLength(3);
+
+      const advanced = await coordinator.advanceAfterDecision(turn.campaignId, turn.id, decisions[2].id);
+      expect(advanced).toMatchObject({ presentationTerminal: true, action: 'closed' });
+      const closedReplay = await narrative.closeRound(turn.campaignId, turn.id);
+      expect(closedReplay.replayed).toBe(true);
+      expect(closedReplay.factSet.id).toBe((await db.query<{ id: string }>(
+        'SELECT id FROM platform_narrative_round_fact_sets WHERE round_id = ?', [turn.id],
+      ))[0].id);
+      expect(await db.query(
+        'SELECT id FROM platform_turns WHERE campaign_id = ?', [turn.campaignId],
+      )).toHaveLength(2);
+    } finally {
+      await runtime?.stop();
+      await db.close();
+    }
+  });
+
+  it('reclaims an expired running narration attempt without rerunning mechanics', async () => {
+    const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
+    const outbox = new OutboxRepository(db);
+    let narrationCalls = 0;
+    try {
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(contexts[0], turn.id, { body: 'A 重试叙事。' });
+      const decision = (await narrative.getRequiredByTurn(turn.campaignId, turn.id)).decisions
+        .find((item) => item.actorId === contexts[0].playerId);
+      if (!decision?.actionId) throw new Error('expected A decision');
+      const provider = {
+        name: 'expired-narration-test',
+        model: 'expired-narration-test',
+        stream: async (input: AiPrompt) => {
+          if (input.stage === 'narration') {
+            narrationCalls += 1;
+            if (narrationCalls === 1) throw new Error('first narration attempt fails');
+            return { publicNarrative: '恢复后的叙事', privateUpdates: [] };
+          }
+          return { actionIntents: [{
+            actionId: decision.actionId!, actorId: decision.actorId, mode: 'player_action',
+            actionType: 'healing', actionRef: 'healing:basic', targetIds: [],
+            declaredApproach: '重试', desiredOutcome: '完成', resourceChoices: [], fallbackPolicy: 'continue',
+          }] };
+        },
+      } as const;
+      const service = new NarrativeDecisionResolutionService(db, provider, outbox);
+      await expect(service.resolveDecision(ownerCtx, turn.id, decision.id, { idempotencyKey: 'expired-narration' }))
+        .rejects.toMatchObject({ code: 'AI_PROVIDER_FAILED' });
+      const run = (await db.query<{ id: string }>(
+        'SELECT id FROM platform_ai_runs WHERE turn_id = ?', [turn.id],
+      ))[0];
+      if (!run) throw new Error('expected AI run');
+      const expiredAt = new Date(Date.now() - NARRATIVE_PRESENTATION_ATTEMPT_LEASE_MS - 1000).toISOString();
+      await db.execute(
+        "UPDATE platform_narration_attempts SET status = 'running', created_at = ?, error_json = NULL, completed_at = NULL WHERE execution_id = ?",
+        [expiredAt, run.id],
+      );
+
+      const retry = await service.resolveDecision(ownerCtx, turn.id, decision.id, { idempotencyKey: 'expired-narration' });
+      expect(retry.created).toBe(false);
+      expect(retry.run.status).toBe('succeeded');
+      expect(narrationCalls).toBe(2);
+      expect((await db.query<{ status: string; error_json: string | null }>(
+        'SELECT status, error_json FROM platform_narration_attempts WHERE execution_id = ? ORDER BY attempt', [run.id],
+      )).map((row) => row.status)).toEqual(['failed', 'succeeded']);
+      expect(JSON.stringify((await db.query<{ error_json: string | null }>(
+        'SELECT error_json FROM platform_narration_attempts WHERE execution_id = ? ORDER BY attempt LIMIT 1', [run.id],
+      ))[0])).toContain('NARRATION_ATTEMPT_EXPIRED');
+      expect(await db.query('SELECT id FROM platform_resolved_outcomes WHERE execution_id = ?', [run.id])).toHaveLength(1);
+      expect(await db.query('SELECT id FROM platform_narrative_working_facts WHERE execution_id = ?', [run.id])).toHaveLength(1);
+    } finally {
+      await db.close();
+    }
+  });
+
   it('consumes work_available through the background resolver without an Owner resolve call', async () => {
     const { db, ownerCtx, contexts, turns, narrative } = await makeFixture();
     let providerCalls = 0;
@@ -254,9 +489,9 @@ describe('NarrativeRound runtime', () => {
       const provider = {
         name: 'background-scripted',
         model: 'background-test',
-        stream: async () => {
+        stream: async (input: AiPrompt) => {
           providerCalls += 1;
-          return {
+          return narrationOutputFor(input) ?? {
             actionIntents: [{
               actionId, actorId, mode: 'player_action', actionType: 'healing', actionRef: 'healing:basic',
               targetIds: [], declaredApproach: '恢复体力', desiredOutcome: '恢复一点生命',
@@ -280,7 +515,7 @@ describe('NarrativeRound runtime', () => {
         expect(current.decisions.find((item) => item.id === decision.id)?.status).toBe('resolved');
       });
 
-      expect(providerCalls).toBe(1);
+      expect(providerCalls).toBe(2);
       const runs = await db.query<{ status: string; id: string }>(
         'SELECT id, status FROM platform_ai_runs WHERE turn_id = ?', [turn.id],
       );
@@ -304,7 +539,7 @@ describe('NarrativeRound runtime', () => {
       );
       await restarted.runOnce();
       await restarted.stop();
-      expect(providerCalls).toBe(1);
+      expect(providerCalls).toBe(2);
     } finally {
       await runtime?.stop();
       await db.close();
@@ -340,9 +575,9 @@ describe('NarrativeRound runtime', () => {
       const provider = {
         name: 'restore-rewake-scripted',
         model: 'restore-rewake-test',
-        stream: async () => {
+        stream: async (input: AiPrompt) => {
           providerCalls += 1;
-          return {
+          return narrationOutputFor(input) ?? {
             actionIntents: [{
               actionId, actorId, mode: 'player_action', actionType: 'healing', actionRef: 'healing:basic',
               targetIds: [], declaredApproach: '恢复体力', desiredOutcome: '恢复一点生命',
@@ -360,7 +595,7 @@ describe('NarrativeRound runtime', () => {
       );
 
       await runtime.runOnce();
-      expect(providerCalls).toBe(1);
+      expect(providerCalls).toBe(2);
       expect(await db.query(
         'SELECT event_id FROM platform_outbox_consumer_receipts WHERE consumer_name = ? AND event_id = ?',
         [NARRATIVE_WORK_CONSUMER_NAME, originalWork.id],
@@ -405,7 +640,7 @@ describe('NarrativeRound runtime', () => {
       )).toHaveLength(0);
 
       await runtime.runOnce();
-      expect(providerCalls).toBe(2);
+      expect(providerCalls).toBe(4);
       expect((await narrative.getRequiredByTurn(turn.campaignId, turn.id)).decisions
         .find((item) => item.id === decision.id)?.status).toBe('resolved');
       expect(await db.query(
@@ -445,9 +680,9 @@ describe('NarrativeRound runtime', () => {
       const provider = {
         name: 'action-branch-scripted',
         model: 'action-branch-test',
-        stream: async () => {
+        stream: async (input: AiPrompt) => {
           providerCalls += 1;
-          return {
+          return narrationOutputFor(input) ?? {
             actionIntents: [{
               actionId: currentActionId, actorId: currentActorId, mode: 'player_action', actionType: 'healing',
               actionRef: 'healing:basic', targetIds: [], declaredApproach: '恢复体力', desiredOutcome: '恢复一点生命',
@@ -465,7 +700,7 @@ describe('NarrativeRound runtime', () => {
       );
 
       await runtime.runOnce();
-      expect(providerCalls).toBe(1);
+      expect(providerCalls).toBe(2);
       await runtime.runOnce(); // consume A's post-resolution wake before B submits.
 
       await turns.submitAction(contexts[1], turn.id, { body: 'B1 在 checkpoint 之后提交。' });
@@ -476,7 +711,7 @@ describe('NarrativeRound runtime', () => {
       currentActionId = bDecision.actionId;
       currentActorId = bDecision.actorId;
       await runtime.runOnce();
-      expect(providerCalls).toBe(2);
+      expect(providerCalls).toBe(4);
       expect(await db.query(
         'SELECT id FROM platform_action_intents WHERE action_id = ?', [b1ActionId],
       )).toHaveLength(1);
@@ -515,7 +750,7 @@ describe('NarrativeRound runtime', () => {
       currentActionId = aDecision.actionId;
       currentActorId = aDecision.actorId;
       await runtime.runOnce();
-      expect(providerCalls).toBe(3);
+      expect(providerCalls).toBe(6);
       expect((await narrative.getRequiredByTurn(turn.campaignId, turn.id)).decisions
         .find((item) => item.actorId === contexts[0].playerId)?.status).toBe('resolved');
       await runtime.runOnce(); // consume A's post-resolution wake before B2 submits.
@@ -540,7 +775,7 @@ describe('NarrativeRound runtime', () => {
       });
 
       await runtime.runOnce();
-      expect(providerCalls).toBe(4);
+      expect(providerCalls).toBe(8);
       const afterB2 = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
       expect(afterB2.decisions.find((item) => item.actorId === contexts[1].playerId)?.status).toBe('resolved');
       expect((await db.query<{ superseded_at: string | null }>(
@@ -595,9 +830,9 @@ describe('NarrativeRound runtime', () => {
       const provider = {
         name: 'durable-receipt-scripted',
         model: 'durable-receipt-test',
-        stream: async () => {
+        stream: async (input: AiPrompt) => {
           providerCalls += 1;
-          return {
+          return narrationOutputFor(input) ?? {
             actionIntents: [{
               actionId, actorId, mode: 'player_action', actionType: 'healing', actionRef: 'healing:basic',
               targetIds: [], declaredApproach: '恢复体力', desiredOutcome: '恢复一点生命',
@@ -637,7 +872,7 @@ describe('NarrativeRound runtime', () => {
       await restarted.runOnce();
       await restarted.stop();
 
-      expect(providerCalls).toBe(1);
+      expect(providerCalls).toBe(2);
       const resolved = await narrative.getRequiredByTurn(turn.campaignId, turn.id);
       expect(resolved.decisions.find((item) => item.id === decision.id)?.status).toBe('resolved');
       const receipts = await db.query<{ payload_json: string }>(
@@ -674,10 +909,10 @@ describe('NarrativeRound runtime', () => {
       const provider = {
         name: 'collecting-test',
         model: 'collecting-test',
-        stream: async () => {
+        stream: async (input: AiPrompt) => {
           calls += 1;
           await providerGate;
-          return {
+          return narrationOutputFor(input) ?? {
             actionIntents: [{
               actionId: decision.actionId!, actorId: decision.actorId, mode: 'player_action',
               actionType: 'healing', actionRef: 'healing:basic', targetIds: [],
@@ -718,6 +953,21 @@ describe('NarrativeRound runtime', () => {
         payload: { value: true },
         visibility: 'public',
         authority: 'ai_candidate',
+        validationStatus: 'authoritative',
+        sourceKind: 'narration_result',
+        provenance: {
+          roundId: turn.id, decisionId: null, actionId: null, executionId: null,
+          outcomeId: null, eventId: null, basedOnStateRevision: 0,
+          appliedStateRevision: null, sourceRefs: [`round:${turn.id}`],
+        },
+      }))).rejects.toMatchObject({ code: 'AI_OUTPUT_INVALID' });
+      await expect(db.transaction((tx) => narrative.recordWorkingFactIn(tx, {
+        campaignId: turn.campaignId,
+        roundId: turn.id,
+        factKind: 'npc.afraid',
+        payload: { value: true },
+        visibility: 'public',
+        authority: 'runtime_state',
         validationStatus: 'authoritative',
         sourceKind: 'narration_result',
         provenance: {
@@ -1051,7 +1301,8 @@ describe('NarrativeRound runtime', () => {
       if (!decision?.actionId) throw new Error('expected A decision');
       const provider = {
         name: 'snapshot-test', model: 'snapshot-test',
-        stream: async () => {
+        stream: async (input: AiPrompt) => {
+          if (input.stage === 'narration') return narrationOutputFor(input)!;
           await expect(turns.submitAction(contexts[0], turn.id, { body: 'edit after claim' }))
             .rejects.toMatchObject({ code: 'TURN_LOCKED' });
           await db.execute('UPDATE platform_actions SET body = ? WHERE id = ?', ['concurrent raw edit', decision.actionId]);
@@ -1085,7 +1336,7 @@ describe('NarrativeRound runtime', () => {
       if (!decision?.actionId) throw new Error('expected A decision');
       const provider = {
         name: 'replay-test', model: 'replay-test',
-        stream: async () => ({ actionIntents: [{
+        stream: async (input: AiPrompt) => narrationOutputFor(input) ?? ({ actionIntents: [{
           actionId: decision.actionId!, actorId: decision.actorId, mode: 'player_action',
           actionType: 'healing', actionRef: 'healing:basic', targetIds: [],
           declaredApproach: 'recover', desiredOutcome: 'recover', resourceChoices: [], fallbackPolicy: 'continue',

@@ -24,6 +24,7 @@ import { AiRunRepository } from '../ai-runtime/AiRunRepository.js';
 import { AdjudicationRepository } from '../adjudication/AdjudicationRepository.js';
 import { CharacterRepository } from '../characters/CharacterRepository.js';
 import { TurnRepository, type TurnRow } from '../turns/TurnRepository.js';
+import { FactProvenanceService } from './FactProvenanceService.js';
 import {
   NarrativeRoundRepository,
   type InsertNarrativeDecision,
@@ -88,6 +89,7 @@ export interface RecordWorkingFactOptions {
  */
 export class NarrativeRoundService {
   private readonly mutations: CampaignMutationCoordinator;
+  private readonly factProvenance = new FactProvenanceService();
 
   constructor(
     private readonly executor: DatabasePort,
@@ -513,7 +515,9 @@ export class NarrativeRoundService {
       type: 'narrative.decision.resolved', campaignId: input.campaignId, roundId: input.roundId,
       decisionId: input.decisionId, stateRevision: input.stateRevision,
     });
-    await this.publishWorkAvailableIn(tx, input.campaignId, input.roundId, input.decisionId);
+    // Presentation terminality is decided outside the mechanics transaction.
+    // The worker/coordinator schedules the next Decision only after the
+    // narration attempt is succeeded or failed.
     const updated = await repository.findDecisionById(input.decisionId);
     if (!updated) throw new AppError('INTERNAL_ERROR', '叙事决策完成结果读取失败。');
     return mapNarrativeDecision(updated);
@@ -780,32 +784,37 @@ export class NarrativeRoundService {
     });
     const workingRows = await repository.listWorkingFacts(round.id);
     if (workingRows.length === 0 && executionId) {
-      const sourceRefs = [`round:${round.id}`, `turn:${turnId}`, `execution:${executionId}`, `state-revision:${campaignId}:${stateRevision}`];
       if (outcome && outcome.effects.length > 0) {
-        for (const effect of outcome.effects) {
-          await this.recordWorkingFactIn(tx, {
-            campaignId, roundId: round.id, actionId: effect.sourceActionId ?? null, factKind: effect.kind,
-            payload: { targetId: effect.targetId, delta: effect.delta, reason: effect.reason },
-            visibility: 'public', authority: 'server_mechanical', validationStatus: 'authoritative',
-            sourceKind: 'mechanical_resolved_outcome',
-            provenance: {
-              roundId: round.id, decisionId: null, actionId: effect.sourceActionId ?? null, executionId,
-              outcomeId: outcome.id ?? null, eventId: null, basedOnStateRevision: outcome.basedOnStateRevision,
-              appliedStateRevision: stateRevision, sourceRefs,
-            },
-          });
-        }
-      } else {
-        await this.recordWorkingFactIn(tx, {
-          campaignId, roundId: round.id, factKind: 'turn.resolved',
-          payload: { turnId, executionId }, visibility: 'public', authority: 'event_evidence',
-          validationStatus: 'authoritative', sourceKind: 'turn_or_narrative_event',
-          provenance: {
-            roundId: round.id, decisionId: null, actionId: null, executionId,
-            outcomeId: outcome?.id ?? null, eventId: null, basedOnStateRevision: outcome?.basedOnStateRevision ?? stateRevision,
-            appliedStateRevision: stateRevision, sourceRefs,
-          },
+        const facts = this.factProvenance.mechanicalOutcomeFacts({
+          campaignId,
+          roundId: round.id,
+          decisionId: null,
+          actionId: null,
+          executionId,
+          outcomeId: outcome.id ?? executionId,
+          basedOnStateRevision: outcome.basedOnStateRevision,
+          appliedStateRevision: stateRevision,
+          outcome,
         });
+        for (const fact of facts) await this.recordWorkingFactIn(tx, fact);
+      } else {
+        const sourceRefs = [
+          `round:${round.id}`, `turn:${turnId}`, `execution:${executionId}`,
+          `state-revision:${campaignId}:${stateRevision}`,
+        ];
+        await this.recordWorkingFactIn(tx, this.factProvenance.eventEvidence({
+          id: `working-fact:${executionId}:turn-resolved`,
+          campaignId,
+          roundId: round.id,
+          factKind: 'turn.resolved',
+          payload: { turnId, executionId },
+          visibility: 'public',
+          executionId,
+          outcomeId: outcome?.id ?? null,
+          basedOnStateRevision: outcome?.basedOnStateRevision ?? stateRevision,
+          appliedStateRevision: stateRevision,
+          sourceRefs,
+        }));
       }
     }
     const finalRows = await repository.listWorkingFacts(round.id);
@@ -987,12 +996,28 @@ function toFactRow(fact: WorkingFact): InsertNarrativeFact {
   };
 }
 
+const FACT_AUTHORITY_ALLOW_LIST: ReadonlyArray<{
+  sourceKind: FactSourceKind;
+  authority: FactAuthority;
+  validationStatuses: readonly FactValidationStatus[];
+}> = [
+  { sourceKind: 'mechanical_resolved_outcome', authority: 'server_mechanical', validationStatuses: ['authoritative'] },
+  { sourceKind: 'state_transaction', authority: 'runtime_state', validationStatuses: ['authoritative'] },
+  { sourceKind: 'narrative_decision', authority: 'runtime_state', validationStatuses: ['authoritative'] },
+  { sourceKind: 'gm_authored', authority: 'runtime_state', validationStatuses: ['authoritative'] },
+  { sourceKind: 'gm_authored', authority: 'event_evidence', validationStatuses: ['authoritative'] },
+  { sourceKind: 'turn_or_narrative_event', authority: 'event_evidence', validationStatuses: ['authoritative'] },
+  { sourceKind: 'narration_result', authority: 'ai_candidate', validationStatuses: ['candidate', 'pending', 'rejected'] },
+  { sourceKind: 'narration_result', authority: 'event_evidence', validationStatuses: ['candidate', 'pending'] },
+];
+
 function validateFactInput(input: RecordWorkingFactOptions): void {
-  if (input.authority === 'ai_candidate' && input.validationStatus === 'authoritative') {
-    throw new AppError('AI_OUTPUT_INVALID', 'AI candidate 不能直接成为 authoritative fact。');
-  }
-  if (input.authority === 'ai_candidate' && input.sourceKind !== 'narration_result') {
-    throw new AppError('AI_OUTPUT_INVALID', 'AI candidate 必须引用 narration_result。');
+  const allowed = FACT_AUTHORITY_ALLOW_LIST.some((entry) =>
+    entry.sourceKind === input.sourceKind
+    && entry.authority === input.authority
+    && entry.validationStatuses.includes(input.validationStatus));
+  if (!allowed) {
+    throw new AppError('AI_OUTPUT_INVALID', 'WorkingFact 的 sourceKind、authority、validationStatus 组合不在允许列表中。');
   }
   if (input.visibility === 'player_private' && (!input.audienceActorIds || input.audienceActorIds.length === 0)) {
     throw new AppError('VALIDATION_ERROR', 'player_private fact 必须指定 actor audience。');
