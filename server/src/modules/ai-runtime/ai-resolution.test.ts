@@ -150,9 +150,12 @@ describe('ai resolution service', () => {
     let interpretationCalls = 0;
     let narrationCalls = 0;
     let narrationAvailable = false;
+    const narrationRequests: Array<Record<string, unknown>> = [];
     const provider = new ScriptedAiProvider(async (input) => {
       if (input.stage === 'narration') {
         narrationCalls += 1;
+        const userMessage = input.messages.find((message) => message.role === 'user');
+        if (userMessage) narrationRequests.push(JSON.parse(userMessage.content) as Record<string, unknown>);
         if (!narrationAvailable) throw new Error('narration unavailable');
         return {
           publicNarrative: '服务端裁定命中，敌人受伤。',
@@ -197,9 +200,17 @@ describe('ai resolution service', () => {
         .rejects.toMatchObject({ code: 'AI_PROVIDER_FAILED' });
       expect(interpretationCalls).toBe(1);
       expect(narrationCalls).toBe(1);
+      expect(narrationRequests).toHaveLength(1);
+      expect((narrationRequests[0].observableOutcome as { effects: unknown[] }).effects).toEqual([
+        { kind: 'hp_delta', targetId, delta: -4, reason: 'attack_damage' },
+        { kind: 'hp_delta', targetId, delta: -4, reason: 'attack_damage' },
+      ]);
       expect(await db.query('SELECT id FROM platform_turn_entries WHERE turn_id = ?', [turn.id])).toHaveLength(0);
-      expect(await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).toHaveLength(0);
-      expect((await db.query<{ status: string }>('SELECT status FROM platform_turns WHERE id = ?', [turn.id]))[0].status).toBe('resolving');
+      expect(await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).toHaveLength(1);
+      expect((await db.query<{ status: string }>('SELECT status FROM platform_turns WHERE id = ?', [turn.id]))[0].status).toBe('completed');
+      expect((await db.query<{ number: number; status: string }>('SELECT number, status FROM platform_turns WHERE campaign_id = ? AND number = 2', [turn.campaignId]))).toEqual([
+        { number: 2, status: 'waiting_for_actions' },
+      ]);
       expect((await db.query<{ status: string }>('SELECT status FROM platform_ai_runs WHERE id = ?', [
         (await db.query<{ id: string }>('SELECT id FROM platform_ai_runs WHERE turn_id = ?', [turn.id]))[0].id,
       ]))[0].status).toBe('running');
@@ -207,6 +218,11 @@ describe('ai resolution service', () => {
       expect(await db.query('SELECT id FROM platform_roll_records WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?)', [turn.id])).toHaveLength(4);
       expect((await db.query<{ hp_current: number }>('SELECT hp_current FROM platform_combatants WHERE id = ?', [targetId]))[0].hp_current).toBe(12);
       expect((await db.query<{ count: number }>("SELECT COUNT(*) AS count FROM platform_campaign_state_revisions WHERE campaign_id = ? AND cause_type = 'ai_formal_apply'", [turn.campaignId]))[0].count).toBe(1);
+      const headAfterMechanical = await db.query<{ revision: number }>('SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [turn.campaignId]);
+      const outcomeAfterMechanical = await db.query<{ applied_state_revision: number }>(
+        'SELECT applied_state_revision FROM platform_resolved_outcomes WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?)', [turn.id],
+      );
+      expect(headAfterMechanical[0].revision).toBe(outcomeAfterMechanical[0].applied_state_revision);
       expect((await db.query<{ status: string }>('SELECT status FROM platform_narration_attempts WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?) ORDER BY attempt', [turn.id])).map((row) => row.status)).toEqual(['failed']);
 
       narrationAvailable = true;
@@ -220,6 +236,7 @@ describe('ai resolution service', () => {
       expect((await db.query<{ entry_kind: string }>('SELECT entry_kind FROM platform_turn_entries WHERE turn_id = ? ORDER BY entry_index', [turn.id])).map((row) => row.entry_kind)).toEqual(['narrative', 'private_update']);
       expect((await db.query<{ status: string }>('SELECT status FROM platform_narration_attempts WHERE execution_id IN (SELECT id FROM platform_ai_runs WHERE turn_id = ?) ORDER BY attempt', [turn.id])).map((row) => row.status)).toEqual(['failed', 'succeeded']);
       expect(await db.query('SELECT id FROM platform_archives WHERE campaign_id = ?', [turn.campaignId])).toHaveLength(1);
+      expect(await db.query('SELECT id FROM platform_turns WHERE campaign_id = ? AND number = 2', [turn.campaignId])).toHaveLength(1);
       const replay = await service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'semantic-retry' });
       expect(replay.created).toBe(false);
       expect(narrationCalls).toBe(2);

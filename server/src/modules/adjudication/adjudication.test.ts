@@ -81,6 +81,37 @@ describe('server adjudication and dice authority', () => {
     expect(result.effects).toEqual([{ kind: 'hp_delta', targetId: 'goblin-1', delta: -4, reason: 'attack_damage' }]);
   });
 
+  it('does not let Provider resourceChoices select mechanical advantage', () => {
+    const adjudicator = new AdjudicationService(new DiceService(() => 0.05));
+    const result = adjudicator.resolve({
+      ...attackIntent(), resourceChoices: ['advantage'], basedOnStateRevision: 4,
+    }, {
+      campaignId: 'campaign-1', turnId: 'turn-1', executionId: 'run-advantage', stateRevision: 4,
+      rulesetId: 'dnd5e', rulesetVersion: 'v0.1',
+      actors: { 'player-1': { id: 'player-1', attackModifier: 5 } },
+      targets: { 'goblin-1': { id: 'goblin-1', ac: 10, hpCurrent: 8, hpMax: 8 } },
+    }, 'mutation-advantage');
+    expect(result.plans[0].advantageState).toBe('normal');
+    expect(result.records[0].rawDice).toEqual([2]);
+    expect(result.records[0].selectedDice).toEqual([2]);
+  });
+
+  it('applies saving throw failure consequences to the acting actor', () => {
+    const adjudicator = new AdjudicationService(new DiceService(() => 0));
+    const result = adjudicator.resolve({
+      actionId: 'action-save', campaignId: 'campaign-1', actorId: 'player-1', input: '抵抗毒素',
+      mode: 'player_action', actionType: 'saving_throw', actionRef: 'saving_throw:basic',
+      targetIds: ['poison-source'], resourceChoices: [], basedOnStateRevision: 4,
+    }, {
+      campaignId: 'campaign-1', turnId: 'turn-1', executionId: 'run-save', stateRevision: 4,
+      rulesetId: 'dnd5e', rulesetVersion: 'v0.1',
+      actors: { 'player-1': { id: 'player-1', savingThrowModifiers: { basic: 0 }, hpCurrent: 8, hpMax: 8 } },
+      targets: { 'poison-source': { id: 'poison-source', hpCurrent: 1, hpMax: 1 } },
+    }, 'mutation-save');
+    expect(result.records[0].result).toBe('failure');
+    expect(result.effects).toEqual([{ kind: 'hp_delta', targetId: 'player-1', delta: -1, reason: 'saving_throw_failure' }]);
+  });
+
   it('allows a fixed ability check without a Provider-supplied DC', () => {
     const adjudicator = new AdjudicationService(new DiceService(() => 0.5));
     const result = adjudicator.resolve({

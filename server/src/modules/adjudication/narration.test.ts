@@ -12,7 +12,7 @@ const request: NarrationRequest = {
   audience: 'player_public',
   actionSummaries: [{ actionId: 'action-1', actorId: 'player-1', text: '攻击地精' }],
   observableOutcome: {
-    effects: ['attack_damage:-4'],
+    effects: [{ kind: 'hp_delta', targetId: 'goblin-1', delta: -4, reason: 'attack_damage' }],
     rolls: [{ kind: 'attack', selectedDice: [19], total: 24, result: 'success' }],
   },
 };

@@ -94,8 +94,8 @@ Persisted visibility remains `public | player_private | owner_only`. Map it at t
 
 1. Claim changes `locked` to `resolving` through the coordinator and stores the post-claim revision in `expected_state_revision` and `context_json.stateRevision`.
 2. Provider invocation occurs outside the database transaction and happens once per claimed execution.
-3. Formal apply performs an expected-revision CAS. Only after it succeeds may the transaction apply typed state changes, entries, interactions, run success, turn completion, archive creation, formal events, and next-turn creation.
-4. Successful formal apply stores the new head in `applied_state_revision`.
+3. Formal apply performs an expected-revision CAS. Only after it succeeds may the transaction apply typed state changes, entries, interactions, run success, turn completion, archive creation, formal events, and next-turn creation. For semantic Intent resolution, the mechanical checkpoint owns the same Turn completion/archive/next-turn lifecycle; the later Narration finalize is presentation-only.
+4. Successful formal apply stores the new head in `applied_state_revision`; the resolved Turn lifecycle must be part of that same revision.
 5. A stale result writes no formal entries, state changes, archive, or next turn. The controlled failure path marks the run failed, moves the turn to `needs_owner_attention`, emits preview failure, and records its own authoritative failure mutation.
 6. Legacy runs with `expected_state_revision IS NULL` are audit/display-only and cannot formally apply.
 
@@ -160,7 +160,7 @@ The single Provider call returns an `AiResolutionProposal` (the backward-compati
 
 ## 5. Good / Base / Bad Cases
 
-- **Good:** claim at head `N`, store expected `N+1`, a formal result CASes `N+1 -> N+2`, and every formal table/event/archive write commits with that transaction.
+- **Good:** claim at head `N`, store expected `N+1`, a formal result CASes `N+1 -> N+2`, and every formal table/event/archive/Turn-lifecycle write commits with that transaction; Narration may then add presentation entries without a third runtime revision.
 - **Good:** actor context includes a player's scoped fact, excludes another player's private fact and GM-only secret, and leaves a stable denial trace.
 - **Base:** existing campaigns start at revision `0`; existing AI runs keep NULL revision columns and remain readable but unappliable.
 - **Base:** a manual archive snapshot does not advance revision; restoring it later advances the current live head by exactly one.
@@ -206,6 +206,7 @@ await database.transaction((tx) => coordinator.mutateIn(tx, {
   await runs.markSucceeded(tx, run.id, resultJson, rawDebugJson, now, stateRevision);
   await turns.markCompleted(run.turn_id, now);
   await archives.createAutomatic(tx, campaignId, run.turn_id, ownerId, archiveId);
+  // Semantic path also creates the next waiting turn in this same callback.
 }));
 ```
 

@@ -157,6 +157,10 @@ export const observableRollSchema = z.object({
 }).strict();
 export type ObservableRoll = z.infer<typeof observableRollSchema>;
 
+/** Server-projected mechanical effects. Hidden targets are omitted before this boundary. */
+export const narrationObservableEffectSchema = mechanicalEffectSchema;
+export type NarrationObservableEffect = z.infer<typeof narrationObservableEffectSchema>;
+
 export const narrationRequestSchema = z.object({
   outcomeId: z.string().min(1),
   executionId: z.string().min(1),
@@ -167,7 +171,7 @@ export const narrationRequestSchema = z.object({
   actionSummaries: z.array(z.object({ actionId: z.string().min(1), actorId: z.string().min(1), text: z.string() }).strict()).max(128),
   observableOutcome: z.object({
     publicNarrative: z.string().min(1).optional(),
-    effects: z.array(z.string().trim().min(1)).max(256),
+    effects: z.array(narrationObservableEffectSchema).max(256),
     rolls: z.array(observableRollSchema).max(256),
   }).strict(),
 }).strict();

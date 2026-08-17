@@ -5,3 +5,4 @@
 {"file": ".trellis/spec/client/frontend/quality-guidelines.md", "reason": "Verify client query, projection, and test boundaries"}
 {"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Review storage-to-HTTP-to-UI data flow and deletion boundary"}
 {"file": ".trellis/tasks/08-16-room-links-rules-materials/research/default-rule-removal-migration.md", "reason": "Verify the user-approved exact legacy migration behavior"}
+{"file": ".trellis/spec/server/backend/runtime-contract-state-safety.md", "reason": "Verify semantic mechanical commit and Narration presentation-only revision boundary"}

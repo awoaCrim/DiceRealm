@@ -19,6 +19,8 @@ export interface ActionDefinition {
   diceExpression: string;
   targetType: RollPlan['targetType'];
   targetValue?: number;
+  /** Server-owned rule state; Provider resourceChoices never supplies this value. */
+  advantageState?: RollPlan['advantageState'];
   ability?: string;
   modifierSource: string;
   successEffects?: string[];
@@ -114,7 +116,7 @@ export class AdjudicationService {
     if (intent.mode !== 'player_action') {
       return this.controlledDecision(intent, context, 'gm_adjudication_required', 'non_player_intent_requires_owner_path');
     }
-    const definition = this.definitionFor(intent);
+    const definition = this.definitionFor(intent, context);
     if (!definition || definition.actionType !== intent.actionType) {
       return this.controlledDecision(intent, context, 'gm_adjudication_required', 'action_definition_unavailable');
     }
@@ -122,6 +124,9 @@ export class AdjudicationService {
       return this.controlledDecision(intent, context, 'unsupported', 'open_ended_action_not_in_rules_slice');
     }
     const targetIds = [...intent.targetIds];
+    // A saving throw's actorId is the creature making the save and therefore
+    // the consequence target. targetIds identify the triggering source/context
+    // required by this rules slice, not the creature that takes the failure HP delta.
     const targetRequired = definition.targetType === 'ac' || intent.actionType === 'saving_throw';
     if (targetRequired && targetIds.length === 0) {
       return this.controlledDecision(intent, context, 'player_choice_required', 'target_required');
@@ -159,7 +164,7 @@ export class AdjudicationService {
     records.push(firstRecord);
 
     if (intent.actionType === 'attack' && isSuccessfulAttack(firstRecord)) {
-      const definition = this.definitionFor(intent);
+      const definition = this.definitionFor(intent, context);
       if (!definition) throw new AppError('INTERNAL_ERROR', '攻击规则定义读取失败。');
       const targetId = intent.targetIds[0];
       const damageExpression = definition.diceExpression === '1d20' ? '1d6' : definition.diceExpression;
@@ -179,9 +184,9 @@ export class AdjudicationService {
       const targetId = intent.targetIds[0] ?? intent.actorId;
       effects.push({ kind: 'hp_delta', targetId, delta: Math.max(0, firstRecord.total), reason: 'healing_roll' });
     } else if (intent.actionType === 'saving_throw' && firstRecord.result === 'failure') {
-      const targetId = intent.targetIds[0];
-      const failureDamage = getById(context.targets, targetId)?.hpCurrent === undefined ? 0 : 1;
-      effects.push({ kind: 'hp_delta', targetId, delta: -failureDamage, reason: 'saving_throw_failure' });
+      const actor = getById(context.actors, intent.actorId);
+      const failureDamage = actor?.hpCurrent === undefined ? 0 : 1;
+      effects.push({ kind: 'hp_delta', targetId: intent.actorId, delta: -failureDamage, reason: 'saving_throw_failure' });
     }
     return { decision: adjudicated.decision, plans, records, effects };
   }
@@ -194,11 +199,11 @@ export class AdjudicationService {
     targetValue: number | null,
     modifier: number,
   ): RollPlan {
-    const advantageState = intent.resourceChoices.includes('advantage')
-      ? 'advantage'
-      : intent.resourceChoices.includes('disadvantage')
-        ? 'disadvantage'
-        : 'normal';
+    // resourceChoices is persisted as semantic intent metadata for future
+    // server-authorized resources, but raw Provider strings never grant a
+    // mechanical advantage. The current rules slice has no such resource, so
+    // only the server-owned ActionDefinition can select it.
+    const advantageState = definition.advantageState ?? 'normal';
     return this.dice.lockPlan({
       id: nanoid(24), campaignId: context.campaignId, intentId: intentIdentity(intent),
       executionId: context.executionId, actorId: intent.actorId, targetIds,
@@ -232,9 +237,9 @@ export class AdjudicationService {
     });
   }
 
-  private definitionFor(intent: ActionIntent): ActionDefinition | undefined {
+  private definitionFor(intent: ActionIntent, context?: AdjudicationContext): ActionDefinition | undefined {
     const ref = intent.actionRef ?? defaultRef(intent.actionType);
-    return getById(this.definitions, ref);
+    return getById(context?.actionDefinitions ?? this.definitions, ref);
   }
 
   private modifierFor(actor: ActorMechanics, definition: ActionDefinition): number | null {

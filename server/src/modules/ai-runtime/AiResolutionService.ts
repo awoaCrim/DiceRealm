@@ -89,12 +89,12 @@ export class AiResolutionService {
       return { created: false, run: this.toView(claim.run) };
     }
     if (claim.kind === 'narration_finalize') {
-      await this.finalizeSavedNarration(ctx.campaignId, turnId, claim.run.id, ctx.userId);
+      await this.finalizeSavedNarration(ctx.campaignId, turnId, claim.run.id);
       const completed = await this.reloadRun(claim.run.id);
       return { created: false, run: this.toView(completed) };
     }
     if (claim.kind === 'narration_resume') {
-      await this.resumeNarration(ctx.campaignId, turnId, claim.run.id, ctx.userId, runProvider, claim.prompt);
+      await this.resumeNarration(ctx.campaignId, turnId, claim.run.id, runProvider, claim.prompt);
       const resumed = await this.reloadRun(claim.run.id);
       return { created: false, run: this.toView(resumed) };
     }
@@ -253,7 +253,8 @@ export class AiResolutionService {
   /**
    * Formal apply keeps the legacy one-call path intact, but semantic intents
    * use two checkpoints: one coordinator-owned mechanical commit, then a
-   * retryable narration stage that never advances StateRevision again.
+   * retryable narration stage that only writes presentation entries and run
+   * metadata without advancing StateRevision again.
    */
   private async applyFormal(
     campaignId: string,
@@ -266,7 +267,7 @@ export class AiResolutionService {
   ): Promise<void> {
     if (resolution.actionIntents.length > 0) {
       await this.commitMechanical(campaignId, turnId, runId, resolution, actorUserId);
-      await this.resumeNarration(campaignId, turnId, runId, actorUserId, narrationProvider, basePrompt);
+      await this.resumeNarration(campaignId, turnId, runId, narrationProvider, basePrompt);
       return;
     }
     if (!resolution.publicNarrative) {
@@ -411,6 +412,18 @@ export class AiResolutionService {
           throw new AppError('STATE_CONFLICT', 'AI mechanical run 已被并发更新。');
         }
         await this.outbox.publishIn(tx, { type: 'owner.debug', campaignId, runId, kind: 'result' });
+
+        // Turn lifecycle is authoritative runtime state, so it commits with
+        // the same coordinator revision as mechanics. Narration may fail after
+        // this point without leaving a completed turn at an older head.
+        const now = new Date().toISOString();
+        if (!(await turns.markCompleted(turnId, now))) {
+          throw new AppError('STATE_CONFLICT', '回合已在机械提交期间被并发修改。');
+        }
+        const automaticArchiveId = nanoid(24);
+        await this.outbox.publishIn(tx, { type: 'turn.resolved', campaignId, turnId, archiveId: automaticArchiveId });
+        await this.archives.createAutomatic(tx, campaignId, turnId, actorUserId, automaticArchiveId);
+        await this.createNextTurn(tx, campaignId);
       });
     });
   }
@@ -419,7 +432,6 @@ export class AiResolutionService {
     campaignId: string,
     turnId: string,
     runId: string,
-    actorUserId: string,
     provider: AiProviderPort,
     basePrompt: AiPrompt,
   ): Promise<void> {
@@ -431,7 +443,7 @@ export class AiResolutionService {
     }
     if (prepared.kind === 'running') return;
     if (prepared.kind === 'succeeded') {
-      await this.finalizeNarration(campaignId, turnId, runId, actorUserId, prepared.attempt.id, prepared.output);
+      await this.finalizeNarration(campaignId, turnId, runId, prepared.attempt.id, prepared.output);
       return;
     }
 
@@ -454,7 +466,7 @@ export class AiResolutionService {
       throw retryable;
     }
     try {
-      await this.finalizeNarration(campaignId, turnId, runId, actorUserId, prepared.attempt.id, output);
+      await this.finalizeNarration(campaignId, turnId, runId, prepared.attempt.id, output);
     } catch (error) {
       const retryable = this.asNarrationRetryable(error);
       await this.recordNarrationFailure(prepared.attempt.id, retryable);
@@ -472,6 +484,10 @@ export class AiResolutionService {
       const run = await runs.findById(runId);
       if (!run || run.campaign_id !== campaignId || run.turn_id !== turnId || run.status !== 'running' || run.run_kind !== 'mechanical_resolution') {
         throw new AppError('STATE_CONFLICT', 'AI mechanical run 不在可叙事状态。');
+      }
+      const turn = await new TurnRepository(tx).findTurnById(turnId);
+      if (!turn || turn.status !== 'completed') {
+        throw new AppError('STATE_CONFLICT', '机械结果尚未完成回合生命周期提交。');
       }
       const repository = new AdjudicationRepository(tx);
       const outcomeRow = await repository.findOutcomeByExecution(tx, runId);
@@ -514,7 +530,7 @@ export class AiResolutionService {
       audience: 'player_public',
       actionSummaries: actions.map((action) => ({ actionId: action.id, actorId: action.player_id, text: action.body })),
       observableOutcome: {
-        effects: outcome.effects.map((effect) => `${effect.reason}:${effect.delta}`),
+        effects: await this.projectObservableEffects(tx, outcomeRow.campaign_id, outcome),
         rolls: outcome.rollRecords.map((record) => {
           const plan = outcome.rollPlans.find((candidate) => candidate.id === record.rollPlanId);
           if (!plan) throw new AppError('INTERNAL_ERROR', '机械结果缺少对应的 RollPlan。');
@@ -529,7 +545,46 @@ export class AiResolutionService {
     });
   }
 
-  private async finalizeSavedNarration(campaignId: string, turnId: string, runId: string, actorUserId: string): Promise<void> {
+  /**
+   * Project only effects whose target is already visible to the public
+   * narration audience. Action actors are visible through actionSummaries;
+   * combatants must be explicitly public. Hidden targets are omitted rather
+   * than exposing an internal id or private scene.
+   */
+  private async projectObservableEffects(
+    tx: QueryExecutor,
+    campaignId: string,
+    outcome: Pick<MechanicalResolvedOutcome, 'intents' | 'effects'>,
+  ) {
+    const visibleActorIds = new Set(outcome.intents.map((intent) => intent.actorId));
+    const candidateTargetIds = [...new Set(
+      outcome.effects
+        .map((effect) => effect.targetId)
+        .filter((targetId) => !visibleActorIds.has(targetId)),
+    )];
+    const visibleCombatantIds = new Set<string>();
+    if (candidateTargetIds.length > 0) {
+      const placeholders = candidateTargetIds.map(() => '?').join(',');
+      const rows = await tx.query<{ id: string; visibility: string }>(
+        `SELECT id, visibility FROM platform_combatants
+         WHERE campaign_id = ? AND superseded_at IS NULL AND id IN (${placeholders})`,
+        [campaignId, ...candidateTargetIds],
+      );
+      for (const row of rows) {
+        if (row.visibility === 'public') visibleCombatantIds.add(row.id);
+      }
+    }
+    return outcome.effects
+      .filter((effect) => visibleActorIds.has(effect.targetId) || visibleCombatantIds.has(effect.targetId))
+      .map((effect) => ({
+        kind: effect.kind,
+        targetId: effect.targetId,
+        delta: effect.delta,
+        reason: effect.reason,
+      }));
+  }
+
+  private async finalizeSavedNarration(campaignId: string, turnId: string, runId: string): Promise<void> {
     const latest = await this.executor.readCommitted(async (reader) => {
       const rows = await reader.query<NarrationAttemptRow>(
         'SELECT * FROM platform_narration_attempts WHERE execution_id = ? AND superseded_at IS NULL ORDER BY attempt DESC LIMIT 1',
@@ -538,14 +593,13 @@ export class AiResolutionService {
       return rows[0] ?? null;
     });
     if (!latest || latest.status !== 'succeeded') return;
-    await this.finalizeNarration(campaignId, turnId, runId, actorUserId, latest.id, parseNarrationOutput(latest.result_json));
+    await this.finalizeNarration(campaignId, turnId, runId, latest.id, parseNarrationOutput(latest.result_json));
   }
 
   private async finalizeNarration(
     campaignId: string,
     turnId: string,
     runId: string,
-    actorUserId: string,
     attemptId: string,
     output: NarrationOutput,
   ): Promise<void> {
@@ -558,7 +612,7 @@ export class AiResolutionService {
         throw new AppError('STATE_CONFLICT', 'AI mechanical run 不在叙事提交状态。');
       }
       const turn = await turns.findTurnById(turnId);
-      if (!turn || turn.status !== 'resolving') throw new AppError('STATE_CONFLICT', '回合不在叙事提交状态。');
+      if (!turn || turn.status !== 'completed') throw new AppError('STATE_CONFLICT', '机械回合生命周期尚未提交。');
       const repository = new AdjudicationRepository(tx);
       const outcomeRow = await repository.findOutcomeByExecution(tx, runId);
       if (!outcomeRow) throw new AppError('STATE_CONFLICT', '机械结果已丢失。');
@@ -590,11 +644,9 @@ export class AiResolutionService {
         throw new AppError('STATE_CONFLICT', 'AI 叙事完成时 run 已被并发更新。');
       }
       await this.outbox.publishIn(tx, { type: 'owner.debug', campaignId, runId, kind: 'result' });
-      if (!(await turns.markCompleted(turnId, now))) throw new AppError('STATE_CONFLICT', '回合已在叙事提交期间被并发修改。');
-      const automaticArchiveId = nanoid(24);
-      await this.outbox.publishIn(tx, { type: 'turn.resolved', campaignId, turnId, archiveId: automaticArchiveId });
-      await this.archives.createAutomatic(tx, campaignId, turnId, actorUserId, automaticArchiveId);
-      await this.createNextTurn(tx, campaignId);
+      // Presentation finalize deliberately does not mutate authoritative turn
+      // state. Completion, archive creation, next-turn creation and turn.resolved
+      // were committed with the mechanical StateRevision above.
     });
   }
 

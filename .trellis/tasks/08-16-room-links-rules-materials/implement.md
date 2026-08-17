@@ -75,3 +75,11 @@
 - `git diff --check` passed.
 - Production-source search found no rules route/module/contract/UI references outside the intentionally retained `legacyRuleSourcesMigration` bridge and its tests; the rule-source migration is absent from the maintained manifest/schema.
 - The configured `server/.dev/dnd.sqlite` compatibility smoke and paired backup are recorded in `research/default-rule-removal-migration.md`; repository-root database artifacts were not used by the test suite.
+
+## Architecture review follow-up (2026-08-17)
+
+- Fixed Provider `resourceChoices` authority leakage: raw `advantage`/`disadvantage` values are retained as metadata but cannot select a RollPlan state; only server-owned action definitions can do so.
+- Moved semantic Turn completion, `turn.resolved`, automatic archive, and next-turn creation into the coordinator-owned mechanical commit so they share one `StateRevision`; Narration finalize now writes presentation entries/run metadata only.
+- Changed Narration observable effects to structured, visibility-projected `{ kind, targetId, delta, reason }` values and corrected saving-throw failure effects to target the acting actor.
+- Regression coverage: advantage injection, saving-throw target, narration effect grounding, and mechanics-committed-before-narration-failure lifecycle consistency.
+- Verification after the follow-up: 80 test files passed, 735 tests passed, 8 skipped; `npm run typecheck`; `npm run build`; `git diff --check`.
