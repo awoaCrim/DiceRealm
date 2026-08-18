@@ -183,7 +183,7 @@ function composePlatformApp(
   // 回合路由挂在 campaign-scoped 前缀下；owner/player 权限由 service 在事务内 enforce。
   app.use('/api/campaigns/:campaignId/turns', createTurnRouter(database, turns));
   // 存档路由同样挂在 campaign-scoped 前缀下；owner-only 权限由 service 在事务内 enforce。
-  const archives = new ArchiveService(database, new OutboxRepository(database));
+  const archives = new ArchiveService(database, outbox, actors);
   app.use('/api/campaigns/:campaignId/archives', createArchiveRouter(database, archives));
   // 结构化战斗：HTTP 写命令 owner-only；players 只读投影；AI 经 CombatAiAdapter 同端口。
   const combat = new CombatService(database, outbox, Math.random, mutations, actors, runtimeStates);

@@ -264,11 +264,26 @@ SET actor_id = CASE
   WHEN character_id IS NOT NULL THEN 'actor:character:' || character_id
   ELSE 'actor:combatant:' || id
 END
-WHERE actor_id IS NULL;
+WHERE actor_id IS NULL
+  AND (
+    (character_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM platform_campaign_actors a
+      WHERE a.id = 'actor:character:' || platform_combatants.character_id
+    ))
+    OR (character_id IS NULL AND EXISTS (
+      SELECT 1 FROM platform_campaign_actors a
+      WHERE a.id = 'actor:combatant:' || platform_combatants.id
+    ))
+  );
 
 UPDATE platform_narrative_round_participants
 SET actor_id = 'actor:character:' || character_id
-WHERE actor_id IS NULL AND character_id IS NOT NULL;
+WHERE actor_id IS NULL
+  AND character_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1 FROM platform_campaign_actors a
+    WHERE a.id = 'actor:character:' || platform_narrative_round_participants.character_id
+  );
 
 -- Only rows with an unambiguous authoring participant are backfilled. Other
 -- historical decision actor_id values remain legacy user identities.

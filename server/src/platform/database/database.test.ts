@@ -142,6 +142,22 @@ describe('SQLite migration SQL', () => {
         'INSERT INTO platform_characters (id, campaign_id, player_id, name, status, sheet_json, derived_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
         ['mig-character', 'mig-campaign', 'mig-user', 'Migrated PC', 'approved', '{"hpCurrent":9,"hpMax":12}', '{}', now, now],
       );
+      await db.execute(
+        'INSERT INTO platform_characters (id, campaign_id, player_id, name, status, sheet_json, derived_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['mig-draft', 'mig-campaign', 'mig-user', 'Draft PC', 'draft', '{"hpCurrent":4,"hpMax":4}', '{}', now, now],
+      );
+      await db.execute(
+        'INSERT INTO platform_encounters (id, campaign_id, name, status, active_combatant_id, round, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        ['mig-encounter', 'mig-campaign', 'Legacy encounter', 'preparation', null, 1, now, now],
+      );
+      await db.execute(
+        'INSERT INTO platform_combatants (id, encounter_id, campaign_id, character_id, name, initiative, initiative_bonus, hp_current, hp_max, ac, conditions_json, visibility, target_player_id, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['mig-npc-combatant', 'mig-encounter', 'mig-campaign', null, 'Legacy NPC', null, 0, 6, 6, 10, '["poisoned"]', 'public', null, 0, now, now],
+      );
+      await db.execute(
+        'INSERT INTO platform_combatants (id, encounter_id, campaign_id, character_id, name, initiative, initiative_bonus, hp_current, hp_max, ac, conditions_json, visibility, target_player_id, position, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['mig-draft-combatant', 'mig-encounter', 'mig-campaign', 'mig-draft', 'Draft PC instance', null, 0, 4, 4, 10, '[]', 'public', null, 1, now, now],
+      );
       const currentReport = await new MigrationRunner(db, MIGRATIONS_DIR).run();
       expect(currentReport.applied).toEqual(['020']);
       const tables = await db.query<{ name: string }>(
@@ -156,6 +172,14 @@ describe('SQLite migration SQL', () => {
         .toEqual([{ current_hp: 9 }]);
       expect(await db.query('SELECT user_id FROM platform_actor_control_bindings WHERE actor_id = ?', ['actor:character:mig-character']))
         .toEqual([{ user_id: 'mig-user' }]);
+      expect(await db.query('SELECT actor_id FROM platform_combatants WHERE id = ?', ['mig-npc-combatant']))
+        .toEqual([{ actor_id: 'actor:combatant:mig-npc-combatant' }]);
+      expect(await db.query('SELECT current_hp, conditions_json FROM platform_character_runtime_states WHERE actor_id = ?', ['actor:combatant:mig-npc-combatant']))
+        .toEqual([{ current_hp: 6, conditions_json: '["poisoned"]' }]);
+      // A legacy combatant pointing at a non-approved authoring Character stays
+      // actorless instead of violating the new actor FK during backfill.
+      expect(await db.query('SELECT actor_id FROM platform_combatants WHERE id = ?', ['mig-draft-combatant']))
+        .toEqual([{ actor_id: null }]);
       expect(await db.query<{ sheet_json: string }>('SELECT sheet_json FROM platform_characters WHERE id = ?', ['mig-character']))
         .toEqual([{ sheet_json: '{"hpCurrent":9,"hpMax":12}' }]);
     } finally {

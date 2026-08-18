@@ -33,6 +33,7 @@ import {
   narrativeFactToInsertRow,
 } from '../narrative-runtime/NarrativeRoundRepository.js';
 import { NarrativeRoundService } from '../narrative-runtime/NarrativeRoundService.js';
+import { ActorService } from '../actors/ActorService.js';
 
 /** 恢复两阶段 position 重排安全 offset：远大于任何真实 position 数量。 */
 const POSITION_RESTORE_OFFSET = 2_000_000;
@@ -52,6 +53,7 @@ export class ArchiveService {
   constructor(
     private readonly executor: DatabasePort,
     private readonly outbox: EventPublisherPort,
+    private readonly actors?: ActorService,
   ) {
     this.repository = new ArchiveRepository(executor);
     this.mutations = new CampaignMutationCoordinator(executor);
@@ -600,7 +602,7 @@ export class ArchiveService {
       for (const playerId of [...new Set(approvedPlayerIds)]) {
         await turns.insertRequirement(newTurnId, campaignId, playerId);
       }
-      await new NarrativeRoundService(this.executor, this.outbox, this.mutations).ensureForTurnIn(tx, campaignId, newTurnId);
+      await new NarrativeRoundService(this.executor, this.outbox, this.mutations, this.actors).ensureForTurnIn(tx, campaignId, newTurnId);
       return newTurnId;
     }
     // waiting/locked/needs_owner_attention 快照：恢复该状态，不自动开新回合。

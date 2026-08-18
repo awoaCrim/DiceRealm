@@ -52,7 +52,11 @@ export class CombatAiAdapter implements CombatStateChangeApplier {
       const parsedStart = encounterStartSchema.parse(start);
       // 去掉 rollInitiative，复用 owner start 同一输入 schema 与 createIn 核心。
       const input = startEncounterInputSchema.parse(parsedStart);
-      const encounter = await this.combat.createIn(tx, campaignId, input);
+      const revisionRows = await tx.query<{ revision: number }>(
+        'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [campaignId],
+      );
+      const stateRevision = Number(revisionRows[0]?.revision ?? 0);
+      const encounter = await this.combat.createIn(tx, campaignId, input, stateRevision);
       if (parsedStart.rollInitiative) {
         // 同一白名单命令端口、同一 caller tx：服务端注入 RNG 掷先攻并进入 active。
         await this.combat.applyIn(tx, campaignId, encounter.id, { kind: 'roll_initiative', payload: {} });

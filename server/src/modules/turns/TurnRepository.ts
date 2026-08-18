@@ -301,18 +301,18 @@ export class TurnRepository {
     for (const action of actions) {
       const updated = await this.executor.execute(
         `UPDATE platform_actions
-         SET turn_id = ?, campaign_id = ?, player_id = ?, body = ?, submitted_at = ?, updated_at = ?,
+         SET turn_id = ?, campaign_id = ?, player_id = ?, actor_id = ?, body = ?, submitted_at = ?, updated_at = ?,
              superseded_at = NULL, superseded_by_archive_id = NULL
          WHERE id = ?`,
-        [turnId, campaignId, action.player_id, action.body, action.submitted_at, action.updated_at, action.id],
+        [turnId, campaignId, action.player_id, action.actor_id ?? null, action.body, action.submitted_at, action.updated_at, action.id],
       );
       if (updated.changes === 0) {
         await this.executor.execute(
           `INSERT INTO platform_actions
-             (id, turn_id, campaign_id, player_id, body, submitted_at, updated_at,
+             (id, turn_id, campaign_id, player_id, actor_id, body, submitted_at, updated_at,
               superseded_at, superseded_by_archive_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
-          [action.id, turnId, campaignId, action.player_id, action.body, action.submitted_at, action.updated_at],
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)`,
+          [action.id, turnId, campaignId, action.player_id, action.actor_id ?? null, action.body, action.submitted_at, action.updated_at],
         );
       }
     }

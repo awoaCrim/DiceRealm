@@ -21,6 +21,7 @@ import { ActorRuntimeStateService } from '../actors/ActorRuntimeStateService.js'
 export interface ActionSnapshot {
   id: string;
   playerId: string;
+  actorId?: string | null;
   body: string;
   submittedAt: string;
   updatedAt: string;
@@ -103,8 +104,10 @@ export class MechanicalResolutionService {
     if (input.actionSnapshot) {
       const persisted = allActions.find((action) => action.id === input.actionSnapshot?.id);
       if (!persisted || persisted.campaign_id !== input.campaignId
-        || persisted.player_id !== input.actionSnapshot.playerId) {
-        throw new AppError('STATE_CONFLICT', 'claim 时的玩家行动已不存在。');
+        || persisted.player_id !== input.actionSnapshot.playerId
+        || (input.actionSnapshot.actorId !== undefined
+          && (persisted.actor_id ?? null) !== input.actionSnapshot.actorId)) {
+        throw new AppError('STATE_CONFLICT', 'claim 时的玩家行动已不存在或身份已变化。');
       }
       const index = actions.findIndex((action) => action.id === input.actionSnapshot?.id);
       if (index < 0) throw new AppError('STATE_CONFLICT', 'claim 时的玩家行动不在当前决策中。');
@@ -145,7 +148,8 @@ export class MechanicalResolutionService {
     for (let index = 0; index < actions.length; index += 1) {
       const action = actions[index];
       const proposal = byActionId.get(action.id)!;
-      if (proposal.actorId !== action.player_id || proposal.mode !== 'player_action') {
+      const actionActorId = action.actor_id ?? action.player_id;
+      if (proposal.actorId !== actionActorId || proposal.mode !== 'player_action') {
         throw new AppError('AI_OUTPUT_INVALID', 'Intent actor 或 mode 与玩家行动不匹配。');
       }
       const intent = normalizedActionIntentSchema.parse({
@@ -240,27 +244,63 @@ export class MechanicalResolutionService {
   private async loadState(tx: QueryExecutor, campaignId: string, ruleset: string): Promise<LoadedState> {
     const characters = new CharacterRepository(tx);
     const characterRows = (await characters.listByCampaign(campaignId)).filter((row) => row.status === 'approved');
+    const actorRows = await tx.query<{
+      id: string;
+      character_id: string | null;
+      current_hp: number | null;
+    }>(
+      `SELECT a.id, a.character_id, s.current_hp
+       FROM platform_campaign_actors a
+       LEFT JOIN platform_character_runtime_states s
+         ON s.campaign_id = a.campaign_id AND s.actor_id = a.id
+       WHERE a.campaign_id = ?`,
+      [campaignId],
+    );
+    const actorByCharacter = new Map(actorRows
+      .filter((row) => row.character_id !== null)
+      .map((row) => [row.character_id as string, row]));
     const actors = new Map<string, ActorMechanics>();
     const charactersByPlayer = new Map<string, CharacterRow[]>();
     const charactersByActor = new Map<string, CharacterRow>();
     for (const row of characterRows) {
       const sheet = parseObject(row.sheet_json);
-      const actorId = 'actor:character:' + row.id;
-      const mechanics = {
+      const actorRow = actorByCharacter.get(row.id);
+      const actorId = actorRow?.id ?? `actor:character:${row.id}`;
+      const mechanics: ActorMechanics = {
         id: actorId,
         characterId: row.id,
         abilityModifiers: numericRecord(sheet.abilityModifiers ?? sheet.abilities),
         savingThrowModifiers: numericRecord(sheet.savingThrowModifiers ?? sheet.savingThrows),
         attackModifier: numberValue(sheet.attackModifier),
-        hpCurrent: numberValue(sheet.hpCurrent),
+        // Runtime HP is authoritative; Character.sheet only supplies authoring
+        // mechanics such as hpMax and modifiers.
+        hpCurrent: actorRow?.current_hp === null || actorRow?.current_hp === undefined
+          ? undefined : Number(actorRow.current_hp),
         hpMax: numberValue(sheet.hpMax),
       };
       actors.set(actorId, mechanics);
-      if (!actors.has(row.player_id)) actors.set(row.player_id, { ...mechanics, id: row.player_id });
       const playerRows = charactersByPlayer.get(row.player_id) ?? [];
       playerRows.push(row);
       charactersByPlayer.set(row.player_id, playerRows);
       charactersByActor.set(actorId, row);
+    }
+    for (const actorRow of actorRows) {
+      if (actors.has(actorRow.id)) continue;
+      actors.set(actorRow.id, {
+        id: actorRow.id,
+        hpCurrent: actorRow.current_hp === null ? undefined : Number(actorRow.current_hp),
+      });
+    }
+    // Keep the legacy player-id alias only when it is unambiguous. A user with
+    // multiple Characters must address the live CampaignActor explicitly.
+    for (const [playerId, rows] of charactersByPlayer) {
+      if (rows.length !== 1) continue;
+      const character = rows[0];
+      const actor = actorByCharacter.get(character.id);
+      if (actor) {
+        const mechanics = actors.get(actor.id);
+        if (mechanics) actors.set(playerId, { ...mechanics, id: playerId });
+      }
     }
     const combatRepo = new CombatRepository(tx);
     const combatants = (await combatRepo.listEncountersByCampaign(campaignId))
@@ -268,8 +308,17 @@ export class MechanicalResolutionService {
     const resolvedCombatants = (await Promise.all(combatants)).flat();
     const targets = new Map<string, TargetMechanics>();
     const combatantsById = new Map<string, CombatantRow>();
+    const runtimeByActor = new Map(actorRows.map((row) => [row.id, row]));
     for (const combatant of resolvedCombatants) {
-      targets.set(combatant.id, { id: combatant.id, ac: combatant.ac, hpCurrent: combatant.hp_current, hpMax: combatant.hp_max });
+      const runtime = combatant.actor_id ? runtimeByActor.get(combatant.actor_id) : undefined;
+      targets.set(combatant.id, {
+        id: combatant.id,
+        ac: combatant.ac,
+        // Combatant rows are a projection; runtime state is authoritative when
+        // the instance is bound to an Actor.
+        hpCurrent: runtime?.current_hp ?? combatant.hp_current,
+        hpMax: combatant.hp_max,
+      });
       combatantsById.set(combatant.id, combatant);
     }
     return {

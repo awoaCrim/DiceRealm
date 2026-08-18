@@ -415,7 +415,7 @@ export class NarrativeRoundService {
           ))) {
             throw new AppError('STATE_CONFLICT', '叙事决策 claim 已被其它 worker 更新。');
           }
-          await repository.updateParticipantStatus(roundId, decision.actor_id, 'needs_owner_attention', now);
+          await repository.updateParticipantStatus(roundId, decision.actor_id, 'needs_owner_attention', now, decision.campaign_actor_id);
           if (!(await repository.updateStatus(
             roundId,
             ['collecting', 'ready', 'processing', 'needs_owner_attention'],
@@ -541,7 +541,7 @@ export class NarrativeRoundService {
     ))) {
       throw new AppError('STATE_CONFLICT', '叙事决策不在处理中。');
     }
-    await repository.updateParticipantStatus(input.roundId, decision.actor_id, 'resolved', now);
+    await repository.updateParticipantStatus(input.roundId, decision.actor_id, 'resolved', now, decision.campaign_actor_id);
     const round = await repository.findById(input.roundId);
     if (round) {
       await repository.updateCursor(input.roundId, Math.max(round.decision_cursor, decision.decision_order + 1), input.stateRevision, now);
@@ -577,7 +577,7 @@ export class NarrativeRoundService {
           throw new AppError('STATE_CONFLICT', '叙事决策无法进入 Owner attention。');
         }
         const decision = await repository.findDecisionById(decisionId);
-        if (decision) await repository.updateParticipantStatus(roundId, decision.actor_id, 'needs_owner_attention', now);
+        if (decision) await repository.updateParticipantStatus(roundId, decision.actor_id, 'needs_owner_attention', now, decision.campaign_actor_id);
         await repository.updateStatus(roundId, ['collecting', 'processing', 'ready'], 'needs_owner_attention', now, null);
         const round = await repository.findById(roundId);
         if (round) await repository.updateCursor(roundId, round.decision_cursor, stateRevision, now);
@@ -604,7 +604,7 @@ export class NarrativeRoundService {
         if (!(await repository.markSkipped(decisionId, now))) {
           throw new AppError('STATE_CONFLICT', '叙事决策不在可跳过状态。');
         }
-        await repository.updateParticipantStatus(roundId, decision.actor_id, 'skipped', now);
+        await repository.updateParticipantStatus(roundId, decision.actor_id, 'skipped', now, decision.campaign_actor_id);
         const round = await repository.findById(roundId);
         if (round) await repository.updateCursor(roundId, Math.max(round.decision_cursor, decision.decision_order + 1), stateRevision, now);
         await this.publishWorkAvailableIn(tx, campaignId, roundId, decisionId);
@@ -805,7 +805,7 @@ export class NarrativeRoundService {
     for (const decision of decisions) {
       if (decision.status !== 'resolved' && decision.status !== 'skipped') {
         await repository.markResolved(decision.id, null, stateRevision, new Date().toISOString());
-        await repository.updateParticipantStatus(round.id, decision.actor_id, 'resolved', new Date().toISOString());
+        await repository.updateParticipantStatus(round.id, decision.actor_id, 'resolved', new Date().toISOString(), decision.campaign_actor_id);
       }
     }
     const existing = await repository.findFactSetByRound(round.id);

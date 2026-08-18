@@ -184,6 +184,7 @@ export class NarrativeDecisionResolutionService {
         const actionSnapshot: ActionSnapshot = {
           id: action.id,
           playerId: action.player_id,
+          actorId: action.actor_id ?? null,
           body: action.body,
           submittedAt: action.submitted_at,
           updatedAt: action.updated_at,
@@ -269,7 +270,8 @@ export class NarrativeDecisionResolutionService {
       if (!run.expected_state_revision && run.expected_state_revision !== 0) {
         throw new AppError('STATE_CONFLICT', '叙事决策缺少输入状态版本。');
       }
-      if (decision.action_id !== proposal.actionId || decision.actor_id !== proposal.actorId) {
+      const liveActorId = decision.campaign_actor_id ?? decision.actor_id;
+      if (decision.action_id !== proposal.actionId || liveActorId !== proposal.actorId) {
         throw new AppError('AI_OUTPUT_INVALID', '叙事决策 Intent 与玩家行动不匹配。');
       }
       const applyExpectedRevision = await this.mutations.latestCompatibleRevisionIn(
@@ -488,6 +490,7 @@ function parseActionSnapshot(contextJson: string): ActionSnapshot | undefined {
     return {
       id: snapshot.id,
       playerId: snapshot.playerId,
+      actorId: snapshot.actorId === null || typeof snapshot.actorId === 'string' ? snapshot.actorId : undefined,
       body: snapshot.body,
       submittedAt: snapshot.submittedAt,
       updatedAt: snapshot.updatedAt,

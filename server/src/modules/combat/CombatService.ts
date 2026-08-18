@@ -28,6 +28,7 @@ export interface CombatCommandPort {
     tx: QueryExecutor,
     campaignId: string,
     input: StartEncounterInput,
+    stateRevision?: number,
   ): Promise<Encounter>;
 }
 
