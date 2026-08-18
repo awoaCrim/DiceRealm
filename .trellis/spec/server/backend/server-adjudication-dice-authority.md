@@ -47,6 +47,8 @@ The transaction is owned by the caller (`AiResolutionService`) and includes inte
 
 `AdjudicationService` owns the supported rules definitions and derives target values, modifiers, damage expressions, healing, and HP effects from validated server data. Unsupported or open-ended actions return a controlled `GM_ADJUDICATION_REQUIRED` path; Narration must not invent a DC or mechanical result.
 
+When `MechanicalResolutionService` applies an HP effect, the runtime mutation must receive the authoritative mechanics cap for the target: `combatant.hp_max` for a combat projection, or the valid authoring-sheet `hpMax` for a direct Character/Actor target. `ActorRuntimeStateService` clamps healing with that cap before persisting runtime state; the combatant row is then updated from the clamped runtime result. A missing/invalid authoring cap does not invent one, while a supplied cap must be a non-negative integer.
+
 `DiceService` is server-only and receives an injectable RNG in tests. It accepts only the allowlisted dice expressions used by the rules slice. Advantage/disadvantage selection and critical handling are server decisions: Provider `resourceChoices` cannot select them, while a server-owned `ActionDefinition.advantageState` may do so when a future rules/resource policy authorizes it.
 
 A `RollPlan` is fully constructed and hash-locked before the RNG is read. The plan records the roll kind, server modifier breakdown, target, ruleset, state revision, execution identity, and lock time. The resulting immutable `RollRecord` records raw and selected dice, total, target/result, mutation identity, and state revision. RollPlan/RollRecord rows are audit data, not Provider input.
@@ -78,6 +80,7 @@ Fresh/temp fixtures use the frozen `PHASE3_APPROVED_MIGRATION_FILENAMES` set. Or
 - Keep all formal state changes behind server validation and preserve the existing campaign CAS/ledger seam.
 - When a live Action is Actor-scoped, persist `action.actor_id`/normalized intent `actorId` as canonical identity in `campaign_actor_id`, but write the submitting user to the legacy `actor_id` audit column. Never write an `actor:*` id into the `platform_roll_plans.actor_id REFERENCES users(id)` field.
 - Assert that mechanical commit leaves the Turn lifecycle and `StateRevision` consistent even when Narration Provider execution fails.
+- Assert that both combatant-projection and direct Character/Actor healing are clamped to their server-owned `hpMax` before runtime persistence.
 - Assert that a later authoritative revision does not block retry of an active historical Narration outcome, while archive supersede still blocks it.
 - Preserve Player/Owner entry projection and archive superseded semantics.
 - Test raw action isolation, hidden-target omission, observable entity/source/action grounding, stale revisions, unsupported actions, plan hashing, replay/idempotency, narration visibility, narration retry, canonical Actor audit columns, migration admission, and rollback with temporary SQLite databases.

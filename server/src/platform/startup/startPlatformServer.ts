@@ -11,11 +11,9 @@ import { verifyMigrationManifest } from '../../platform/ops/migrationManifest.js
 import { PHASE3_APPROVED_MIGRATION_FILENAMES } from '../../platform/ops/approvedMigrations.js';
 import { assertExistingRegularFileNotSymlink } from '../../platform/ops/platformPaths.js';
 import type { EventStreamRuntime } from '../../platform/realtime/EventStreamService.js';
-import { OutboxRepository } from '../../platform/events/OutboxRepository.js';
 import { createPlatformApp, type CreatePlatformAppOptions, type PlatformApp } from '../../app.js';
 import { createConfiguredAiProvider } from '../../modules/ai-runtime/createAiProvider.js';
 import { NarrativeClaimLeaseSweeper } from '../../modules/narrative-runtime/NarrativeClaimLeaseSweeper.js';
-import { NarrativeWorkCoordinator } from '../../modules/narrative-runtime/NarrativeWorkCoordinator.js';
 import { credentialKeyPathForDatabase } from '../../modules/ai-runtime/CredentialKeyStore.js';
 import { runStartupSecurityGate } from './StartupSecurityGate.js';
 
@@ -244,7 +242,7 @@ export async function startPlatformServer(options: StartPlatformServerOptions): 
 
     narrativeWorkRuntime.start();
     narrativeClaimLeaseSweeper = new NarrativeClaimLeaseSweeper(
-      new NarrativeWorkCoordinator(database, new OutboxRepository(database)),
+      composed.narrativeWorkCoordinator,
     );
     narrativeClaimLeaseSweeper.start();
 

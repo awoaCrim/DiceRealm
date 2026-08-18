@@ -35,8 +35,11 @@ export class NarrativeWorkCoordinator {
     private readonly executor: DatabasePort,
     private readonly outbox: EventPublisherPort,
     mutations = new CampaignMutationCoordinator(executor),
+    narrative = new NarrativeRoundService(executor, outbox, mutations),
   ) {
-    this.narrative = new NarrativeRoundService(executor, outbox, mutations);
+    // Production composition injects the shared Actor-aware NarrativeRoundService;
+    // the default keeps lower-level legacy/compatibility fixtures self-contained.
+    this.narrative = narrative;
   }
 
   /**

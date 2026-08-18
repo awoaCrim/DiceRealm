@@ -56,6 +56,37 @@ export class ActorService {
     return row;
   }
 
+  /** Idempotent Actor row for a pre-Actor archive combatant with no Character identity. */
+  async ensureLegacyCombatantActorIn(
+    tx: QueryExecutor,
+    campaignId: string,
+    id: string,
+    displayName: string,
+  ): Promise<ActorRow> {
+    const repo = new ActorRepository(tx);
+    const existing = await repo.findById(id);
+    if (existing) {
+      if (existing.campaign_id !== campaignId || existing.character_type !== 'npc' || existing.character_id !== null) {
+        throw new AppError('INTERNAL_ERROR', '旧存档战斗员 Actor 身份冲突。');
+      }
+      return existing;
+    }
+    const now = new Date().toISOString();
+    const row: ActorRow = {
+      id,
+      campaign_id: campaignId,
+      display_name: displayName,
+      character_type: 'npc',
+      control_mode: 'ai',
+      mechanics_mode: 'lightweight',
+      character_id: null,
+      created_at: now,
+      updated_at: now,
+    };
+    await repo.insert(row);
+    return row;
+  }
+
   /** Idempotent Character approval/bootstrap seam. It never changes sheet_json. */
   async ensureCharacterActorIn(tx: QueryExecutor, character: CharacterRow, stateRevision: number): Promise<ActorRow> {
     if (character.status !== 'approved') throw new AppError('CHARACTER_NOT_APPROVED', '只有 approved Character 可以绑定 Actor。');

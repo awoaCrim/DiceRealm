@@ -5,6 +5,7 @@ import type {
   ArchiveRestoreResult,
   ArchiveSnapshot,
   ArchiveSnapshotCharacter,
+  ArchiveSnapshotCombatant,
   ArchiveSnapshotNarrative,
   ArchiveSnapshotRequirement,
   ArchiveSnapshotV2,
@@ -499,7 +500,7 @@ export class ArchiveService {
       });
     }
 
-    await this.restoreActorRuntimeStateIn(tx, campaignId, snapshot, now, stateRevision);
+    const restoredCombatantActorIds = await this.restoreActorRuntimeStateIn(tx, campaignId, snapshot, now, stateRevision);
 
     // 快照内事实 upsert + 清 superseded（快照外事实已在 supersedeHistory 中 supersede，这里不重复操作）。
     for (const snapshotFact of snapshot.worldFacts) {
@@ -528,7 +529,8 @@ export class ArchiveService {
         for (const combatant of entry.combatants) {
           await combat.upsertRestoredCombatant({
             id: combatant.id, encounter_id: combatant.encounterId, campaign_id: combatant.campaignId,
-            actor_id: combatant.actorId ?? null, character_id: combatant.characterId, name: combatant.name, initiative: combatant.initiative,
+            actor_id: restoredCombatantActorIds.get(combatant.id) ?? combatant.actorId ?? null,
+            character_id: combatant.characterId, name: combatant.name, initiative: combatant.initiative,
             initiative_bonus: combatant.initiativeBonus, hp_current: combatant.hpCurrent,
             hp_max: combatant.hpMax, ac: combatant.ac,
             conditions_json: JSON.stringify(combatant.conditions), visibility: combatant.visibility,
@@ -633,8 +635,9 @@ export class ArchiveService {
     snapshot: ArchiveSnapshot,
     now: string,
     stateRevision: number,
-  ): Promise<void> {
+  ): Promise<Map<string, string>> {
     const repository = new ActorRepository(tx);
+    const restoredCombatantActorIds = new Map<string, string>();
     if (snapshot.schemaVersion === 3) {
       const activeRuntimeActorIds = snapshot.characterRuntimeStates
         .filter((state) => state.campaignId === campaignId)
@@ -686,17 +689,26 @@ export class ArchiveService {
         };
         await repository.upsertRestoredRuntime(row);
       }
-      return;
+      for (const entry of snapshot.encounters) {
+        for (const combatant of entry.combatants) {
+          if (combatant.actorId) restoredCombatantActorIds.set(combatant.id, combatant.actorId);
+        }
+      }
+      return restoredCombatantActorIds;
     }
 
-    // V1/V2 did not persist Actor/runtime blocks. Reconstruct only a bounded
-    // legacy baseline from restored approved Characters and combat projections;
-    // their old snapshot revision is never reused as the live revision.
+    // V1/V2 did not persist Actor/runtime blocks. Reconstruct a canonical
+    // Actor baseline before restoring combat projections; their old snapshot
+    // revision is never reused as the live head.
+    const actorService = this.actors ?? new ActorService(this.executor, this.mutations);
     const legacyActorIds = new Set<string>();
     await repository.deactivateBindingsIn(campaignId, now);
     for (const character of snapshot.characters.filter((item) => item.status === 'approved')) {
-      const actor = await repository.findByCharacter(campaignId, character.id);
-      if (!actor) continue;
+      const row = (await tx.query<CharacterRow>(
+        'SELECT * FROM platform_characters WHERE campaign_id = ? AND id = ?', [campaignId, character.id],
+      ))[0];
+      if (!row || row.status !== 'approved') continue;
+      const actor = await actorService.ensureCharacterActorIn(tx, row, stateRevision);
       legacyActorIds.add(actor.id);
       const binding: ActorBindingRow = {
         id: `binding:character:${character.id}:user:${character.playerId}`,
@@ -724,13 +736,13 @@ export class ArchiveService {
     if (snapshot.schemaVersion === 2) {
       for (const entry of snapshot.encounters) {
         for (const combatant of entry.combatants) {
-          if (!combatant.actorId) continue;
-          const actor = await repository.findById(combatant.actorId);
-          if (!actor || actor.campaign_id !== campaignId) continue;
-          // A V2 combat projection is the strongest legacy runtime evidence;
-          // let it override the authoring-sheet baseline for combatants that
-          // were already represented by an approved Character Actor.
+          const actor = await this.resolveLegacyCombatantActorIn(
+            tx, campaignId, combatant, actorService, repository, stateRevision,
+          );
           legacyActorIds.add(actor.id);
+          restoredCombatantActorIds.set(combatant.id, actor.id);
+          // A V2 combat projection is the strongest legacy runtime evidence;
+          // let it override the authoring-sheet baseline for every resolved Actor.
           await repository.upsertRestoredRuntime({
             campaign_id: campaignId,
             actor_id: actor.id,
@@ -745,6 +757,46 @@ export class ArchiveService {
       }
     }
     await repository.deactivateRuntimeStatesExcept(campaignId, [...legacyActorIds], stateRevision, now);
+    return restoredCombatantActorIds;
+  }
+
+  private async resolveLegacyCombatantActorIn(
+    tx: QueryExecutor,
+    campaignId: string,
+    combatant: ArchiveSnapshotCombatant,
+    actorService: ActorService,
+    repository: ActorRepository,
+    stateRevision: number,
+  ): Promise<ActorRow> {
+    if (combatant.campaignId !== campaignId) {
+      throw new AppError('INTERNAL_ERROR', '旧存档战斗员不属于当前战役。');
+    }
+    if (combatant.actorId) {
+      const actor = await repository.findById(combatant.actorId);
+      if (!actor || actor.campaign_id !== campaignId) {
+        throw new AppError('INTERNAL_ERROR', '旧存档战斗员 Actor 不存在。');
+      }
+      if (combatant.characterId && actor.character_id !== combatant.characterId) {
+        throw new AppError('INTERNAL_ERROR', '旧存档战斗员 Actor 与 Character 不匹配。');
+      }
+      return actor;
+    }
+    if (combatant.characterId) {
+      const character = (await tx.query<CharacterRow>(
+        'SELECT * FROM platform_characters WHERE campaign_id = ? AND id = ?',
+        [campaignId, combatant.characterId],
+      ))[0];
+      if (!character) throw new AppError('INTERNAL_ERROR', '旧存档战斗员 Character 不存在。');
+      const existing = await repository.findByCharacter(campaignId, character.id);
+      if (existing) return existing;
+      if (character.status !== 'approved') {
+        throw new AppError('INTERNAL_ERROR', '旧存档战斗员 Character 未批准且缺少 Actor。');
+      }
+      return actorService.ensureCharacterActorIn(tx, character, stateRevision);
+    }
+    return actorService.ensureLegacyCombatantActorIn(
+      tx, campaignId, `actor:combatant:${combatant.id}`, combatant.name,
+    );
   }
 }
 

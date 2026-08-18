@@ -65,8 +65,11 @@ export class AiResolutionService {
     private readonly materializer: StateChangeMaterializer,
     private readonly mutations: CampaignMutationCoordinator = new CampaignMutationCoordinator(executor),
     private readonly mechanical: MechanicalResolutionService = new MechanicalResolutionService(executor, outbox),
+    sharedNarrative?: NarrativeRoundService,
   ) {
-    this.narrativeRound = new NarrativeRoundService(executor, outbox, this.mutations);
+    // The composition root passes its Actor-aware instance here. The fallback
+    // preserves legacy whole-turn fixtures that intentionally omit Actor wiring.
+    this.narrativeRound = sharedNarrative ?? new NarrativeRoundService(executor, outbox, this.mutations);
     this.decisionResolution = new NarrativeDecisionResolutionService(
       executor,
       provider,

@@ -1,0 +1,8 @@
+{"_example": "Fill with {\"file\": \"<path>\", \"reason\": \"<why>\"}. Put spec/research files only — no code paths. Run `python .trellis/scripts/get_context.py --mode packages` to list available specs. Delete this line once real entries are added."}
+{"file": ".trellis/spec/server/backend/directory-structure.md", "reason": "Composition root owns production wiring and feature module seams."}
+{"file": ".trellis/spec/server/backend/database-guidelines.md", "reason": "Archive restore and runtime mutation must stay inside caller-owned SQLite transactions."}
+{"file": ".trellis/spec/server/backend/runtime-contract-state-safety.md", "reason": "StateRevision and authoritative runtime contracts govern restore/healing changes."}
+{"file": ".trellis/spec/server/backend/server-adjudication-dice-authority.md", "reason": "Mechanical effects and healing caps must remain server-owned."}
+{"file": ".trellis/spec/server/backend/narrative-runtime-fact-memory.md", "reason": "Narrative worker, round close, Actor participant and next-turn invariants."}
+{"file": ".trellis/spec/contracts/backend/quality-guidelines.md", "reason": "Archive/Actor contract compatibility and schema-first tests."}
+{"file": ".trellis/spec/guides/cross-layer-thinking-guide.md", "reason": "Trace worker, round, archive, runtime and adjudication data flow."}

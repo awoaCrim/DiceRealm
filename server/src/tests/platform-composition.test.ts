@@ -7,6 +7,15 @@ import { createPlatformApp } from '../app.js';
 import { parseSecurityConfig } from '../config.js';
 import { createSqliteDatabase } from '../platform/database/SqliteDatabaseAdapter.js';
 import { ScriptedAiProvider } from '../modules/ai-runtime/ScriptedAiProvider.js';
+import { IdentityService } from '../modules/identity/IdentityService.js';
+import { CampaignService } from '../modules/campaigns/CampaignService.js';
+import { CampaignMutationCoordinator } from '../modules/campaigns/CampaignMutationCoordinator.js';
+import { CharacterService } from '../modules/characters/CharacterService.js';
+import { ActorService } from '../modules/actors/ActorService.js';
+import { TurnService } from '../modules/turns/TurnService.js';
+import { NarrativeRoundService } from '../modules/narrative-runtime/NarrativeRoundService.js';
+import { OutboxRepository } from '../platform/events/OutboxRepository.js';
+import { resolveCampaignContext } from '../modules/campaigns/CampaignAccess.js';
 import {
   installHarnessFetch,
   registerAndLogin,
@@ -115,12 +124,129 @@ describe('createPlatformApp composition root', () => {
       const composed = createPlatformApp({ database: platformDb, securityConfig: parseSecurityConfig({ NODE_ENV: 'test', PUBLIC_ORIGIN: 'https://127.0.0.1' }) });
       expect(typeof composed.app.use).toBe('function');
       expect(typeof composed.realtimeRuntime.closeAll).toBe('function');
+      expect(typeof composed.narrativeWorkCoordinator.sweepExpiredClaims).toBe('function');
       expect(typeof composed.narrativeWorkRuntime.start).toBe('function');
       expect(typeof composed.narrativeWorkRuntime.stop).toBe('function');
       // 显式返回 runtime：不得依赖 app property cast。
       expect('realtimeRuntime' in composed.app).toBe(false);
     } finally {
       await platformDb.close();
+    }
+  });
+
+  it('keeps the production worker on the shared Actor-aware narrative service across two rounds', async () => {
+    const db = createSqliteDatabase(':memory:');
+    await db.migrate();
+    const identity = new IdentityService(db);
+    const campaigns = new CampaignService(db);
+    const owner = await identity.register({ login: 'worker-owner@example.test', password: 'correct-password' });
+    const player = await identity.register({ login: 'worker-player@example.test', password: 'correct-password' });
+    const created = await campaigns.create(owner.userId, { name: 'worker composition', ruleset: 'dnd5e' });
+    await campaigns.join({ userId: player.userId }, created.campaign.id, created.inviteCode);
+    const ownerCtx = await resolveCampaignContext(db, { userId: owner.userId }, created.campaign.id);
+    const playerCtx = await resolveCampaignContext(db, { userId: player.userId }, created.campaign.id);
+    const mutations = new CampaignMutationCoordinator(db);
+    const actors = new ActorService(db, mutations);
+    const characters = new CharacterService(db, mutations, actors);
+    const outbox = new OutboxRepository(db);
+    const narrative = new NarrativeRoundService(db, outbox, mutations, actors);
+    const turns = new TurnService(db, outbox, mutations, narrative, actors);
+    const approve = async (name: string): Promise<string> => {
+      const draft = await characters.createDraft(playerCtx, {
+        name,
+        sheet: { ac: 14, hpCurrent: 10, hpMax: 10 },
+      });
+      await characters.submitForReview(playerCtx, draft.id);
+      await characters.approve(ownerCtx, draft.id);
+      return draft.id;
+    };
+    const firstCharacterId = await approve('双角色一');
+    const secondCharacterId = await approve('双角色二');
+    const controlled = await actors.listControlled(playerCtx);
+    const actorIds = [
+      controlled.find((actor) => actor.characterId === firstCharacterId)?.id,
+      controlled.find((actor) => actor.characterId === secondCharacterId)?.id,
+    ].filter((actorId): actorId is string => Boolean(actorId));
+    if (actorIds.length !== 2) throw new Error('expected two controlled Actors');
+    const provider = new ScriptedAiProvider(async (input) => {
+      if (input.stage === 'narration') {
+        return { publicNarrative: '共享 Actor worker 已完成叙事。', privateUpdates: [] };
+      }
+      const processing = (await db.query<{
+        action_id: string | null;
+        actor_id: string;
+        campaign_actor_id: string | null;
+      }>(
+        `SELECT action_id, actor_id, campaign_actor_id
+         FROM platform_narrative_decisions
+         WHERE status = 'processing'
+         ORDER BY updated_at DESC, id DESC LIMIT 1`,
+      ))[0];
+      if (!processing?.action_id) throw new Error('expected a processing narrative decision');
+      return {
+        actionIntents: [{
+          actionId: processing.action_id,
+          actorId: processing.campaign_actor_id ?? processing.actor_id,
+          mode: 'player_action',
+          actionType: 'healing',
+          actionRef: 'healing:basic',
+          targetIds: [],
+          declaredApproach: '保持队伍状态稳定',
+          desiredOutcome: '恢复一点生命',
+          resourceChoices: [],
+          fallbackPolicy: 'continue',
+        }],
+      };
+    });
+    const composed = createPlatformApp({
+      database: db,
+      securityConfig: parseSecurityConfig({ NODE_ENV: 'test', PUBLIC_ORIGIN: 'https://127.0.0.1' }),
+      aiProvider: provider,
+    });
+    try {
+      const firstTurn = await turns.startTurn(ownerCtx);
+      for (const actorId of actorIds) {
+        await turns.submitAction(playerCtx, firstTurn.id, { actorId, body: `Actor ${actorId} 的行动。` });
+      }
+      // Each pass handles at most one decision for an active round. Repeated
+      // deterministic polls model the real outbox worker without starting a timer.
+      for (let attempt = 0; attempt < 24; attempt += 1) {
+        await composed.narrativeWorkRuntime.runOnce();
+      }
+      const firstRound = (await db.query<{ status: string }>(
+        'SELECT status FROM platform_narrative_rounds WHERE turn_id = ?', [firstTurn.id],
+      ))[0];
+      expect(firstRound.status).toBe('closed');
+      const secondTurn = (await db.query<{ id: string; status: string }>(
+        'SELECT id, status FROM platform_turns WHERE campaign_id = ? AND number = 2', [created.campaign.id],
+      ))[0];
+      expect(secondTurn.status).toBe('waiting_for_actions');
+      const participants = await db.query<{
+        actor_id: string | null;
+        required: number;
+        player_id: string | null;
+      }>(
+        'SELECT actor_id, required, player_id FROM platform_narrative_round_participants WHERE round_id = ? ORDER BY participant_order',
+        [secondTurn.id],
+      );
+      expect(participants).toHaveLength(2);
+      expect(participants.every((participant) => participant.required === 1)).toBe(true);
+      expect(participants.every((participant) => participant.player_id === player.userId)).toBe(true);
+      expect(participants.map((participant) => participant.actor_id)).toEqual(expect.arrayContaining(actorIds));
+      expect(participants.some((participant) => participant.actor_id === null)).toBe(false);
+      for (const actorId of actorIds) {
+        await turns.submitAction(playerCtx, secondTurn.id, { actorId, body: `第二轮 ${actorId} 的行动。` });
+      }
+      for (let attempt = 0; attempt < 24; attempt += 1) {
+        await composed.narrativeWorkRuntime.runOnce();
+      }
+      expect((await db.query<{ status: string }>(
+        'SELECT status FROM platform_narrative_rounds WHERE turn_id = ?', [secondTurn.id],
+      ))[0].status).toBe('closed');
+    } finally {
+      await composed.narrativeWorkRuntime.stop();
+      composed.realtimeRuntime.closeAll();
+      await db.close();
     }
   });
 

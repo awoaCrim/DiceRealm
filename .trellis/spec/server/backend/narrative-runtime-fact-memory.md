@@ -9,7 +9,13 @@ This boundary is separate from the legacy whole-turn AI path. `platform_turns` r
 ## 2. Signatures
 
 ```ts
-new NarrativeRoundService(database, outbox, mutations?)
+new NarrativeRoundService(database, outbox, mutations?, actors?)
+new NarrativeWorkCoordinator(database, outbox, mutations?, sharedNarrative?)
+
+// Production composition creates one Actor-aware NarrativeRoundService and
+// injects that exact instance into TurnService, AiResolutionService,
+// NarrativeWorkCoordinator, ArchiveService and the claim-lease sweeper.
+// Optional constructor fallbacks are compatibility/test seams only.
 
 service.ensureForTurnIn(tx, campaignId, turnId)
 service.claimDecision(campaignId, roundId, decisionId, executionId?)
@@ -159,6 +165,10 @@ GET /api/campaigns/:campaignId/actors -> { actors: CampaignActor[] }
 - Actor-private ContextBlocks use canonical Actor audience ids; legacy user ids remain in the block only for compatibility/fallback.
 - V3 capture writes all campaign Actors, bindings, and runtime rows. Restore uses the restore mutation's new StateRevision for every restored runtime row.
 - V1/V2 restore remains readable and reconstructs a bounded legacy runtime baseline from approved Character sheets, with V2 combatant projections taking precedence when available.
+  - Approved Characters must call `ensureCharacterActorIn` when their Actor row is missing.
+  - A V2 combatant with `actorId` validates and reuses that Actor; without `actorId`, `characterId` resolves/creates `actor:character:<characterId>`, and an actorless legacy NPC receives deterministic `actor:combatant:<combatantId>`.
+  - Restored combatant projections must persist the resolved canonical `actor_id`; an Actor-resolvable legacy combatant may never remain actorless after restore.
+- The production outbox worker and claim-lease sweeper must use the composition root's shared Actor-aware NarrativeRoundService; constructing an independent legacy NarrativeRoundService in either path creates a second participant/readiness authority and is forbidden.
 - Player turn reads return `myActions[]`; `myAction` remains the first-action compatibility projection.
 
 #### 4. Validation & Error Matrix
@@ -182,7 +192,8 @@ GET /api/campaigns/:campaignId/actors -> { actors: CampaignActor[] }
 
 - Scripted Provider vertical test asserting exact current action/private state and sibling isolation.
 - V3 archive capture/restore test asserting HP, temporary HP, conditions, binding activity, and restore revision monotonicity.
-- V1/V2 restore compatibility test with sheet/runtime baseline and V2 combatant precedence.
+- V1/V2 restore compatibility test with sheet/runtime baseline, missing Character/NPC Actor reconstruction, genuinely actorId-omitted V2 JSON, canonical combatant projection ids, and V2 combatant precedence.
+- Production two-round worker vertical test proving the shared Actor-aware coordinator creates exactly the required Actor participants for the next round.
 - Combat seed test for Actor/Character mismatch, runtime HP/conditions authority, healing cap, and status preservation.
 - HTTP Actor projection test for owner-all versus player-controlled-only results.
 - Migration/manifest test for 022 and additive canonical audit columns.

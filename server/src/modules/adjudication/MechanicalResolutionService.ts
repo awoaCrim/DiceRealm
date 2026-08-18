@@ -347,9 +347,17 @@ export class MechanicalResolutionService {
     if (combatant) {
       let hpCurrent = Math.max(0, Math.min(combatant.hp_max, combatant.hp_current + effect.delta));
       if (combatant.actor_id) {
-        const state = await this.runtime.applyIn(tx, input.campaignId, combatant.actor_id,
-          effect.delta < 0 ? { kind: 'damage', amount: -effect.delta } : { kind: 'healing', amount: effect.delta },
-          input.appliedStateRevision);
+        const runtimeEffect = effect.delta < 0
+          ? { kind: 'damage' as const, amount: -effect.delta }
+          : { kind: 'healing' as const, amount: effect.delta };
+        const state = await this.runtime.applyIn(
+          tx,
+          input.campaignId,
+          combatant.actor_id,
+          runtimeEffect,
+          input.appliedStateRevision,
+          combatant.hp_max,
+        );
         hpCurrent = Math.min(combatant.hp_max, state.currentHp);
       }
       const updated = { ...combatant, hp_current: hpCurrent, updated_at: new Date().toISOString() };
@@ -365,10 +373,23 @@ export class MechanicalResolutionService {
       ?? (loaded.charactersByPlayer.get(effect.targetId)?.length === 1 ? loaded.charactersByPlayer.get(effect.targetId)![0] : null);
     if (!character) throw new AppError('GM_ADJUDICATION_REQUIRED', '机械效果目标不明确或不在当前战役中。');
     const actorId = effect.targetId.startsWith('actor:') ? effect.targetId : 'actor:character:' + character.id;
-    const state = await this.runtime.applyIn(tx, input.campaignId, actorId,
-      effect.delta < 0 ? { kind: 'damage', amount: -effect.delta } : { kind: 'healing', amount: effect.delta },
-      input.appliedStateRevision);
+    const runtimeEffect = effect.delta < 0
+      ? { kind: 'damage' as const, amount: -effect.delta }
+      : { kind: 'healing' as const, amount: effect.delta };
     const mechanics = loaded.actors.get(actorId);
+    const mechanicsMaxHp = typeof mechanics?.hpMax === 'number'
+      && Number.isInteger(mechanics.hpMax)
+      && mechanics.hpMax >= 0
+      ? mechanics.hpMax
+      : undefined;
+    const state = await this.runtime.applyIn(
+      tx,
+      input.campaignId,
+      actorId,
+      runtimeEffect,
+      input.appliedStateRevision,
+      mechanicsMaxHp,
+    );
     if (mechanics) loaded.actors.set(actorId, { ...mechanics, hpCurrent: state.currentHp });
     const legacy = loaded.actors.get(effect.targetId);
     if (legacy) loaded.actors.set(effect.targetId, { ...legacy, hpCurrent: state.currentHp });

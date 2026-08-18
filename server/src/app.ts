@@ -77,6 +77,7 @@ export interface PlatformAppTestOptions {
 export interface PlatformApp {
   app: express.Express;
   realtimeRuntime: EventStreamRuntime;
+  narrativeWorkCoordinator: NarrativeWorkCoordinator;
   narrativeWorkRuntime: NarrativeWorkRuntime;
 }
 
@@ -212,13 +213,17 @@ function composePlatformApp(
     new TurnResolutionValidator(database),
     // Combat state changes use the same whitelisted command port and formal apply transaction.
     new StateChangeMaterializer(database, new CombatAiAdapter(combat, new CombatRepository(database))),
+    mutations,
+    undefined,
+    narrative,
   );
   app.use('/api/campaigns/:campaignId/ai', createAiRouter(database, ai, aiProviderConfig));
-  // The outbox worker is composed with the same campaign-scoped Provider facade
-  // and resolver instance as HTTP, but startup owns its lifecycle.
+  // The outbox worker and lease sweeper reuse the same Actor-aware round service
+  // as HTTP TurnService instead of constructing an independent legacy seam.
+  const narrativeWorkCoordinator = new NarrativeWorkCoordinator(database, outbox, mutations, narrative);
   const narrativeWorkRuntime = new NarrativeWorkRuntime(
     database,
-    new NarrativeWorkCoordinator(database, new OutboxRepository(database)),
+    narrativeWorkCoordinator,
     ai,
     testOptions.narrativeWorkPollIntervalMs,
   );
@@ -232,5 +237,5 @@ function composePlatformApp(
     res.status(404).json({ error: { code: 'NOT_FOUND', message: '接口不存在。' } });
   });
 
-  return { app, realtimeRuntime, narrativeWorkRuntime };
+  return { app, realtimeRuntime, narrativeWorkCoordinator, narrativeWorkRuntime };
 }

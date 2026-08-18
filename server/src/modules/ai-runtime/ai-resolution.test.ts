@@ -301,6 +301,80 @@ describe('ai resolution service', () => {
     }
   });
 
+  it('caps Actor-backed healing for combatant projections and direct Character targets', async () => {
+    let semanticIntents: Array<Record<string, unknown>> = [];
+    const provider = new ScriptedAiProvider(async (input) => {
+      if (input.stage === 'narration') {
+        return { publicNarrative: '治疗结果已按 Actor mechanics 生效。', privateUpdates: [] };
+      }
+      return { actionIntents: semanticIntents };
+    });
+    const fixture = await makeFixture(provider);
+    const { db, ownerCtx, turn } = fixture;
+    try {
+      const outbox = new OutboxRepository(db);
+      const archives = new ArchiveService(db, outbox);
+      const characters = await db.query<{ id: string; player_id: string }>(
+        'SELECT id, player_id FROM platform_characters WHERE campaign_id = ? AND status = ? ORDER BY created_at',
+        [turn.campaignId, 'approved'],
+      );
+      for (const character of characters) {
+        await db.execute(
+          'UPDATE platform_characters SET sheet_json = ? WHERE id = ?',
+          [JSON.stringify({ ac: 14, hpCurrent: 9, hpMax: 10 }), character.id],
+        );
+        await db.execute(
+          'UPDATE platform_character_runtime_states SET current_hp = ? WHERE campaign_id = ? AND actor_id = ?',
+          [9, turn.campaignId, `actor:character:${character.id}`],
+        );
+      }
+      const combat = new CombatService(db, outbox, () => 0.5);
+      const encounter = await combat.start(ownerCtx, {
+        name: '治疗上限',
+        combatants: [{
+          name: '受治疗 NPC', characterId: null, initiativeBonus: 0,
+          hpCurrent: 9, hpMax: 10, ac: 10, conditions: [], visibility: 'public', targetPlayerId: null,
+        }],
+      });
+      const targetId = encounter.combatants[0].id;
+      const actions = await db.query<{ id: string; player_id: string }>(
+        'SELECT id, player_id FROM platform_actions WHERE turn_id = ? ORDER BY submitted_at, id', [turn.id],
+      );
+      semanticIntents = actions.map((action, index) => ({
+        actionId: action.id,
+        actorId: action.player_id,
+        mode: 'player_action',
+        actionType: 'healing',
+        actionRef: 'healing:basic',
+        targetIds: index === 0 ? [targetId] : [],
+        resourceChoices: [],
+      }));
+      const service = new AiResolutionService(
+        db, provider, outbox, archives,
+        new AiContextBuilder(db), new TurnResolutionValidator(db), new StateChangeMaterializer(db),
+        new CampaignMutationCoordinator(db),
+        new MechanicalResolutionService(db, outbox, new AdjudicationService(new DiceService(() => 0.5))),
+      );
+      const result = await service.resolveTurn(ownerCtx, turn.id, { idempotencyKey: 'healing-cap' });
+      expect(result.run.status).toBe('succeeded');
+      expect((await db.query<{ hp_current: number }>(
+        'SELECT hp_current FROM platform_combatants WHERE id = ?', [targetId],
+      ))[0].hp_current).toBe(10);
+      const directCharacterId = characters.find((character) => character.player_id === actions[1].player_id)?.id;
+      if (!directCharacterId) throw new Error('expected direct Character target');
+      expect((await db.query<{ current_hp: number }>(
+        'SELECT current_hp FROM platform_character_runtime_states WHERE actor_id = ?', [`actor:character:${directCharacterId}`],
+      ))[0].current_hp).toBe(10);
+      const combatantActorId = encounter.combatants[0].actorId;
+      if (!combatantActorId) throw new Error('expected combatant Actor');
+      expect((await db.query<{ current_hp: number }>(
+        'SELECT current_hp FROM platform_character_runtime_states WHERE actor_id = ?', [combatantActorId],
+      ))[0].current_hp).toBe(10);
+    } finally {
+      await db.close();
+    }
+  });
+
   it('rejects a provider result when another authoritative mutation advances the head', async () => {
     let calls = 0;
     let releaseProvider: (() => void) | null = null;
