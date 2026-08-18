@@ -207,8 +207,16 @@ export class TurnRepository {
   /** 默认只返回当前 active branch 的 action；superseded action 只通过审计查询读取。 */
   async findActionByTurnPlayer(turnId: string, playerId: string): Promise<ActionRow | null> {
     const rows = await this.executor.query<ActionRow>(
-      'SELECT * FROM platform_actions WHERE turn_id = ? AND player_id = ? AND superseded_at IS NULL',
+      'SELECT * FROM platform_actions WHERE turn_id = ? AND player_id = ? AND superseded_at IS NULL ORDER BY submitted_at ASC, id ASC',
       [turnId, playerId],
+    );
+    return rows[0] ?? null;
+  }
+
+  async findActionByTurnActor(turnId: string, actorId: string): Promise<ActionRow | null> {
+    const rows = await this.executor.query<ActionRow>(
+      'SELECT * FROM platform_actions WHERE turn_id = ? AND actor_id = ? AND superseded_at IS NULL',
+      [turnId, actorId],
     );
     return rows[0] ?? null;
   }

@@ -28,6 +28,7 @@ import { TurnRepository, type TurnRow } from '../turns/TurnRepository.js';
 import { FactProvenanceService } from './FactProvenanceService.js';
 import {
   NarrativeRoundRepository,
+  findDecisionForParticipant,
   type InsertNarrativeDecision,
   type InsertNarrativeFact,
   type InsertNarrativeParticipant,
@@ -210,7 +211,7 @@ export class NarrativeRoundService {
     if (!(await repository.linkActionAndSubmit(decision.id, actionId, now))) {
       throw new AppError('STATE_CONFLICT', '叙事决策已被并发修改。');
     }
-    if (!(await repository.updateParticipantStatus(round.id, playerId, 'submitted', now))) {
+    if (!(await repository.updateParticipantStatus(round.id, playerId, 'submitted', now, campaignActorId))) {
       throw new AppError('STATE_CONFLICT', '叙事参与者状态已被并发修改。');
     }
     await this.refreshDecisionOrderIn(tx, round.id, turnId, now);
@@ -228,10 +229,9 @@ export class NarrativeRoundService {
     const repository = new NarrativeRoundRepository(tx);
     const participants = await repository.listParticipants(roundId);
     const decisions = await repository.listDecisions(roundId);
-    const decisionByActor = new Map(decisions.map((decision) => [decision.actor_id, decision]));
     const allSubmitted = participants.filter((participant) => Number(participant.required) === 1)
       .every((participant) => {
-        const decision = decisionByActor.get(participant.player_id);
+        const decision = findDecisionForParticipant(participant, decisions);
         return Boolean(decision?.action_id)
           && ['submitted', 'processing', 'resolved', 'skipped'].includes(decision?.status ?? '');
       });
@@ -692,10 +692,9 @@ export class NarrativeRoundService {
       if (!round || round.campaign_id !== campaignId) throw new AppError('NOT_FOUND', '叙事回合不存在。');
       const participants = await txRepository.listParticipants(roundId);
       const decisions = await txRepository.listDecisions(roundId);
-      const decisionByActor = new Map(decisions.map((decision) => [decision.actor_id, decision]));
       const incomplete = participants.find((participant) => {
         if (Number(participant.required) !== 1) return false;
-        const decision = decisionByActor.get(participant.player_id);
+        const decision = findDecisionForParticipant(participant, decisions);
         return !decision || !['resolved', 'skipped'].includes(decision.status);
       });
       if (incomplete) throw new AppError('STATE_CONFLICT', '仍有未完成的叙事决策，无法关闭回合。');
@@ -904,9 +903,8 @@ export class NarrativeRoundService {
     const turns = new TurnRepository(tx);
     const requirements = await turns.listRequirements(turn.id);
     const actions = await turns.listActionsByTurn(turn.id);
-    // Actor is the live identity owner. Keep a player keyed fallback only for
-    // legacy rows; never let a Map<player_id, CharacterRow> choose the live
-    // character when one user controls multiple approved Characters.
+    const existingParticipants = await repository.listParticipants(roundId, true);
+    const existingDecisions = await repository.listDecisions(roundId, true);
     const approvedCharacters = (await new CharacterRepository(tx).listByCampaign(turn.campaign_id))
       .filter((character) => character.status === 'approved');
     const actors = this.actors ? await this.actors.listIn(tx, turn.campaign_id) : [];
@@ -919,37 +917,109 @@ export class NarrativeRoundService {
       actorsByPlayer.set(character.player_id, current);
     }
     const actionByPlayer = new Map(actions.map((action) => [action.player_id, action]));
+    const actionByActor = new Map(actions.filter((action) => action.actor_id).map((action) => [action.actor_id!, action]));
     const actionOrder = new Map(actions.map((action, index) => [action.id, index]));
-    for (let index = 0; index < requirements.length; index += 1) {
-      const requirement = requirements[index];
-      const existingParticipant = (await repository.listParticipants(roundId, true))
-        .find((participant) => participant.player_id === requirement.player_id);
-      const action = actionByPlayer.get(requirement.player_id);
-      const selectedActor = (action?.actor_id ? actors.find((candidate) => candidate.id === action.actor_id) : undefined)
-        ?? actorsByPlayer.get(requirement.player_id)?.[0];
-      const status = action ? 'submitted' : (existingParticipant?.status ?? 'waiting');
-      if (!existingParticipant) {
-        const character = selectedActor?.character_id ? approvedCharacters.find((candidate) => candidate.id === selectedActor.character_id) : undefined;
-        const participant: InsertNarrativeParticipant = {
-          round_id: roundId, campaign_id: turn.campaign_id, player_id: requirement.player_id,
-          actor_id: selectedActor?.id ?? null, character_id: character?.id ?? null,
-          participant_order: index, required: true,
-          status, created_at: turn.created_at, updated_at: turn.updated_at,
-        };
-        await repository.insertParticipant(participant);
+
+    // Legacy-only fixtures and pre-cutover callers retain one participant per
+    // player. The production composition root always injects ActorService.
+    if (!this.actors) {
+      for (let index = 0; index < requirements.length; index += 1) {
+        const requirement = requirements[index];
+        const existingParticipant = existingParticipants.find(
+          (participant) => participant.player_id === requirement.player_id && participant.actor_id === null,
+        );
+        const action = actionByPlayer.get(requirement.player_id);
+        const status = action ? 'submitted' : (existingParticipant?.status ?? 'waiting');
+        if (!existingParticipant) {
+          await repository.insertParticipant({
+            round_id: roundId, campaign_id: turn.campaign_id, player_id: requirement.player_id,
+            actor_id: null, character_id: null, participant_order: index, required: true,
+            status, created_at: turn.created_at, updated_at: turn.updated_at,
+          });
+        }
+        const existingDecision = await repository.findDecisionByActor(roundId, requirement.player_id);
+        if (!existingDecision) {
+          await repository.insertDecision({
+            id: `narrative-decision:${roundId}:${requirement.player_id}`,
+            round_id: roundId, campaign_id: turn.campaign_id, turn_id: turn.id,
+            action_id: action?.id ?? null, actor_id: requirement.player_id, campaign_actor_id: null,
+            decision_order: action ? (actionOrder.get(action.id) ?? index) : actions.length + index,
+            status, created_at: turn.created_at, updated_at: turn.updated_at,
+          });
+        } else if (action && !existingDecision.action_id) {
+          await repository.linkActionAndSubmit(existingDecision.id, action.id, turn.updated_at);
+        }
       }
-      const existingDecision = await repository.findDecisionByActor(roundId, selectedActor?.id ?? requirement.player_id);
-      if (!existingDecision) {
-        const decision: InsertNarrativeDecision = {
-          id: `narrative-decision:${roundId}:${selectedActor?.id ?? requirement.player_id}`,
-          round_id: roundId, campaign_id: turn.campaign_id, turn_id: turn.id,
-          action_id: action?.id ?? null, actor_id: requirement.player_id, campaign_actor_id: selectedActor?.id ?? null,
-          decision_order: action ? Number(actionOrder.get(action.id)) : actions.length + index,
-          status, created_at: turn.created_at, updated_at: turn.updated_at,
-        };
-        await repository.insertDecision(decision);
-      } else if (action && !existingDecision.action_id) {
-        await repository.linkActionAndSubmit(existingDecision.id, action.id, turn.updated_at);
+      return;
+    }
+
+    let nextParticipantOrder = existingParticipants.reduce(
+      (max, participant) => Math.max(max, Number(participant.participant_order)), -1,
+    ) + 1;
+    let nextDecisionOrder = existingDecisions.reduce(
+      (max, decision) => Math.max(max, Number(decision.decision_order)), -1,
+    ) + 1;
+
+    for (const requirement of requirements) {
+      const controlledActors = actorsByPlayer.get(requirement.player_id) ?? [];
+      // An approved Character should normally have been bootstrapped together
+      // with its Actor. Keep a legacy fallback rather than fabricating an ID if
+      // an old/test database has not completed that bootstrap yet.
+      if (controlledActors.length === 0) {
+        const existingParticipant = existingParticipants.find(
+          (participant) => participant.player_id === requirement.player_id && participant.actor_id === null,
+        );
+        const action = actionByPlayer.get(requirement.player_id);
+        const status = action ? 'submitted' : (existingParticipant?.status ?? 'waiting');
+        if (!existingParticipant) {
+          await repository.insertParticipant({
+            round_id: roundId, campaign_id: turn.campaign_id, player_id: requirement.player_id,
+            actor_id: null, character_id: null, participant_order: nextParticipantOrder++, required: true,
+            status, created_at: turn.created_at, updated_at: turn.updated_at,
+          });
+        }
+        const existingDecision = await repository.findDecisionByActor(roundId, requirement.player_id);
+        if (!existingDecision) {
+          await repository.insertDecision({
+            id: `narrative-decision:${roundId}:${requirement.player_id}`,
+            round_id: roundId, campaign_id: turn.campaign_id, turn_id: turn.id,
+            action_id: action?.id ?? null, actor_id: requirement.player_id, campaign_actor_id: null,
+            decision_order: action ? (actionOrder.get(action.id) ?? nextDecisionOrder++) : nextDecisionOrder++,
+            status, created_at: turn.created_at, updated_at: turn.updated_at,
+          });
+        } else if (action && !existingDecision.action_id) {
+          await repository.linkActionAndSubmit(existingDecision.id, action.id, turn.updated_at);
+        }
+        continue;
+      }
+
+      for (const actor of controlledActors) {
+        const action = actionByActor.get(actor.id)
+          ?? (controlledActors.length === 1 ? actionByPlayer.get(requirement.player_id) : undefined);
+        const existingParticipant = existingParticipants.find((participant) => participant.actor_id === actor.id);
+        const status = action ? 'submitted' : (existingParticipant?.status ?? 'waiting');
+        if (!existingParticipant) {
+          await repository.insertParticipant({
+            round_id: roundId, campaign_id: turn.campaign_id, player_id: requirement.player_id,
+            actor_id: actor.id, character_id: actor.character_id, participant_order: nextParticipantOrder++,
+            required: true, status, created_at: turn.created_at, updated_at: turn.updated_at,
+          });
+        } else if (action) {
+          await repository.updateParticipantStatus(roundId, requirement.player_id, 'submitted', turn.updated_at, actor.id);
+        }
+
+        const existingDecision = existingDecisions.find((decision) => decision.campaign_actor_id === actor.id);
+        if (!existingDecision) {
+          await repository.insertDecision({
+            id: `narrative-decision:${roundId}:${actor.id}`,
+            round_id: roundId, campaign_id: turn.campaign_id, turn_id: turn.id,
+            action_id: action?.id ?? null, actor_id: requirement.player_id, campaign_actor_id: actor.id,
+            decision_order: action ? (actionOrder.get(action.id) ?? nextDecisionOrder++) : nextDecisionOrder++,
+            status, created_at: turn.created_at, updated_at: turn.updated_at,
+          });
+        } else if (action && !existingDecision.action_id) {
+          await repository.linkActionAndSubmit(existingDecision.id, action.id, turn.updated_at);
+        }
       }
     }
   }

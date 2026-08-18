@@ -33,4 +33,5 @@ export const PHASE3_APPROVED_MIGRATION_FILENAMES: readonly string[] = [
   '018_narrative_work_consumer_receipts.sql',
   '019_action_branch_lifecycle.sql',
   '020_actor_character_runtime_foundation.sql',
+  '021_actor_scoped_action_slots.sql',
 ];

@@ -75,7 +75,11 @@
     },
     {
       "name": "020_actor_character_runtime_foundation.sql",
-      "sha256": "eec6a7df7f3d3d595314d654ea47346ac41042e924321f2209a298d5d0651eeb"
+      "sha256": "e503546af547e86390d3bba68f74df105c989c5961a93358d97ba89c0e4cce1c"
+    },
+    {
+      "name": "021_actor_scoped_action_slots.sql",
+      "sha256": "892b47fa3370ae7610fe5f54c7638067f668347e59f56916cb42482bbd8a1ed5"
     }
   ]
 }

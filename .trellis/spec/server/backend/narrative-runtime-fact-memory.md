@@ -54,7 +54,7 @@ platform_actions  # active action branch plus superseded audit actions
 platform_outbox_consumer_receipts  # durable wake-up state; independent from SSE published_at
 ```
 
-Migrations `017_narrative_runtime_fact_memory.sql`, `018_narrative_work_consumer_receipts.sql` and `019_action_branch_lifecycle.sql` are part of the frozen approved migration set and must be listed in both the source manifest and approved migration filenames.
+Migrations `017_narrative_runtime_fact_memory.sql`, `018_narrative_work_consumer_receipts.sql`, `019_action_branch_lifecycle.sql`, `020_actor_character_runtime_foundation.sql` and `021_actor_scoped_action_slots.sql` are part of the frozen approved migration set and must be listed in both the source manifest and approved migration filenames.
 
 ## 3. Contracts
 
@@ -64,7 +64,8 @@ Migrations `017_narrative_runtime_fact_memory.sql`, `018_narrative_work_consumer
 - Decision lifecycle: `waiting | submitted | processing | resolved | skipped | needs_owner_attention`.
 - One active Round per Turn (`turn_id` unique); one primary Decision per actor per Round.
 - Decision order is `platform_actions.submitted_at ASC, platform_actions.id ASC`, considering only `platform_actions.superseded_at IS NULL` rows.
-- `platform_actions` is versioned by restore branch: active rows have `superseded_at IS NULL`, historical branch rows remain queryable for audit with `superseded_at IS NOT NULL`, and a partial unique index allows at most one active `(turn_id, player_id)` row. Default runtime/view/context queries must use active-only repository methods; all-history reads must be explicit.
+- `platform_actions` is versioned by restore branch: active rows have `superseded_at IS NULL`, historical branch rows remain queryable for audit with `superseded_at IS NOT NULL`, and live rows are unique by `(turn_id, actor_id)` while actorless legacy rows retain at most one active `(turn_id, player_id)` slot. Default runtime/view/context queries must use active-only repository methods; all-history reads must be explicit.
+- New live participant, Decision and action identity is CampaignActor-scoped. `player_id` remains the submitter/legacy compatibility field. A user controlling multiple Actors must submit with an explicit `actorId`; the service must never choose the first Actor from a player-keyed map, and readiness/close checks must evaluate every required Actor participant independently.
 - Each decision claim/apply is a short transaction. Provider calls happen outside transactions.
 - `platform_turns.status` is a compatibility mirror for live paths; new lifecycle code must not create an independent status authority.
 - `narrative.round.work_available` is only a wake-up signal. A worker must re-query the earliest eligible Decision by `submitted_at ASC, action_id ASC`; outbox delivery order, duplication, and delay never define causal order.
@@ -150,6 +151,8 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 | A processing claim is older than the worker lease without a committed outcome | CAS-expire it to `needs_owner_attention`, fail its running AI run, and keep later Decisions blocked |
 | A processing claim is older than the worker lease but already has a committed mechanical outcome | Do not expire it; replay must recover Decision/run metadata without a second mechanics revision |
 | Action edit races with claim | Edit wins before claim and is snapshotted; after claim, edit fails its Decision-status/CAS check |
+| User controls multiple Actors but omits `actorId` | `STATE_CONFLICT`; no action is inserted and no participant/Decision is selected implicitly |
+| One of several required Actors controlled by one User submits | Keep the Round collecting; only all required Actor Decisions submitted/resolved/skipped may make it ready/closable |
 | Required Decision unresolved at close | `STATE_CONFLICT`; Round remains open |
 | Duplicate Round close | Return existing FactSet; no second close revision/next Round |
 | `ai_candidate` with authoritative status | `AI_OUTPUT_INVALID`; transaction rolls back |
@@ -188,6 +191,7 @@ Previous raw actions, previous Provider messages and previous Narration entries 
 
 - Fresh SQLite migration test for migrations 017–019 and manifest admission; existing-schema migration must preserve referenced action-intent rows and enforce active-only uniqueness.
 - Round/participant/decision uniqueness, deterministic ordering, lifecycle transitions and Turn compatibility mirror.
+- Multi-Actor user fixture: two CampaignActors owned by one User produce two required participants/Decisions and two active `(turn_id, actor_id)` actions; one submission does not ready/close the Round.
 - Sequential A→B decision test: B sees A WorkingFact but not A raw action/private prompt/Narration.
 - WorkingFact persistence after database reopen, provenance source refs and StateRevision assertions.
 - Candidate authority rejection and actor/party projection filtering.

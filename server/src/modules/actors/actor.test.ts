@@ -48,6 +48,49 @@ describe('Actor and Character runtime vertical slice', () => {
     }
   });
 
+  it('keeps Narrative participants and action slots scoped to each controlled Actor', async () => {
+    const f = await makeFixture();
+    try {
+      const firstCharacterId = await approveCharacter(f, 'First narrative actor');
+      const secondCharacterId = await approveCharacter(f, 'Second narrative actor');
+      const controlled = await f.actors.listControlled(f.playerCtx);
+      const firstActor = controlled.find((actor) => actor.characterId === firstCharacterId)!;
+      const secondActor = controlled.find((actor) => actor.characterId === secondCharacterId)!;
+      const outbox = new OutboxRepository(f.db);
+      const mutations = new CampaignMutationCoordinator(f.db);
+      const narrative = new NarrativeRoundService(f.db, outbox, mutations, f.actors);
+      const turns = new TurnService(f.db, outbox, mutations, narrative, f.actors);
+      const turn = await turns.startTurn(f.ownerCtx);
+
+      const initial = await narrative.getRequiredByTurn(f.playerCtx.campaignId, turn.id);
+      expect(initial.participants.filter((participant) => participant.required).map((participant) => participant.actorId))
+        .toEqual(expect.arrayContaining([firstActor.id, secondActor.id]));
+      expect(initial.decisions.filter((decision) => decision.campaignActorId).map((decision) => decision.actorId))
+        .toEqual(expect.arrayContaining([firstActor.id, secondActor.id]));
+      await expect(turns.submitAction(f.playerCtx, turn.id, { body: 'ambiguous action' }))
+        .rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+
+      await turns.submitAction(f.playerCtx, turn.id, { actorId: firstActor.id, body: 'First actor acts.' });
+      const afterFirst = await narrative.getRequiredByTurn(f.playerCtx.campaignId, turn.id);
+      expect(afterFirst.round.status).toBe('collecting');
+      expect(afterFirst.decisions.find((decision) => decision.actorId === firstActor.id)?.actionId).toBeTruthy();
+      expect(afterFirst.decisions.find((decision) => decision.actorId === secondActor.id)?.actionId).toBeNull();
+
+      await turns.submitAction(f.playerCtx, turn.id, { actorId: secondActor.id, body: 'Second actor acts.' });
+      const afterSecond = await narrative.getRequiredByTurn(f.playerCtx.campaignId, turn.id);
+      expect(afterSecond.round.status).toBe('ready');
+      const actions = await f.db.query<{ actor_id: string; body: string }>(
+        'SELECT actor_id, body FROM platform_actions WHERE turn_id = ? AND superseded_at IS NULL ORDER BY body', [turn.id],
+      );
+      expect(actions).toEqual([
+        { actor_id: firstActor.id, body: 'First actor acts.' },
+        { actor_id: secondActor.id, body: 'Second actor acts.' },
+      ]);
+    } finally {
+      await f.db.close();
+    }
+  });
+
   it('adds a userless NPC to a Narrative round without fabricating a user row', async () => {
     const f = await makeFixture();
     try {

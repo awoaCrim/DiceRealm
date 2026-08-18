@@ -328,14 +328,14 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
     }
   });
 
-  it('rejects an ordinary startup DB with a future 021 applied even when the manifest includes it', async () => {
+  it('rejects an ordinary startup DB with a future 022 applied even when the manifest includes it', async () => {
     const dir = tempDir('dnd-startup-frozen-');
     try {
       const { databasePath, keyPath } = await createReadyDb(dir);
       const migrationsDir = join(dir, 'migrations');
       mkdirSync(migrationsDir, { recursive: true });
-      copyMigrations(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016', '017', '018', '019', '020'], migrationsDir);
-      writeFileSync(join(migrationsDir, '021_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
+      copyMigrations(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016', '017', '018', '019', '020', '021'], migrationsDir);
+      writeFileSync(join(migrationsDir, '022_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
       const names = readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
       writeFileSync(join(migrationsDir, 'migrations.manifest.json'), JSON.stringify({
         format: 1,
@@ -343,9 +343,9 @@ describe('startPlatformServer Phase 2 fail-closed gate', () => {
       }, null, 2), 'utf8');
       const raw = new Database(databasePath);
       raw.exec('BEGIN');
-      raw.exec(readFileSync(join(migrationsDir, '021_future_phase.sql'), 'utf8'));
+      raw.exec(readFileSync(join(migrationsDir, '022_future_phase.sql'), 'utf8'));
       raw.prepare('INSERT INTO platform_migrations (version, name, applied_at) VALUES (?, ?, ?)')
-        .run('021', '021_future_phase.sql', new Date().toISOString());
+        .run('022', '022_future_phase.sql', new Date().toISOString());
       raw.exec('COMMIT');
       raw.close();
       const opts = baseOptions({ host: '127.0.0.1', port: 0, databasePath }, { migrationsDir, credentialKeyPath: keyPath });

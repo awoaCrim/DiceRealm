@@ -137,13 +137,16 @@ export class TurnService {
         throw new AppError('FORBIDDEN', '你不是该回合的必需玩家。');
       }
       const narrativeRepository = new NarrativeRoundRepository(tx);
-      const decision = await narrativeRepository.findDecisionByActor(round.id, playerId);
+      const decision = await narrativeRepository.findDecisionByActor(round.id, selectedActor?.id ?? playerId);
       if (!decision) throw new AppError('FORBIDDEN', '你不是该叙事回合的参与者。');
       if (!['waiting', 'submitted'].includes(decision.status)) {
         throw new AppError('TURN_LOCKED', '该行动已经被 worker claim，无法修改。');
       }
-      // 5) upsert 自己的 action（UNIQUE(turn_id, player_id)）。
-      const existing = await repo.findActionByTurnPlayer(turnId, playerId);
+      // 5) upsert 自己控制的 Actor action；legacy callers without ActorService
+      // retain the historical player-scoped action slot.
+      const existing = selectedActor
+        ? await repo.findActionByTurnActor(turnId, selectedActor.id)
+        : await repo.findActionByTurnPlayer(turnId, playerId);
       const now = new Date().toISOString();
       let firstSubmit = false;
       let actionId: string;
@@ -173,12 +176,10 @@ export class TurnService {
           roundId: round.id, decisionId: submittedDecision.id,
         });
       }
-      // 7) All-submitted remains a compatibility mirror only. A worker may
-      // already be processing the earliest decision while later players submit;
-      // submission never waits for this condition before waking work.
-      const submitted = await repo.countSubmitted(turnId);
-      const total = await repo.countTotal(turnId);
-      if (round.status === 'collecting' && total > 0 && submitted >= total) {
+      // 7) Readiness is actor-scoped. The legacy Turn requirement table remains
+      // player-scoped for compatibility, but it must not mark a round ready
+      // after only one of several Actors controlled by the same User submits.
+      if (round.status === 'collecting') {
         const didReady = await this.narrative.markReadyIn(tx, round.id, now, stateRevision);
         if (didReady) {
           // A worker may already have mirrored the live Decision claim as

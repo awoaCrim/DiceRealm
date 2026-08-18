@@ -278,9 +278,12 @@ export class NarrativeRoundRepository {
       `UPDATE platform_narrative_round_participants
        SET status = ?, updated_at = ?
        WHERE round_id = ?
-         AND (((? IS NOT NULL) AND player_id = ?) OR ((? IS NOT NULL) AND actor_id = ?))
+         AND (
+           ((? IS NOT NULL) AND actor_id = ?)
+           OR ((? IS NULL) AND (? IS NOT NULL) AND player_id = ?)
+         )
          AND superseded_at IS NULL`,
-      [status, updatedAt, roundId, playerId, playerId, campaignActorId, campaignActorId],
+      [status, updatedAt, roundId, campaignActorId ?? null, campaignActorId ?? null, campaignActorId ?? null, playerId, playerId],
     );
     return result.changes === 1;
   }
@@ -306,11 +309,16 @@ export class NarrativeRoundRepository {
   }
 
   async findDecisionByActor(roundId: string, actorId: string): Promise<NarrativeDecisionRow | null> {
-    const rows = await this.executor.query<NarrativeDecisionRow>(
-      'SELECT * FROM platform_narrative_decisions WHERE round_id = ? AND (campaign_actor_id = ? OR actor_id = ?) AND superseded_at IS NULL',
-      [roundId, actorId, actorId],
+    const liveRows = await this.executor.query<NarrativeDecisionRow>(
+      'SELECT * FROM platform_narrative_decisions WHERE round_id = ? AND campaign_actor_id = ? AND superseded_at IS NULL',
+      [roundId, actorId],
     );
-    return rows[0] ?? null;
+    if (liveRows[0]) return liveRows[0];
+    const legacyRows = await this.executor.query<NarrativeDecisionRow>(
+      'SELECT * FROM platform_narrative_decisions WHERE round_id = ? AND actor_id = ? AND campaign_actor_id IS NULL AND superseded_at IS NULL',
+      [roundId, actorId],
+    );
+    return legacyRows[0] ?? null;
   }
 
   async findDecisionByAction(roundId: string, actionId: string): Promise<NarrativeDecisionRow | null> {
@@ -829,6 +837,17 @@ export function mapNarrativeParticipant(row: NarrativeParticipantRow): Narrative
     required: Number(row.required) === 1,
     status: row.status,
   };
+}
+
+/** Resolve a participant only through its live CampaignActor identity when present. */
+export function findDecisionForParticipant(
+  participant: NarrativeParticipantRow,
+  decisions: readonly NarrativeDecisionRow[],
+): NarrativeDecisionRow | undefined {
+  if (participant.actor_id) {
+    return decisions.find((decision) => decision.campaign_actor_id === participant.actor_id);
+  }
+  return decisions.find((decision) => decision.campaign_actor_id === null && decision.actor_id === participant.player_id);
 }
 
 export function mapNarrativeDecision(row: NarrativeDecisionRow): NarrativeDecision {

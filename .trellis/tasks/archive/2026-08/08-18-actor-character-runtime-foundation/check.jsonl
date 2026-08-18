@@ -1,0 +1,8 @@
+{"file":".trellis/spec/contracts/backend/quality-guidelines.md","reason":"Review contract schema strictness, enum/nullability bounds, cross-field validation, rejected inputs, and barrel-export coverage."}
+{"file":".trellis/spec/server/backend/database-guidelines.md","reason":"Review migration numbering/manifest admission, SQLite foreign keys, transaction ownership, rollback behavior, and row-to-view mapping."}
+{"file":".trellis/spec/server/backend/runtime-contract-state-safety.md","reason":"Review StateRevision allocation, stale-result rejection, mutation idempotency, validated runtime patches, and no direct sheet mutation."}
+{"file":".trellis/spec/server/backend/server-adjudication-dice-authority.md","reason":"Review that Combat HP/effects remain server-owned and Provider output cannot become mechanical authority."}
+{"file":".trellis/spec/server/backend/narrative-runtime-fact-memory.md","reason":"Review Decision.actorId migration, actor/audience projection, sequential scheduling, and preservation of the frozen Narrative Runtime invariants."}
+{"file":".trellis/spec/server/backend/quality-guidelines.md","reason":"Review focused/vertical tests, composition wiring, authorization, visibility, typecheck, build, and regression coverage."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Review complete identity/runtime data flow across contracts, DB, services, Narrative, Combat, and API consumers."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Review for duplicated identity resolution, runtime mutation, validation, and legacy compatibility logic."}

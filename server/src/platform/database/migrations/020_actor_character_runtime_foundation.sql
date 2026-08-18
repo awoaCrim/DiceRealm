@@ -81,7 +81,7 @@ FROM platform_narrative_round_participants_legacy;
 DROP TABLE platform_narrative_round_participants_legacy;
 CREATE UNIQUE INDEX platform_narrative_participants_legacy_unique_idx
   ON platform_narrative_round_participants(round_id, player_id)
-  WHERE player_id IS NOT NULL;
+  WHERE player_id IS NOT NULL AND actor_id IS NULL;
 CREATE UNIQUE INDEX platform_narrative_participants_actor_unique_idx
   ON platform_narrative_round_participants(round_id, actor_id)
   WHERE actor_id IS NOT NULL;
@@ -192,7 +192,7 @@ CREATE INDEX platform_narrative_round_facts_campaign_idx
 
 CREATE UNIQUE INDEX platform_narrative_decisions_legacy_actor_unique_idx
   ON platform_narrative_decisions(round_id, actor_id)
-  WHERE actor_id IS NOT NULL;
+  WHERE actor_id IS NOT NULL AND campaign_actor_id IS NULL;
 CREATE UNIQUE INDEX platform_narrative_decisions_action_unique_idx
   ON platform_narrative_decisions(round_id, action_id)
   WHERE action_id IS NOT NULL;

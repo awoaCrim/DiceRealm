@@ -4,7 +4,7 @@ import type { EventPublisherPort } from '../../platform/events/EventPublisherPor
 import { AdjudicationRepository } from '../adjudication/AdjudicationRepository.js';
 import { AppError } from '../../platform/http/AppError.js';
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
-import { NarrativeRoundRepository, mapNarrativeDecision } from './NarrativeRoundRepository.js';
+import { findDecisionForParticipant, NarrativeRoundRepository, mapNarrativeDecision } from './NarrativeRoundRepository.js';
 import { NarrativeRoundService, type DecisionClaim } from './NarrativeRoundService.js';
 
 export interface NarrativeWorkItem {
@@ -140,10 +140,9 @@ export class NarrativeWorkCoordinator {
 
       const participants = await repository.listParticipants(roundId);
       const decisions = await repository.listDecisions(roundId);
-      const decisionByActor = new Map(decisions.map((item) => [item.actor_id, item]));
       const incomplete = participants.find((participant) => {
         if (Number(participant.required) !== 1) return false;
-        const participantDecision = decisionByActor.get(participant.player_id);
+        const participantDecision = findDecisionForParticipant(participant, decisions);
         return !participantDecision || !['resolved', 'skipped'].includes(participantDecision.status);
       });
       if (incomplete) {

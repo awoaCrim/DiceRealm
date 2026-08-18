@@ -87,9 +87,18 @@ export class ActorService {
   }
 
   async resolveControlledActorIn(tx: QueryExecutor, campaignId: string, userId: string, actorId?: string): Promise<ActorRow> {
-    const row = await new ActorRepository(tx).findControlledActor(campaignId, userId, actorId);
-    if (!row) throw new AppError('FORBIDDEN', '当前用户没有控制该 Actor 的有效绑定。');
-    return row;
+    const repository = new ActorRepository(tx);
+    if (actorId) {
+      const row = await repository.findControlledActor(campaignId, userId, actorId);
+      if (!row) throw new AppError('FORBIDDEN', '当前用户没有控制该 Actor 的有效绑定。');
+      return row;
+    }
+    const controlled = await repository.listControlledByUser(campaignId, userId);
+    if (controlled.length === 0) throw new AppError('FORBIDDEN', '当前用户没有控制该 Actor 的有效绑定。');
+    if (controlled.length > 1) {
+      throw new AppError('STATE_CONFLICT', '当前用户控制多个 Actor，提交行动时必须明确指定 actorId。');
+    }
+    return controlled[0];
   }
 
   async assertActorIn(tx: QueryExecutor, campaignId: string, actorId: string): Promise<ActorRow> {
