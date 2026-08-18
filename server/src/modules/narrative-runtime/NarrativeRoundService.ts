@@ -23,6 +23,7 @@ import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordi
 import { AiRunRepository } from '../ai-runtime/AiRunRepository.js';
 import { AdjudicationRepository } from '../adjudication/AdjudicationRepository.js';
 import { CharacterRepository } from '../characters/CharacterRepository.js';
+import { ActorService } from '../actors/ActorService.js';
 import { TurnRepository, type TurnRow } from '../turns/TurnRepository.js';
 import { FactProvenanceService } from './FactProvenanceService.js';
 import {
@@ -90,13 +91,16 @@ export interface RecordWorkingFactOptions {
 export class NarrativeRoundService {
   private readonly mutations: CampaignMutationCoordinator;
   private readonly factProvenance = new FactProvenanceService();
+  private readonly actors: ActorService;
 
   constructor(
     private readonly executor: DatabasePort,
     private readonly outbox: EventPublisherPort,
     mutations?: CampaignMutationCoordinator,
+    actors?: ActorService,
   ) {
     this.mutations = mutations ?? new CampaignMutationCoordinator(executor);
+    this.actors = actors ?? new ActorService(executor, this.mutations);
   }
 
   async getByTurn(campaignId: string, turnId: string): Promise<NarrativeRoundView | null> {
@@ -869,11 +873,20 @@ export class NarrativeRoundService {
     const turns = new TurnRepository(tx);
     const requirements = await turns.listRequirements(turn.id);
     const actions = await turns.listActionsByTurn(turn.id);
-    const approvedCharacters = new Map(
-      (await new CharacterRepository(tx).listByCampaign(turn.campaign_id))
-        .filter((character) => character.status === 'approved')
-        .map((character) => [character.player_id, character.id]),
-    );
+    // Actor is the live identity owner. Keep a player keyed fallback only for
+    // legacy rows; never let a Map<player_id, CharacterRow> choose the live
+    // character when one user controls multiple approved Characters.
+    const approvedCharacters = (await new CharacterRepository(tx).listByCampaign(turn.campaign_id))
+      .filter((character) => character.status === 'approved');
+    const actors = await this.actors.listIn(tx, turn.campaign_id);
+    const actorsByPlayer = new Map<string, typeof actors>();
+    for (const actor of actors) {
+      const character = approvedCharacters.find((candidate) => candidate.id === actor.character_id);
+      if (!character) continue;
+      const current = actorsByPlayer.get(character.player_id) ?? [];
+      current.push(actor);
+      actorsByPlayer.set(character.player_id, current);
+    }
     const actionByPlayer = new Map(actions.map((action) => [action.player_id, action]));
     const actionOrder = new Map(actions.map((action, index) => [action.id, index]));
     for (let index = 0; index < requirements.length; index += 1) {
@@ -881,22 +894,24 @@ export class NarrativeRoundService {
       const existingParticipant = (await repository.listParticipants(roundId, true))
         .find((participant) => participant.player_id === requirement.player_id);
       const action = actionByPlayer.get(requirement.player_id);
+      const selectedActor = actorsByPlayer.get(requirement.player_id)?.[0];
       const status = action ? 'submitted' : (existingParticipant?.status ?? 'waiting');
       if (!existingParticipant) {
+        const character = selectedActor?.character_id ? approvedCharacters.find((candidate) => candidate.id === selectedActor.character_id) : undefined;
         const participant: InsertNarrativeParticipant = {
           round_id: roundId, campaign_id: turn.campaign_id, player_id: requirement.player_id,
-          character_id: approvedCharacters.get(requirement.player_id) ?? null,
+          actor_id: selectedActor?.id ?? null, character_id: character?.id ?? null,
           participant_order: index, required: true,
           status, created_at: turn.created_at, updated_at: turn.updated_at,
         };
         await repository.insertParticipant(participant);
       }
-      const existingDecision = await repository.findDecisionByActor(roundId, requirement.player_id);
+      const existingDecision = await repository.findDecisionByActor(roundId, selectedActor?.id ?? requirement.player_id);
       if (!existingDecision) {
         const decision: InsertNarrativeDecision = {
-          id: `narrative-decision:${roundId}:${requirement.player_id}`,
+          id: `narrative-decision:${roundId}:${selectedActor?.id ?? requirement.player_id}`,
           round_id: roundId, campaign_id: turn.campaign_id, turn_id: turn.id,
-          action_id: action?.id ?? null, actor_id: requirement.player_id,
+          action_id: action?.id ?? null, actor_id: requirement.player_id, campaign_actor_id: selectedActor?.id ?? null,
           decision_order: action ? Number(actionOrder.get(action.id)) : actions.length + index,
           status, created_at: turn.created_at, updated_at: turn.updated_at,
         };

@@ -72,6 +72,10 @@
     {
       "name": "019_action_branch_lifecycle.sql",
       "sha256": "0c6c3cbc8f6e0f33bd46b5c95cb14fdbfc72780ca4949d83efab42f17b5ef63d"
+    },
+    {
+      "name": "020_actor_character_runtime_foundation.sql",
+      "sha256": "5573bf2bb12684dbacee4efe840f1f101bcf8cdafe862a46c87fdaa7545a29a3"
     }
   ]
 }

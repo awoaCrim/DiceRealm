@@ -394,6 +394,7 @@ export class ArchiveService {
         round_id: participant.roundId,
         campaign_id: participant.campaignId,
         player_id: participant.playerId,
+        actor_id: participant.actorId,
         character_id: participant.characterId,
         participant_order: participant.participantOrder,
         required: participant.required ? 1 : 0,
@@ -412,6 +413,7 @@ export class ArchiveService {
         turn_id: restoredTurnId,
         action_id: decision.actionId,
         actor_id: decision.actorId,
+        campaign_actor_id: decision.actorId,
         decision_order: decision.decisionOrder,
         status: decision.status,
         execution_id: decision.executionId,
@@ -507,7 +509,7 @@ export class ArchiveService {
         for (const combatant of entry.combatants) {
           await combat.upsertRestoredCombatant({
             id: combatant.id, encounter_id: combatant.encounterId, campaign_id: combatant.campaignId,
-            character_id: combatant.characterId, name: combatant.name, initiative: combatant.initiative,
+            actor_id: combatant.actorId, character_id: combatant.characterId, name: combatant.name, initiative: combatant.initiative,
             initiative_bonus: combatant.initiativeBonus, hp_current: combatant.hpCurrent,
             hp_max: combatant.hpMax, ac: combatant.ac,
             conditions_json: JSON.stringify(combatant.conditions), visibility: combatant.visibility,
@@ -640,7 +642,7 @@ function toSnapshotWorldFact(row: WorldFactRow): ArchiveSnapshot['worldFacts'][n
 function toSnapshotCombatant(row: CombatantRow): ArchiveSnapshotV2['encounters'][number]['combatants'][number] {
   return {
     id: row.id, encounterId: row.encounter_id, campaignId: row.campaign_id,
-    characterId: row.character_id, name: row.name, initiative: row.initiative,
+    actorId: row.actor_id, characterId: row.character_id, name: row.name, initiative: row.initiative,
     initiativeBonus: row.initiative_bonus, hpCurrent: row.hp_current, hpMax: row.hp_max,
     ac: row.ac, conditions: JSON.parse(row.conditions_json) as string[],
     visibility: row.visibility, targetPlayerId: row.target_player_id, position: row.position,

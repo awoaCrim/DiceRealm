@@ -11,3 +11,4 @@ export * from './world.js';
 export * from './runtime.js';
 export * from './adjudication.js';
 export * from './narrative.js';
+export * from './actor.js';

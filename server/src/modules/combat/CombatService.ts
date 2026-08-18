@@ -13,6 +13,8 @@ import { requireOwner, type CampaignAuthContext } from '../campaigns/CampaignAcc
 import { canRead } from '../visibility/VisibilityPolicy.js';
 import { CombatRepository, type CombatantRow, type EncounterRow } from './CombatRepository.js';
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
+import { ActorService } from '../actors/ActorService.js';
+import { ActorRuntimeStateService } from '../actors/ActorRuntimeStateService.js';
 
 export interface CombatCommandPort {
   applyIn(
@@ -41,15 +43,21 @@ const POSITION_REORDER_OFFSET = 1_000_000;
 export class CombatService implements CombatCommandPort {
   private readonly repository: CombatRepository;
   private readonly mutations: CampaignMutationCoordinator;
+  private readonly actors: ActorService;
+  private readonly runtime: ActorRuntimeStateService;
 
   constructor(
     private readonly executor: DatabasePort,
     private readonly outbox: EventPublisherPort,
     private readonly random: () => number = Math.random,
     mutations?: CampaignMutationCoordinator,
+    actors?: ActorService,
+    runtime?: ActorRuntimeStateService,
   ) {
     this.repository = new CombatRepository(executor);
     this.mutations = mutations ?? new CampaignMutationCoordinator(executor);
+    this.actors = actors ?? new ActorService(executor, this.mutations);
+    this.runtime = runtime ?? new ActorRuntimeStateService(executor, this.mutations);
   }
 
   /** owner 创建 preparation encounter；同战役最多一个未完成 encounter。 */
@@ -61,9 +69,9 @@ export class CombatService implements CombatCommandPort {
         campaignId: ctx.campaignId,
         mutationId: `combat-start:${nanoid(24)}`,
         causeType: 'combat_start',
-      }, async () => {
+      }, async ({ stateRevision }) => {
         await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [ctx.campaignId]);
-        return this.createIn(tx, ctx.campaignId, parsed);
+        return this.createIn(tx, ctx.campaignId, parsed, stateRevision);
       });
       if (!execution.result) throw new AppError('INTERNAL_ERROR', '遭遇创建结果读取失败。');
       return execution.result;
@@ -72,7 +80,7 @@ export class CombatService implements CombatCommandPort {
 
   /** 创建遭遇核心（owner start 与 AI encounterStarts 共用）：不自行开事务，使用调用方 tx。
    *  先校验角色/成员归属，再写 encounter/combatants，并同 tx 发布 combat.updated。 */
-  async createIn(tx: QueryExecutor, campaignId: string, input: StartEncounterInput): Promise<Encounter> {
+  async createIn(tx: QueryExecutor, campaignId: string, input: StartEncounterInput, stateRevision = 0): Promise<Encounter> {
     const repo = new CombatRepository(tx);
     if (await repo.findUnfinishedEncounter(campaignId)) {
       throw new AppError('STATE_CONFLICT', '已有进行中的遭遇。');
@@ -89,6 +97,7 @@ export class CombatService implements CombatCommandPort {
       const combatant = input.combatants[index];
       await repo.insertCombatant({
         id: nanoid(24), encounter_id: encounterId, campaign_id: campaignId,
+        actor_id: await this.resolveCombatantActorIn(tx, campaignId, combatant, stateRevision),
         character_id: combatant.characterId, name: combatant.name, initiative: null,
         initiative_bonus: combatant.initiativeBonus, hp_current: combatant.hpCurrent,
         hp_max: combatant.hpMax, ac: combatant.ac,
@@ -111,9 +120,9 @@ export class CombatService implements CombatCommandPort {
         mutationId: `combat-command:${nanoid(24)}`,
         causeType: 'combat_command',
         causeId: encounterId,
-      }, async () => {
+      }, async ({ stateRevision }) => {
         await tx.execute('UPDATE campaigns SET updated_at = updated_at WHERE id = ?', [ctx.campaignId]);
-        const encounter = await this.applyCommand(tx, ctx.campaignId, encounterId, command);
+        const encounter = await this.applyCommand(tx, ctx.campaignId, encounterId, command, stateRevision);
         return this.loadOwnerView(tx, ctx.campaignId, encounter.id);
       });
       if (!execution.result) throw new AppError('INTERNAL_ERROR', '战斗命令结果读取失败。');
@@ -123,7 +132,9 @@ export class CombatService implements CombatCommandPort {
 
   /** AI 路径：在调用方 formal apply tx 内复用同一白名单命令端口，不再开 transaction。 */
   async applyIn(tx: QueryExecutor, campaignId: string, encounterId: string, command: CombatCommand): Promise<Encounter> {
-    const encounter = await this.applyCommand(tx, campaignId, encounterId, command);
+    const revisionRows = await tx.query<{ revision: number }>('SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [campaignId]);
+    const stateRevision = Number(revisionRows[0]?.revision ?? 0);
+    const encounter = await this.applyCommand(tx, campaignId, encounterId, command, stateRevision);
     return this.loadOwnerView(tx, campaignId, encounter.id);
   }
 
@@ -151,6 +162,7 @@ export class CombatService implements CombatCommandPort {
     campaignId: string,
     encounterId: string,
     command: CombatCommand,
+    stateRevision: number,
   ): Promise<EncounterRow> {
     const parsed = combatCommandSchema.parse(command); // 严格白名单校验（含 payload strict）
     const repo = new CombatRepository(tx);
@@ -171,22 +183,22 @@ export class CombatService implements CombatCommandPort {
         next = await this.advanceTurn(repo, encounter, combatants, now);
         break;
       case 'apply_attack':
-        next = await this.applyAttack(repo, encounter, combatants, parsed.payload, now);
+        next = await this.applyAttack(repo, encounter, combatants, parsed.payload, now, stateRevision);
         break;
       case 'apply_saving_throw':
-        next = await this.applySavingThrow(repo, encounter, combatants, parsed.payload, now);
+        next = await this.applySavingThrow(repo, encounter, combatants, parsed.payload, now, stateRevision);
         break;
       case 'apply_damage':
-        next = await this.applyAmount(repo, encounter, combatants, parsed.payload.actorCombatantId, parsed.payload.targetCombatantId, -parsed.payload.amount, now);
+        next = await this.applyAmount(repo, encounter, combatants, parsed.payload.actorCombatantId, parsed.payload.targetCombatantId, -parsed.payload.amount, now, stateRevision);
         break;
       case 'apply_healing':
-        next = await this.applyAmount(repo, encounter, combatants, parsed.payload.actorCombatantId, parsed.payload.targetCombatantId, parsed.payload.amount, now);
+        next = await this.applyAmount(repo, encounter, combatants, parsed.payload.actorCombatantId, parsed.payload.targetCombatantId, parsed.payload.amount, now, stateRevision);
         break;
       case 'add_condition':
-        next = await this.applyCondition(repo, encounter, combatants, parsed.payload.actorCombatantId, parsed.payload.targetCombatantId, parsed.payload.condition, true, now);
+        next = await this.applyCondition(repo, encounter, combatants, parsed.payload.actorCombatantId, parsed.payload.targetCombatantId, parsed.payload.condition, true, now, stateRevision);
         break;
       case 'remove_condition':
-        next = await this.applyCondition(repo, encounter, combatants, parsed.payload.actorCombatantId, parsed.payload.targetCombatantId, parsed.payload.condition, false, now);
+        next = await this.applyCondition(repo, encounter, combatants, parsed.payload.actorCombatantId, parsed.payload.targetCombatantId, parsed.payload.condition, false, now, stateRevision);
         break;
       case 'end_encounter':
         next = await this.endEncounter(repo, encounter, now);
@@ -249,6 +261,7 @@ export class CombatService implements CombatCommandPort {
     combatants: CombatantRow[],
     payload: { actorCombatantId: string; targetCombatantId: string; attackBonus: number; damageDie: string; damageDice: number; damageBonus: number },
     now: string,
+    stateRevision: number,
   ): Promise<EncounterRow> {
     this.assertActiveActor(encounter, combatants, payload.actorCombatantId);
     const target = this.findCombatant(combatants, payload.targetCombatantId);
@@ -260,7 +273,7 @@ export class CombatService implements CombatCommandPort {
         diceTotal += Math.floor(this.random() * dieSize) + 1;
       }
       const total = Math.max(0, diceTotal + payload.damageBonus); // 负总值不得治疗
-      await this.applyDelta(repo, target, -total, now);
+      await this.applyDelta(repo, target, -total, now, undefined, stateRevision);
     }
     return encounter;
   }
@@ -271,12 +284,13 @@ export class CombatService implements CombatCommandPort {
     combatants: CombatantRow[],
     payload: { actorCombatantId: string; targetCombatantId: string; saveBonus: number; dc: number; damageOnFailure: number },
     now: string,
+    stateRevision: number,
   ): Promise<EncounterRow> {
     this.assertActiveActor(encounter, combatants, payload.actorCombatantId);
     const target = this.findCombatant(combatants, payload.targetCombatantId);
     const saveRoll = this.d20() + payload.saveBonus;
     if (saveRoll < payload.dc) {
-      await this.applyDelta(repo, target, -payload.damageOnFailure, now);
+      await this.applyDelta(repo, target, -payload.damageOnFailure, now, undefined, stateRevision);
     }
     return encounter;
   }
@@ -289,10 +303,11 @@ export class CombatService implements CombatCommandPort {
     targetId: string,
     delta: number,
     now: string,
+    stateRevision: number,
   ): Promise<EncounterRow> {
     this.assertActiveActor(encounter, combatants, actorId);
     const target = this.findCombatant(combatants, targetId);
-    await this.applyDelta(repo, target, delta, now);
+    await this.applyDelta(repo, target, delta, now, undefined, stateRevision);
     return encounter;
   }
 
@@ -305,6 +320,7 @@ export class CombatService implements CombatCommandPort {
     condition: string,
     add: boolean,
     now: string,
+    stateRevision: number,
   ): Promise<EncounterRow> {
     this.assertActiveActor(encounter, combatants, actorId);
     const target = this.findCombatant(combatants, targetId);
@@ -320,7 +336,7 @@ export class CombatService implements CombatCommandPort {
         conditions.splice(index, 1);
       }
     }
-    await this.applyDelta(repo, target, 0, now, conditions);
+    await this.applyDelta(repo, target, 0, now, conditions, stateRevision);
     return encounter;
   }
 
@@ -339,12 +355,31 @@ export class CombatService implements CombatCommandPort {
     delta: number,
     now: string,
     conditions?: string[],
+    stateRevision = 0,
   ): Promise<void> {
-    const hpCurrent = Math.max(0, Math.min(target.hp_max, target.hp_current + delta));
+    let hpCurrent = Math.max(0, Math.min(target.hp_max, target.hp_current + delta));
+    let runtimeConditions = conditions ?? parseConditions(target.conditions_json);
+    if (target.actor_id) {
+      const effects: import('@dnd/contracts').RuntimeMutationEffect[] = [];
+      if (delta < 0) effects.push({ kind: 'damage', amount: -delta });
+      if (delta > 0) effects.push({ kind: 'healing', amount: delta });
+      if (conditions) {
+        const previous = new Set(parseConditions(target.conditions_json));
+        for (const condition of conditions) {
+          if (!previous.has(condition)) effects.push({ kind: 'add_condition', condition });
+        }
+        for (const condition of previous) {
+          if (!conditions.includes(condition)) effects.push({ kind: 'remove_condition', condition });
+        }
+      }
+      const state = await this.runtime.applyEffectsIn(repo.executor, target.campaign_id, target.actor_id, effects, stateRevision);
+      hpCurrent = Math.min(target.hp_max, state.currentHp);
+      runtimeConditions = state.conditions;
+    }
     await repo.updateCombatant({
       ...target,
       hp_current: hpCurrent,
-      conditions_json: conditions ? JSON.stringify(conditions) : target.conditions_json,
+      conditions_json: JSON.stringify(runtimeConditions),
       updated_at: now,
     });
   }
@@ -372,6 +407,30 @@ export class CombatService implements CombatCommandPort {
   }
 
   // ---------- 校验与投影 ----------
+
+  private async resolveCombatantActorIn(
+    tx: QueryExecutor,
+    campaignId: string,
+    input: StartEncounterInput['combatants'][number],
+    stateRevision: number,
+  ): Promise<string> {
+    if (input.actorId) {
+      return (await this.actors.assertActorIn(tx, campaignId, input.actorId)).id;
+    }
+    if (input.characterId) {
+      const character = (await tx.query<import('../characters/CharacterRepository.js').CharacterRow>(
+        'SELECT * FROM platform_characters WHERE id = ? AND campaign_id = ? AND status = ?',
+        [input.characterId, campaignId, 'approved'],
+      ))[0];
+      if (!character) throw new AppError('VALIDATION_ERROR', '战斗员关联的角色必须属于本战役且已批准。');
+      return (await this.actors.ensureCharacterActorIn(tx, character, stateRevision)).id;
+    }
+    const actor = await this.actors.createNpcIn(tx, campaignId, nanoid(24), {
+      displayName: input.name, controlMode: 'ai', mechanicsMode: 'lightweight',
+      currentHp: input.hpCurrent, temporaryHp: 0, conditions: input.conditions,
+    }, stateRevision);
+    return actor.id;
+  }
 
   private async validateCombatants(tx: QueryExecutor, campaignId: string, input: StartEncounterInput): Promise<void> {
     const characterIds = [...new Set(input.combatants.map((c) => c.characterId).filter((id): id is string => id != null))];
@@ -428,6 +487,7 @@ export class CombatService implements CombatCommandPort {
       round: encounter.round,
       combatants: visible.map((c) => ({
         id: c.id,
+        actorId: c.actor_id,
         name: c.name,
         characterId: c.character_id,
         initiative: c.initiative,
@@ -443,5 +503,14 @@ export class CombatService implements CombatCommandPort {
       createdAt: encounter.created_at,
       updatedAt: encounter.updated_at,
     };
+  }
+}
+
+function parseConditions(json: string): string[] {
+  try {
+    const value: unknown = JSON.parse(json);
+    return Array.isArray(value) && value.every((item) => typeof item === 'string') ? [...new Set(value)] : [];
+  } catch {
+    return [];
   }
 }

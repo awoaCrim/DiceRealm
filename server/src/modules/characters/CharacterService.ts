@@ -14,6 +14,7 @@ import { AppError } from '../../platform/http/AppError.js';
 import { requireOwner, type CampaignAuthContext } from '../campaigns/CampaignAccess.js';
 import { CharacterRepository, type CharacterAuditRow, type CharacterRow } from './CharacterRepository.js';
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
+import { ActorService } from '../actors/ActorService.js';
 
 /**
  * 派生值计算：从 sheet 计算关键派生值并带来源列表。
@@ -34,10 +35,12 @@ export function computeDerived(sheet: Record<string, unknown>): CharacterDerived
 export class CharacterService {
   private readonly repository: CharacterRepository;
   private readonly mutations: CampaignMutationCoordinator;
+  private readonly actors: ActorService;
 
-  constructor(private readonly executor: DatabasePort, mutations?: CampaignMutationCoordinator) {
+  constructor(private readonly executor: DatabasePort, mutations?: CampaignMutationCoordinator, actors?: ActorService) {
     this.repository = new CharacterRepository(executor);
     this.mutations = mutations ?? new CampaignMutationCoordinator(executor);
+    this.actors = actors ?? new ActorService(executor, this.mutations);
   }
 
   async createDraft(ctx: CampaignAuthContext, input: CharacterDraftInput): Promise<CharacterDraft> {
@@ -144,6 +147,9 @@ export class CharacterService {
         };
       },
       'approve',
+      async (tx, approved, stateRevision) => {
+        await this.actors.ensureCharacterActorIn(tx, approved, stateRevision);
+      },
     );
     return mapApproved(updated, JSON.parse(updated.derived_json) as CharacterDerivedValues);
   }
@@ -217,6 +223,7 @@ export class CharacterService {
     expectedStatuses: CharacterStatus[],
     buildUpdated: (row: CharacterRow) => CharacterRow,
     action: string,
+    afterTransition?: (tx: import('../../platform/database/DatabasePort.js').QueryExecutor, row: CharacterRow, stateRevision: number) => Promise<void>,
   ): Promise<CharacterRow> {
     requireOwner(ctx);
     return this.executor.transaction(async (tx) => {
@@ -233,7 +240,11 @@ export class CharacterService {
         mutationId: `character-${action}:${nanoid(24)}`,
         causeType: `character_${action}`,
         causeId: characterId,
-      }, async () => this.commitTransition(repo, ctx, row, buildUpdated, action));
+      }, async ({ stateRevision }) => {
+        const updated = await this.commitTransition(repo, ctx, row, buildUpdated, action);
+        if (afterTransition) await afterTransition(tx, updated, stateRevision);
+        return updated;
+      });
       if (!execution.result) throw new AppError('INTERNAL_ERROR', '角色变更结果读取失败。');
       return execution.result;
     });

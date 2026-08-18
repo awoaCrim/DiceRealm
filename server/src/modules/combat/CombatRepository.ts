@@ -24,6 +24,7 @@ export interface CombatantRow {
   id: string;
   encounter_id: string;
   campaign_id: string;
+  actor_id: string | null;
   character_id: string | null;
   name: string;
   initiative: number | null;
@@ -42,7 +43,7 @@ export interface CombatantRow {
 }
 
 export class CombatRepository {
-  constructor(private readonly executor: QueryExecutor) {}
+  constructor(public readonly executor: QueryExecutor) {}
 
   // ---------- encounters（active-only 默认查询） ----------
 
@@ -128,11 +129,11 @@ export class CombatRepository {
   async insertCombatant(row: CombatantRow): Promise<void> {
     await this.executor.execute(
       `INSERT INTO platform_combatants
-        (id, encounter_id, campaign_id, character_id, name, initiative, initiative_bonus,
+        (id, encounter_id, campaign_id, actor_id, character_id, name, initiative, initiative_bonus,
          hp_current, hp_max, ac, conditions_json, visibility, target_player_id, position,
          superseded_at, superseded_by_archive_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [row.id, row.encounter_id, row.campaign_id, row.character_id, row.name, row.initiative,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [row.id, row.encounter_id, row.campaign_id, row.actor_id, row.character_id, row.name, row.initiative,
        row.initiative_bonus, row.hp_current, row.hp_max, row.ac, row.conditions_json,
        row.visibility, row.target_player_id, row.position, row.superseded_at,
        row.superseded_by_archive_id, row.created_at, row.updated_at],
@@ -200,13 +201,14 @@ export class CombatRepository {
   async upsertRestoredCombatant(row: CombatantRow): Promise<void> {
     await this.executor.execute(
       `INSERT INTO platform_combatants
-        (id, encounter_id, campaign_id, character_id, name, initiative, initiative_bonus,
+        (id, encounter_id, campaign_id, actor_id, character_id, name, initiative, initiative_bonus,
          hp_current, hp_max, ac, conditions_json, visibility, target_player_id, position,
          superseded_at, superseded_by_archive_id, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)
        ON CONFLICT (id) DO UPDATE SET
          encounter_id = excluded.encounter_id,
          campaign_id = excluded.campaign_id,
+         actor_id = excluded.actor_id,
          character_id = excluded.character_id,
          name = excluded.name,
          initiative = excluded.initiative,
@@ -222,7 +224,7 @@ export class CombatRepository {
          superseded_by_archive_id = NULL,
          created_at = excluded.created_at,
          updated_at = excluded.updated_at`,
-      [row.id, row.encounter_id, row.campaign_id, row.character_id, row.name, row.initiative,
+      [row.id, row.encounter_id, row.campaign_id, row.actor_id, row.character_id, row.name, row.initiative,
        row.initiative_bonus, row.hp_current, row.hp_max, row.ac, row.conditions_json,
        row.visibility, row.target_player_id, row.position, row.created_at, row.updated_at],
     );

@@ -96,6 +96,8 @@ export const narrativeRoundParticipantSchema = z.object({
   roundId: z.string().min(1),
   campaignId: z.string().min(1),
   playerId: z.string().min(1),
+  /** New live identity; null only for legacy participant rows. */
+  actorId: z.string().min(1).nullable(),
   characterId: z.string().min(1).nullable(),
   participantOrder: z.number().int().nonnegative(),
   required: z.boolean(),

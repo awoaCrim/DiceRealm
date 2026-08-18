@@ -33,6 +33,7 @@ export interface NarrativeParticipantRow {
   round_id: string;
   campaign_id: string;
   player_id: string;
+  actor_id: string | null;
   character_id: string | null;
   participant_order: number;
   required: number;
@@ -50,6 +51,7 @@ export interface NarrativeDecisionRow {
   turn_id: string;
   action_id: string | null;
   actor_id: string;
+  campaign_actor_id: string | null;
   decision_order: number;
   status: NarrativeDecisionStatus;
   execution_id: string | null;
@@ -114,6 +116,7 @@ export interface InsertNarrativeParticipant {
   round_id: string;
   campaign_id: string;
   player_id: string;
+  actor_id?: string | null;
   character_id?: string | null;
   participant_order: number;
   required?: boolean;
@@ -129,6 +132,7 @@ export interface InsertNarrativeDecision {
   turn_id: string;
   action_id?: string | null;
   actor_id: string;
+  campaign_actor_id?: string | null;
   decision_order: number;
   status?: NarrativeDecisionStatus;
   created_at: string;
@@ -252,9 +256,9 @@ export class NarrativeRoundRepository {
   async insertParticipant(row: InsertNarrativeParticipant): Promise<void> {
     await this.executor.execute(
       `INSERT INTO platform_narrative_round_participants
-       (round_id, campaign_id, player_id, character_id, participant_order, required, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [row.round_id, row.campaign_id, row.player_id, row.character_id ?? null,
+       (round_id, campaign_id, player_id, actor_id, character_id, participant_order, required, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [row.round_id, row.campaign_id, row.player_id, row.actor_id ?? null, row.character_id ?? null,
        row.participant_order, row.required === false ? 0 : 1, row.status ?? 'waiting',
        row.created_at, row.updated_at],
     );
@@ -282,9 +286,9 @@ export class NarrativeRoundRepository {
   async insertDecision(row: InsertNarrativeDecision): Promise<void> {
     await this.executor.execute(
       `INSERT INTO platform_narrative_decisions
-       (id, round_id, campaign_id, turn_id, action_id, actor_id, decision_order, status, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [row.id, row.round_id, row.campaign_id, row.turn_id, row.action_id ?? null, row.actor_id,
+       (id, round_id, campaign_id, turn_id, action_id, actor_id, campaign_actor_id, decision_order, status, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [row.id, row.round_id, row.campaign_id, row.turn_id, row.action_id ?? null, row.actor_id, row.campaign_actor_id ?? null,
        row.decision_order, row.status ?? 'waiting', row.created_at, row.updated_at],
     );
   }
@@ -301,8 +305,8 @@ export class NarrativeRoundRepository {
 
   async findDecisionByActor(roundId: string, actorId: string): Promise<NarrativeDecisionRow | null> {
     const rows = await this.executor.query<NarrativeDecisionRow>(
-      'SELECT * FROM platform_narrative_decisions WHERE round_id = ? AND actor_id = ? AND superseded_at IS NULL',
-      [roundId, actorId],
+      'SELECT * FROM platform_narrative_decisions WHERE round_id = ? AND (campaign_actor_id = ? OR actor_id = ?) AND superseded_at IS NULL',
+      [roundId, actorId, actorId],
     );
     return rows[0] ?? null;
   }
@@ -632,10 +636,11 @@ export class NarrativeRoundRepository {
   async restoreParticipant(row: NarrativeParticipantRow, updatedAt: string): Promise<void> {
     await this.executor.execute(
       `INSERT INTO platform_narrative_round_participants
-       (round_id, campaign_id, player_id, character_id, participant_order, required, status, created_at, updated_at, superseded_at, superseded_by_archive_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+       (round_id, campaign_id, player_id, actor_id, character_id, participant_order, required, status, created_at, updated_at, superseded_at, superseded_by_archive_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
        ON CONFLICT (round_id, player_id) DO UPDATE SET
          campaign_id = excluded.campaign_id,
+         actor_id = excluded.actor_id,
          character_id = excluded.character_id,
          participant_order = excluded.participant_order,
          required = excluded.required,
@@ -644,7 +649,7 @@ export class NarrativeRoundRepository {
          updated_at = excluded.updated_at,
          superseded_at = NULL,
          superseded_by_archive_id = NULL`,
-      [row.round_id, row.campaign_id, row.player_id, row.character_id, row.participant_order,
+      [row.round_id, row.campaign_id, row.player_id, row.actor_id, row.character_id, row.participant_order,
        row.required, row.status, row.created_at, updatedAt],
     );
   }
@@ -652,15 +657,16 @@ export class NarrativeRoundRepository {
   async restoreDecision(row: NarrativeDecisionRow, updatedAt: string): Promise<void> {
     await this.executor.execute(
       `INSERT INTO platform_narrative_decisions
-       (id, round_id, campaign_id, turn_id, action_id, actor_id, decision_order, status, execution_id, outcome_id,
+       (id, round_id, campaign_id, turn_id, action_id, actor_id, campaign_actor_id, decision_order, status, execution_id, outcome_id,
         claim_revision, applied_state_revision, failure_code, created_at, updated_at, superseded_at, superseded_by_archive_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
        ON CONFLICT (id) DO UPDATE SET
          round_id = excluded.round_id,
          campaign_id = excluded.campaign_id,
          turn_id = excluded.turn_id,
          action_id = excluded.action_id,
          actor_id = excluded.actor_id,
+         campaign_actor_id = excluded.campaign_actor_id,
          decision_order = excluded.decision_order,
          status = excluded.status,
          execution_id = excluded.execution_id,
@@ -672,7 +678,7 @@ export class NarrativeRoundRepository {
          updated_at = excluded.updated_at,
          superseded_at = NULL,
          superseded_by_archive_id = NULL`,
-      [row.id, row.round_id, row.campaign_id, row.turn_id, row.action_id, row.actor_id,
+      [row.id, row.round_id, row.campaign_id, row.turn_id, row.action_id, row.actor_id, row.campaign_actor_id,
        row.decision_order, row.status, row.execution_id, row.outcome_id, row.claim_revision,
        row.applied_state_revision, row.failure_code, row.created_at, updatedAt],
     );
@@ -815,6 +821,7 @@ export function mapNarrativeParticipant(row: NarrativeParticipantRow): Narrative
     roundId: row.round_id,
     campaignId: row.campaign_id,
     playerId: row.player_id,
+    actorId: row.actor_id,
     characterId: row.character_id,
     participantOrder: Number(row.participant_order),
     required: Number(row.required) === 1,
@@ -829,7 +836,7 @@ export function mapNarrativeDecision(row: NarrativeDecisionRow): NarrativeDecisi
     campaignId: row.campaign_id,
     turnId: row.turn_id,
     actionId: row.action_id,
-    actorId: row.actor_id,
+    actorId: row.campaign_actor_id ?? row.actor_id,
     decisionOrder: Number(row.decision_order),
     status: row.status,
     executionId: row.execution_id,

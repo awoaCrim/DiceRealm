@@ -8,6 +8,9 @@ import { errorMiddleware } from './platform/http/errorMiddleware.js';
 import { createSessionMiddleware } from './platform/http/sessionMiddleware.js';
 import { IdentityService, type IdentityServiceOptions } from './modules/identity/IdentityService.js';
 import { CampaignService } from './modules/campaigns/CampaignService.js';
+import { CampaignMutationCoordinator } from './modules/campaigns/CampaignMutationCoordinator.js';
+import { ActorService } from './modules/actors/ActorService.js';
+import { ActorRuntimeStateService } from './modules/actors/ActorRuntimeStateService.js';
 import { createAuthRouter } from './routes/authRoutes.js';
 import { createCampaignRouter } from './routes/campaignRoutes.js';
 import { createCharacterRouter } from './routes/characterRoutes.js';
@@ -43,6 +46,7 @@ import { CampaignScopedAiProvider } from './modules/ai-runtime/CampaignScopedAiP
 import type { CredentialCipher } from './modules/ai-runtime/CredentialCipher.js';
 import { NarrativeWorkCoordinator } from './modules/narrative-runtime/NarrativeWorkCoordinator.js';
 import { NarrativeWorkRuntime } from './modules/narrative-runtime/NarrativeWorkRuntime.js';
+import { NarrativeRoundService } from './modules/narrative-runtime/NarrativeRoundService.js';
 
 /**
  * 平台唯一组合根。`database` 必填且只能是 `DatabasePort`；
@@ -160,10 +164,15 @@ function composePlatformApp(
     revocationNotifier: testOptions.identityOptions?.revocationNotifier ?? realtimeRuntime,
   });
   const campaigns = new CampaignService(database);
-  const characters = new CharacterService(database);
+  const mutations = new CampaignMutationCoordinator(database);
+  const actors = new ActorService(database, mutations);
+  const runtimeStates = new ActorRuntimeStateService(database, mutations);
+  const characters = new CharacterService(database, mutations, actors);
   const worldFacts = new WorldFactService(database);
   // TurnService 依赖 EventPublisherPort 端口；composition root 注入 concrete OutboxRepository（与业务同 tx 写 outbox）。
-  const turns = new TurnService(database, new OutboxRepository(database));
+  const outbox = new OutboxRepository(database);
+  const narrative = new NarrativeRoundService(database, outbox, mutations, actors);
+  const turns = new TurnService(database, outbox, mutations, narrative);
   app.use(createSessionMiddleware(identity));
   app.use('/api/auth', createAuthRouter(identity));
   app.use('/api/campaigns', createCampaignRouter(database, campaigns));
@@ -177,7 +186,7 @@ function composePlatformApp(
   const archives = new ArchiveService(database, new OutboxRepository(database));
   app.use('/api/campaigns/:campaignId/archives', createArchiveRouter(database, archives));
   // 结构化战斗：HTTP 写命令 owner-only；players 只读投影；AI 经 CombatAiAdapter 同端口。
-  const combat = new CombatService(database, new OutboxRepository(database));
+  const combat = new CombatService(database, outbox, Math.random, mutations, actors, runtimeStates);
   app.use('/api/campaigns/:campaignId/combat', createCombatRouter(database, combat));
   // Shared runtime: requests bind the authoritative session tuple before headers are flushed.
   app.use('/api/campaigns/:campaignId/events', createEventRouter(database, realtimeRuntime, {

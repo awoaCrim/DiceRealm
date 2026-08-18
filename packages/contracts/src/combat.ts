@@ -10,6 +10,8 @@ export type EncounterStatus = z.infer<typeof encounterStatusSchema>;
 /** 战斗员：visibility/targetPlayerId 配对与 turn dice results 同构。 */
 export const combatantSchema = z.object({
   id: z.string().min(1),
+  /** CampaignActor identity; legacy rows may be null until explicitly linked. */
+  actorId: z.string().min(1).nullable(),
   name: z.string().min(1),
   /** NPC 为 null；PC 关联同 campaign 且 approved 的 platform_character。 */
   characterId: z.string().min(1).nullable(),
@@ -52,6 +54,7 @@ export type Encounter = z.infer<typeof encounterSchema>;
 export const startEncounterInputSchema = z.object({
   name: z.string().trim().min(1),
   combatants: z.array(z.object({
+    actorId: z.string().min(1).nullable().optional(),
     name: z.string().trim().min(1),
     characterId: z.string().min(1).nullable(),
     initiativeBonus: z.number().int(),
@@ -115,6 +118,7 @@ export const combatCommandSchema = z.discriminatedUnion('kind', [
     payload: z.object({
       name: z.string().trim().min(1),
       combatants: z.array(z.object({
+        actorId: z.string().min(1).nullable().optional(),
         name: z.string().trim().min(1),
         characterId: z.string().min(1).nullable(),
         initiativeBonus: z.number().int(),

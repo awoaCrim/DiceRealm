@@ -16,6 +16,7 @@ import { CombatRepository, type CombatantRow } from '../combat/CombatRepository.
 import { TurnRepository } from '../turns/TurnRepository.js';
 import { AdjudicationRepository } from './AdjudicationRepository.js';
 import { AdjudicationService, type ActorMechanics, type MechanicalEffect, type TargetMechanics } from './AdjudicationService.js';
+import { ActorRuntimeStateService } from '../actors/ActorRuntimeStateService.js';
 
 export interface ActionSnapshot {
   id: string;
@@ -49,7 +50,8 @@ export interface MechanicalResolutionResult {
 interface LoadedState {
   actors: Map<string, ActorMechanics>;
   targets: Map<string, TargetMechanics>;
-  charactersByPlayer: Map<string, CharacterRow>;
+  charactersByPlayer: Map<string, CharacterRow[]>;
+  charactersByActor: Map<string, CharacterRow>;
   combatantsById: Map<string, CombatantRow>;
   rulesetId: string;
   rulesetVersion: string;
@@ -61,6 +63,7 @@ interface LoadedState {
  */
 export class MechanicalResolutionService {
   private readonly repository: AdjudicationRepository;
+  private readonly runtime: ActorRuntimeStateService;
 
   constructor(
     private readonly executor: QueryExecutor,
@@ -68,6 +71,7 @@ export class MechanicalResolutionService {
     private readonly adjudicator: AdjudicationService = new AdjudicationService(),
   ) {
     this.repository = new AdjudicationRepository(executor);
+    this.runtime = new ActorRuntimeStateService(executor);
   }
 
   async resolveDecisionIn(
@@ -237,19 +241,26 @@ export class MechanicalResolutionService {
     const characters = new CharacterRepository(tx);
     const characterRows = (await characters.listByCampaign(campaignId)).filter((row) => row.status === 'approved');
     const actors = new Map<string, ActorMechanics>();
-    const charactersByPlayer = new Map<string, CharacterRow>();
+    const charactersByPlayer = new Map<string, CharacterRow[]>();
+    const charactersByActor = new Map<string, CharacterRow>();
     for (const row of characterRows) {
       const sheet = parseObject(row.sheet_json);
-      actors.set(row.player_id, {
-        id: row.player_id,
+      const actorId = 'actor:character:' + row.id;
+      const mechanics = {
+        id: actorId,
         characterId: row.id,
         abilityModifiers: numericRecord(sheet.abilityModifiers ?? sheet.abilities),
         savingThrowModifiers: numericRecord(sheet.savingThrowModifiers ?? sheet.savingThrows),
         attackModifier: numberValue(sheet.attackModifier),
         hpCurrent: numberValue(sheet.hpCurrent),
         hpMax: numberValue(sheet.hpMax),
-      });
-      charactersByPlayer.set(row.player_id, row);
+      };
+      actors.set(actorId, mechanics);
+      if (!actors.has(row.player_id)) actors.set(row.player_id, { ...mechanics, id: row.player_id });
+      const playerRows = charactersByPlayer.get(row.player_id) ?? [];
+      playerRows.push(row);
+      charactersByPlayer.set(row.player_id, playerRows);
+      charactersByActor.set(actorId, row);
     }
     const combatRepo = new CombatRepository(tx);
     const combatants = (await combatRepo.listEncountersByCampaign(campaignId))
@@ -262,7 +273,7 @@ export class MechanicalResolutionService {
       combatantsById.set(combatant.id, combatant);
     }
     return {
-      actors, targets, charactersByPlayer, combatantsById,
+      actors, targets, charactersByPlayer, charactersByActor, combatantsById,
       rulesetId: ruleset || 'dnd5e',
       rulesetVersion: 'v0.1',
     };
@@ -276,7 +287,13 @@ export class MechanicalResolutionService {
   ): Promise<void> {
     const combatant = loaded.combatantsById.get(effect.targetId);
     if (combatant) {
-      const hpCurrent = Math.max(0, Math.min(combatant.hp_max, combatant.hp_current + effect.delta));
+      let hpCurrent = Math.max(0, Math.min(combatant.hp_max, combatant.hp_current + effect.delta));
+      if (combatant.actor_id) {
+        const state = await this.runtime.applyIn(tx, input.campaignId, combatant.actor_id,
+          effect.delta < 0 ? { kind: 'damage', amount: -effect.delta } : { kind: 'healing', amount: effect.delta },
+          input.appliedStateRevision);
+        hpCurrent = Math.min(combatant.hp_max, state.currentHp);
+      }
       const updated = { ...combatant, hp_current: hpCurrent, updated_at: new Date().toISOString() };
       await new CombatRepository(tx).updateCombatant(updated);
       loaded.combatantsById.set(effect.targetId, updated);
@@ -286,30 +303,17 @@ export class MechanicalResolutionService {
       }
       return;
     }
-    const character = loaded.charactersByPlayer.get(effect.targetId);
-    if (!character) {
-      throw new AppError('GM_ADJUDICATION_REQUIRED', '机械效果目标不在当前战役中。');
-    }
-    const sheet = parseObject(character.sheet_json);
-    const hpMax = numberValue(sheet.hpMax) ?? 0;
-    const hpCurrent = Math.max(0, Math.min(hpMax || Number.MAX_SAFE_INTEGER, (numberValue(sheet.hpCurrent) ?? 0) + effect.delta));
-    const updatedSheet = { ...sheet, hpCurrent };
-    const updated: CharacterRow = {
-      ...character,
-      sheet_json: JSON.stringify(updatedSheet),
-      updated_at: new Date().toISOString(),
-    };
-    const repo = new CharacterRepository(tx);
-    if (!(await repo.updateContent(updated, character.status))) {
-      throw new AppError('STATE_CONFLICT', '角色状态在机械提交期间发生变化。');
-    }
-    await repo.insertAudit({
-      id: nanoid(24), character_id: character.id, campaign_id: input.campaignId,
-      actor_user_id: input.actorUserId, action: 'mechanical_effect',
-      before_json: JSON.stringify(character), after_json: JSON.stringify(updated), created_at: updated.updated_at,
-    });
-    loaded.charactersByPlayer.set(effect.targetId, updated);
-    loaded.actors.set(effect.targetId, { ...loaded.actors.get(effect.targetId), id: effect.targetId, hpCurrent, hpMax } as ActorMechanics);
+    const character = loaded.charactersByActor.get(effect.targetId)
+      ?? (loaded.charactersByPlayer.get(effect.targetId)?.length === 1 ? loaded.charactersByPlayer.get(effect.targetId)![0] : null);
+    if (!character) throw new AppError('GM_ADJUDICATION_REQUIRED', '机械效果目标不明确或不在当前战役中。');
+    const actorId = effect.targetId.startsWith('actor:') ? effect.targetId : 'actor:character:' + character.id;
+    const state = await this.runtime.applyIn(tx, input.campaignId, actorId,
+      effect.delta < 0 ? { kind: 'damage', amount: -effect.delta } : { kind: 'healing', amount: effect.delta },
+      input.appliedStateRevision);
+    const mechanics = loaded.actors.get(actorId);
+    if (mechanics) loaded.actors.set(actorId, { ...mechanics, hpCurrent: state.currentHp });
+    const legacy = loaded.actors.get(effect.targetId);
+    if (legacy) loaded.actors.set(effect.targetId, { ...legacy, hpCurrent: state.currentHp });
   }
 }
 
