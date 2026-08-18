@@ -8,6 +8,7 @@ import type {
   ArchiveSnapshotNarrative,
   ArchiveSnapshotRequirement,
   ArchiveSnapshotV2,
+  ArchiveSnapshotV3,
   TurnAction,
 } from '@dnd/contracts';
 import { archiveSnapshotSchema, manualArchiveInputSchema } from '@dnd/contracts';
@@ -34,6 +35,15 @@ import {
 } from '../narrative-runtime/NarrativeRoundRepository.js';
 import { NarrativeRoundService } from '../narrative-runtime/NarrativeRoundService.js';
 import { ActorService } from '../actors/ActorService.js';
+import {
+  ActorRepository,
+  mapActor,
+  mapBinding,
+  mapRuntimeState,
+  type ActorBindingRow,
+  type ActorRow,
+  type RuntimeStateRow,
+} from '../actors/ActorRepository.js';
 
 /** 恢复两阶段 position 重排安全 offset：远大于任何真实 position 数量。 */
 const POSITION_RESTORE_OFFSET = 2_000_000;
@@ -125,11 +135,11 @@ export class ArchiveService {
         mutationId: `archive-restore:${archive.id}`,
         causeType: 'archive_restore',
         causeId: archive.id,
-      }, async () => {
+      }, async ({ stateRevision }) => {
       // 4) 先 supersede 旧历史（被恢复 archive 的 version 作为 archives 超水位）。
       await this.supersedeHistory(tx, ctx.campaignId, archive.id, archive.version, snapshot, now);
       // 5) 恢复快照状态。
-      const restoredTurnId = await this.restoreSnapshotState(tx, ctx.campaignId, snapshot, ctx.userId, archive.id, now);
+      const restoredTurnId = await this.restoreSnapshotState(tx, ctx.campaignId, snapshot, ctx.userId, archive.id, now, stateRevision);
       // 5b) 原 work_available 可能已经被 worker 消费并留下 durable receipt；恢复 submitted
       // decision 时必须在同一事务补发一个新的 wake-up，不能依赖被回溯到快照水位之前的旧事件。
       await this.publishRestoredNarrativeWorkIfNeeded(tx, ctx.campaignId, snapshot);
@@ -177,14 +187,14 @@ export class ArchiveService {
     return rows.map(mapArchive);
   }
 
-  /** 快照：schemaVersion=2，含 campaignId/ruleset/characters(全部角色完整 owner current state)/active world facts/current turn+actions+requirements/全部 unsuperseded encounters+combatants/watermarks。
+  /** 快照：schemaVersion=3，含 V2 narrative/combat/turn state 以及 Actor/control/runtime authoritative state。
    *  watermarks 含 outboxSequence/aiRunCampaignSequence/turnNumber（turnNumber 为捕获时 unsuperseded 历史最大
    *  turn number，供 restore 决定 turns 的 supersede 水位；setup 无回合 = 0）。 */
   private async captureSnapshot(
     tx: QueryExecutor,
     campaignId: string,
     opts: { forResolvedTurn: boolean; resolvedTurnId?: string },
-  ): Promise<ArchiveSnapshotV2> {
+  ): Promise<ArchiveSnapshotV3> {
     const campaign = (await tx.query<{ id: string; ruleset: string }>(
       'SELECT id, ruleset FROM campaigns WHERE id = ?', [campaignId],
     ))[0];
@@ -193,6 +203,7 @@ export class ArchiveService {
     const turns = new TurnRepository(tx);
     const archiveRepo = new ArchiveRepository(tx);
     const combatRepo = new CombatRepository(tx);
+    const actorRepo = new ActorRepository(tx);
 
     // 快照角色取 campaign 全部角色（draft/pending_review/rejected/approved/archived 全保留），
     // 完整 owner current state。context builder 仍只取 approved——二者解耦。
@@ -232,7 +243,7 @@ export class ArchiveService {
     );
 
     return {
-      schemaVersion: 2,
+      schemaVersion: 3,
       campaignId,
       ruleset: campaign.ruleset,
       characters: characterRows,
@@ -240,6 +251,9 @@ export class ArchiveService {
       currentTurn: currentTurnSnapshot,
       encounters,
       narrative,
+      actors: (await actorRepo.listByCampaign(campaignId)).map(mapActor),
+      actorControlBindings: (await actorRepo.listBindings(campaignId)).map(mapBinding),
+      characterRuntimeStates: (await actorRepo.listRuntimeStates(campaignId)).map(mapRuntimeState),
       watermarks: {
         outboxSequence: await archiveRepo.maxOutboxSequence(campaignId),
         aiRunCampaignSequence: await archiveRepo.maxAiRunSequence(campaignId),
@@ -331,7 +345,7 @@ export class ArchiveService {
     // 战斗历史：v2 只 supersede 快照外的 encounter/combatant；v1 视为“当时尚无平台战斗”，
     // 当前 unsuperseded 战斗全部标记为快照后历史。
     const combat = new CombatRepository(tx);
-    if (snapshot.schemaVersion === 2) {
+    if (snapshot.schemaVersion === 2 || snapshot.schemaVersion === 3) {
       await combat.supersedeNotIn(
         campaignId,
         snapshot.encounters.map((e) => e.encounter.id),
@@ -355,7 +369,7 @@ export class ArchiveService {
     campaignId: string,
     snapshot: ArchiveSnapshot,
   ): Promise<void> {
-    if (snapshot.schemaVersion !== 2 || !snapshot.narrative) return;
+    if ((snapshot.schemaVersion !== 2 && snapshot.schemaVersion !== 3) || !snapshot.narrative) return;
     const repository = new NarrativeRoundRepository(tx);
     const round = await repository.findById(snapshot.narrative.round.id);
     if (!round || round.campaign_id !== campaignId || round.status === 'closed') return;
@@ -459,6 +473,7 @@ export class ArchiveService {
     actorUserId: string,
     archiveId: string,
     now: string,
+    stateRevision: number,
   ): Promise<string | null> {
     const chars = new CharacterRepository(tx);
     const facts = new WorldFactRepository(tx);
@@ -484,6 +499,8 @@ export class ArchiveService {
       });
     }
 
+    await this.restoreActorRuntimeStateIn(tx, campaignId, snapshot, now, stateRevision);
+
     // 快照内事实 upsert + 清 superseded（快照外事实已在 supersedeHistory 中 supersede，这里不重复操作）。
     for (const snapshotFact of snapshot.worldFacts) {
       await facts.upsertRestored({
@@ -497,7 +514,7 @@ export class ArchiveService {
     // 战斗状态（v2）：快照内 encounters/combatants upsert 并解除 superseded。
     // 两阶段 position 重排避免 UNIQUE(encounter_id, position) 瞬时冲突：先把该 encounter
     // 现有（含 superseded 历史）positions 整体加安全 offset，再 upsert 快照最终 0..n-1。
-    if (snapshot.schemaVersion === 2) {
+    if (snapshot.schemaVersion === 2 || snapshot.schemaVersion === 3) {
       const combat = new CombatRepository(tx);
       for (const entry of snapshot.encounters) {
         const enc = entry.encounter;
@@ -527,9 +544,9 @@ export class ArchiveService {
     const current = snapshot.currentTurn;
     if (!current) {
       // 快照无 currentTurn（setup 或 idle-after-completed）：不开新回合。
-      // 如果是新 v2 snapshot，仍恢复最后一个 active closed NarrativeRound/FactSet；
-      // old v1/v2 snapshot 没有 narrative 字段时保持兼容，不捏造事实。
-      if (snapshot.schemaVersion === 2 && snapshot.narrative) {
+      // 如果是新 v2/v3 snapshot，仍恢复最后一个 active closed NarrativeRound/FactSet；
+      // old v1 snapshot 没有 narrative 字段时保持兼容，不捏造事实。
+      if ((snapshot.schemaVersion === 2 || snapshot.schemaVersion === 3) && snapshot.narrative) {
         await this.restoreNarrativeSnapshot(tx, campaignId, snapshot.narrative, snapshot.narrative.round.turnId, archiveId, now);
       }
       return null;
@@ -582,7 +599,7 @@ export class ArchiveService {
       await narrativeRepository.rebindRoundToTurn(restoredRound.id, restoredTurnId);
       await narrativeRepository.clearSupersededForRound(restoredRound.id);
     }
-    if (snapshot.schemaVersion === 2 && snapshot.narrative) {
+    if ((snapshot.schemaVersion === 2 || snapshot.schemaVersion === 3) && snapshot.narrative) {
       await this.restoreNarrativeSnapshot(tx, campaignId, snapshot.narrative, restoredTurnId, archiveId, now);
     }
 
@@ -609,6 +626,131 @@ export class ArchiveService {
     // 返回实际落库的 turn id（existing-by-number 路径返回 existing.id）。
     return restoredTurnId;
   }
+
+  private async restoreActorRuntimeStateIn(
+    tx: QueryExecutor,
+    campaignId: string,
+    snapshot: ArchiveSnapshot,
+    now: string,
+    stateRevision: number,
+  ): Promise<void> {
+    const repository = new ActorRepository(tx);
+    if (snapshot.schemaVersion === 3) {
+      const activeRuntimeActorIds = snapshot.characterRuntimeStates
+        .filter((state) => state.campaignId === campaignId)
+        .map((state) => state.actorId);
+      await repository.deactivateBindingsIn(campaignId, now);
+      await repository.deactivateRuntimeStatesExcept(campaignId, activeRuntimeActorIds, stateRevision, now);
+      for (const actor of snapshot.actors) {
+        if (actor.campaignId !== campaignId) continue;
+        const row: ActorRow = {
+          id: actor.id,
+          campaign_id: campaignId,
+          display_name: actor.displayName,
+          character_type: actor.characterType,
+          control_mode: actor.controlMode,
+          mechanics_mode: actor.mechanicsMode,
+          character_id: actor.characterId,
+          created_at: actor.createdAt,
+          updated_at: now,
+        };
+        await repository.upsertRestoredActor(row);
+      }
+      for (const binding of snapshot.actorControlBindings) {
+        if (binding.campaignId !== campaignId) continue;
+        const row: ActorBindingRow = {
+          id: binding.id,
+          campaign_id: campaignId,
+          actor_id: binding.actorId,
+          user_id: binding.userId,
+          binding_role: binding.bindingRole,
+          active: binding.active ? 1 : 0,
+          created_at: binding.createdAt,
+          updated_at: now,
+        };
+        await repository.upsertRestoredBinding(row);
+      }
+      for (const state of snapshot.characterRuntimeStates) {
+        if (state.campaignId !== campaignId) continue;
+        const row: RuntimeStateRow = {
+          campaign_id: campaignId,
+          actor_id: state.actorId,
+          current_hp: state.currentHp,
+          temporary_hp: state.temporaryHp,
+          conditions_json: JSON.stringify(state.conditions),
+          runtime_status: state.runtimeStatus,
+          // The restore mutation is the new authoritative revision. Never
+          // write the historical snapshot revision back into the live head.
+          state_revision: stateRevision,
+          updated_at: now,
+        };
+        await repository.upsertRestoredRuntime(row);
+      }
+      return;
+    }
+
+    // V1/V2 did not persist Actor/runtime blocks. Reconstruct only a bounded
+    // legacy baseline from restored approved Characters and combat projections;
+    // their old snapshot revision is never reused as the live revision.
+    const legacyActorIds = new Set<string>();
+    await repository.deactivateBindingsIn(campaignId, now);
+    for (const character of snapshot.characters.filter((item) => item.status === 'approved')) {
+      const actor = await repository.findByCharacter(campaignId, character.id);
+      if (!actor) continue;
+      legacyActorIds.add(actor.id);
+      const binding: ActorBindingRow = {
+        id: `binding:character:${character.id}:user:${character.playerId}`,
+        campaign_id: campaignId,
+        actor_id: actor.id,
+        user_id: character.playerId,
+        binding_role: 'player',
+        active: 1,
+        created_at: character.createdAt,
+        updated_at: now,
+      };
+      await repository.upsertRestoredBinding(binding);
+      const currentHp = legacyHpFromSheet(character.sheet);
+      await repository.upsertRestoredRuntime({
+        campaign_id: campaignId,
+        actor_id: actor.id,
+        current_hp: currentHp,
+        temporary_hp: 0,
+        conditions_json: '[]',
+        runtime_status: currentHp === 0 ? 'defeated' : 'active',
+        state_revision: stateRevision,
+        updated_at: now,
+      });
+    }
+    if (snapshot.schemaVersion === 2) {
+      for (const entry of snapshot.encounters) {
+        for (const combatant of entry.combatants) {
+          if (!combatant.actorId) continue;
+          const actor = await repository.findById(combatant.actorId);
+          if (!actor || actor.campaign_id !== campaignId) continue;
+          // A V2 combat projection is the strongest legacy runtime evidence;
+          // let it override the authoring-sheet baseline for combatants that
+          // were already represented by an approved Character Actor.
+          legacyActorIds.add(actor.id);
+          await repository.upsertRestoredRuntime({
+            campaign_id: campaignId,
+            actor_id: actor.id,
+            current_hp: combatant.hpCurrent,
+            temporary_hp: 0,
+            conditions_json: JSON.stringify(combatant.conditions),
+            runtime_status: combatant.hpCurrent === 0 ? 'defeated' : 'active',
+            state_revision: stateRevision,
+            updated_at: now,
+          });
+        }
+      }
+    }
+    await repository.deactivateRuntimeStatesExcept(campaignId, [...legacyActorIds], stateRevision, now);
+  }
+}
+
+function legacyHpFromSheet(sheet: Record<string, unknown>): number {
+  const value = sheet.hpCurrent;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
 function mapArchive(row: ArchiveRow): Archive {

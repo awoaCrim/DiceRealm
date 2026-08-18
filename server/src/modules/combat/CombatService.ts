@@ -14,6 +14,7 @@ import { canRead } from '../visibility/VisibilityPolicy.js';
 import { CombatRepository, type CombatantRow, type EncounterRow } from './CombatRepository.js';
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 import { ActorService } from '../actors/ActorService.js';
+import { ActorRepository } from '../actors/ActorRepository.js';
 import { ActorRuntimeStateService } from '../actors/ActorRuntimeStateService.js';
 
 export interface CombatCommandPort {
@@ -96,13 +97,15 @@ export class CombatService implements CombatCommandPort {
     });
     for (let index = 0; index < input.combatants.length; index += 1) {
       const combatant = input.combatants[index];
+      const seed = await this.resolveCombatantSeedIn(tx, campaignId, combatant, stateRevision);
       await repo.insertCombatant({
         id: nanoid(24), encounter_id: encounterId, campaign_id: campaignId,
-        actor_id: await this.resolveCombatantActorIn(tx, campaignId, combatant, stateRevision),
-        character_id: combatant.characterId, name: combatant.name, initiative: null,
-        initiative_bonus: combatant.initiativeBonus, hp_current: combatant.hpCurrent,
+        actor_id: seed.actorId,
+        character_id: seed.characterId,
+        name: combatant.name, initiative: null,
+        initiative_bonus: combatant.initiativeBonus, hp_current: seed.currentHp,
         hp_max: combatant.hpMax, ac: combatant.ac,
-        conditions_json: JSON.stringify([...new Set(combatant.conditions.map((c) => c.trim()))]),
+        conditions_json: JSON.stringify(seed.conditions),
         visibility: combatant.visibility, target_player_id: combatant.targetPlayerId,
         position: index, superseded_at: null, superseded_by_archive_id: null,
         created_at: now, updated_at: now,
@@ -373,7 +376,7 @@ export class CombatService implements CombatCommandPort {
           if (!conditions.includes(condition)) effects.push({ kind: 'remove_condition', condition });
         }
       }
-      const state = await this.runtime.applyEffectsIn(repo.executor, target.campaign_id, target.actor_id, effects, stateRevision);
+      const state = await this.runtime.applyEffectsIn(repo.executor, target.campaign_id, target.actor_id, effects, stateRevision, target.hp_max);
       hpCurrent = Math.min(target.hp_max, state.currentHp);
       runtimeConditions = state.conditions;
     }
@@ -409,28 +412,42 @@ export class CombatService implements CombatCommandPort {
 
   // ---------- 校验与投影 ----------
 
-  private async resolveCombatantActorIn(
+  private async resolveCombatantSeedIn(
     tx: QueryExecutor,
     campaignId: string,
     input: StartEncounterInput['combatants'][number],
     stateRevision: number,
-  ): Promise<string> {
+  ): Promise<{ actorId: string; characterId: string | null; currentHp: number; conditions: string[] }> {
+    let actor;
     if (input.actorId) {
-      return (await this.actors.assertActorIn(tx, campaignId, input.actorId)).id;
-    }
-    if (input.characterId) {
+      actor = await this.actors.assertActorIn(tx, campaignId, input.actorId);
+      if (input.characterId && input.characterId !== actor.character_id) {
+        throw new AppError('VALIDATION_ERROR', 'actorId 与 characterId 不匹配。');
+      }
+    } else if (input.characterId) {
       const character = (await tx.query<import('../characters/CharacterRepository.js').CharacterRow>(
         'SELECT * FROM platform_characters WHERE id = ? AND campaign_id = ? AND status = ?',
         [input.characterId, campaignId, 'approved'],
       ))[0];
       if (!character) throw new AppError('VALIDATION_ERROR', '战斗员关联的角色必须属于本战役且已批准。');
-      return (await this.actors.ensureCharacterActorIn(tx, character, stateRevision)).id;
+      actor = await this.actors.ensureCharacterActorIn(tx, character, stateRevision);
+    } else {
+      actor = await this.actors.createNpcIn(tx, campaignId, nanoid(24), {
+        displayName: input.name, controlMode: 'ai', mechanicsMode: 'lightweight',
+        currentHp: input.hpCurrent, temporaryHp: 0, conditions: input.conditions,
+      }, stateRevision);
     }
-    const actor = await this.actors.createNpcIn(tx, campaignId, nanoid(24), {
-      displayName: input.name, controlMode: 'ai', mechanicsMode: 'lightweight',
-      currentHp: input.hpCurrent, temporaryHp: 0, conditions: input.conditions,
-    }, stateRevision);
-    return actor.id;
+    const runtime = await new ActorRepository(tx).findRuntimeState(campaignId, actor.id);
+    if (!runtime) throw new AppError('STATE_CONFLICT', '战斗员 Actor 缺少 runtime state。');
+    if (runtime.current_hp > input.hpMax) {
+      throw new AppError('VALIDATION_ERROR', '战斗员 mechanics max HP 不能低于 Actor runtime current HP。');
+    }
+    return {
+      actorId: actor.id,
+      characterId: actor.character_id ?? input.characterId ?? null,
+      currentHp: Number(runtime.current_hp),
+      conditions: parseConditions(runtime.conditions_json),
+    };
   }
 
   private async validateCombatants(tx: QueryExecutor, campaignId: string, input: StartEncounterInput): Promise<void> {

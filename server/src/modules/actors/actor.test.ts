@@ -10,6 +10,7 @@ import { OutboxRepository } from '../../platform/events/OutboxRepository.js';
 import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordinator.js';
 import { NarrativeRoundService } from '../narrative-runtime/NarrativeRoundService.js';
 import { TurnService } from '../turns/TurnService.js';
+import { createNpcActorInputSchema } from '@dnd/contracts';
 
 async function makeFixture() {
   const db = createSqliteDatabase(':memory:');
@@ -86,6 +87,13 @@ describe('Actor and Character runtime vertical slice', () => {
         { actor_id: firstActor.id, body: 'First actor acts.' },
         { actor_id: secondActor.id, body: 'Second actor acts.' },
       ]);
+      const playerView = await turns.getView(f.playerCtx, turn.id);
+      expect('myActions' in playerView).toBe(true);
+      expect((playerView as { myActions: Array<{ actorId: string | null; body: string }> }).myActions)
+        .toEqual(expect.arrayContaining([
+          expect.objectContaining({ actorId: firstActor.id, body: 'First actor acts.' }),
+          expect.objectContaining({ actorId: secondActor.id, body: 'Second actor acts.' }),
+        ]));
     } finally {
       await f.db.close();
     }
@@ -107,6 +115,30 @@ describe('Actor and Character runtime vertical slice', () => {
         'SELECT player_id, actor_id FROM platform_narrative_round_participants WHERE round_id = ? AND actor_id = ?', [turn.id, npc.id],
       ))[0];
       expect(participant).toEqual({ player_id: null, actor_id: npc.id });
+    } finally {
+      await f.db.close();
+    }
+  });
+
+  it('preserves runtimeStatus during condition-only mutation', async () => {
+    const f = await makeFixture();
+    try {
+      const characterId = await approveCharacter(f, 'Statusful PC');
+      const actor = (await f.actors.listControlled(f.playerCtx)).find((item) => item.characterId === characterId)!;
+      await f.db.execute(
+        `UPDATE platform_character_runtime_states
+         SET current_hp = ?, runtime_status = ?
+         WHERE campaign_id = ? AND actor_id = ?`,
+        [5, 'incapacitated', f.playerCtx.campaignId, actor.id],
+      );
+      const result = await f.runtime.apply(
+        f.playerCtx.campaignId,
+        actor.id,
+        { kind: 'add_condition', condition: 'poisoned' },
+        'runtime-condition-status',
+      );
+      expect(result.state.runtimeStatus).toBe('incapacitated');
+      expect(result.state.conditions).toEqual(['poisoned']);
     } finally {
       await f.db.close();
     }

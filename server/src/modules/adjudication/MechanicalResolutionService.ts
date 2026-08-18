@@ -163,6 +163,10 @@ export class MechanicalResolutionService {
       intents.push(intent);
       await this.repository.insertIntent(tx, {
         ...intent,
+        // Keep legacy audit actor_id as the submitting user while the
+        // normalized intent and additive column carry canonical Actor identity.
+        legacyActorId: action.player_id,
+        campaignActorId: action.actor_id ?? null,
         turnId: input.turnId,
         executionId: input.executionId,
         intentOrder: index,
@@ -192,7 +196,12 @@ export class MechanicalResolutionService {
       });
       for (const plan of resolved.plans) {
         plans.push(plan);
-        await this.repository.insertRollPlan(tx, { ...plan, turnId: input.turnId });
+        await this.repository.insertRollPlan(tx, {
+          ...plan,
+          legacyActorId: action.player_id,
+          campaignActorId: action.actor_id ?? null,
+          turnId: input.turnId,
+        });
       }
       for (const record of resolved.records) {
         records.push(record);

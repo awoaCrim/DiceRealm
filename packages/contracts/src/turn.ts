@@ -159,9 +159,11 @@ export const turnListEntrySchema = z.object({
 });
 export type TurnListEntry = z.infer<typeof turnListEntrySchema>;
 
-/** 玩家视角：只能看到自己的 action 正文。 */
+/** 玩家视角：只能看到自己的 action 正文；myAction 保留为旧单 Actor 兼容字段。 */
 export const turnPlayerViewSchema = z.object({
   turn: turnSummarySchema,
+  /** Additive multi-Actor projection; old clients may omit this field. */
+  myActions: z.array(turnActionSchema).optional(),
   myAction: turnActionSchema.nullable(),
   progress: turnProgressSchema,
 });

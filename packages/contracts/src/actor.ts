@@ -24,9 +24,6 @@ export const campaignActorSchema = z.object({
   if (actor.characterType === 'player_character' && actor.characterId === null) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['characterId'], message: 'player_character 必须关联 authoring character。' });
   }
-  if (actor.characterType === 'npc' && actor.mechanicsMode === 'pc_build') {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['mechanicsMode'], message: 'npc 不能使用 pc_build mechanicsMode。' });
-  }
 });
 export type CampaignActor = z.infer<typeof campaignActorSchema>;
 
@@ -72,7 +69,7 @@ export type CharacterRuntimeState = z.infer<typeof characterRuntimeStateSchema>;
 export const createNpcActorInputSchema = z.object({
   displayName: z.string().trim().min(1).max(160),
   controlMode: z.enum(['ai', 'gm', 'shared', 'scripted']).default('ai'),
-  mechanicsMode: z.enum(['npc_statblock', 'lightweight']).default('lightweight'),
+  mechanicsMode: actorMechanicsModeSchema.default('lightweight'),
   currentHp: z.number().int().nonnegative().default(1),
   temporaryHp: z.number().int().nonnegative().default(0),
   conditions: z.array(runtimeConditionSchema).max(32).default([]),

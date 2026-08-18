@@ -58,6 +58,86 @@ describe('archives', () => {
     await db.close();
   });
 
+  it('captures and restores authoritative Actor runtime state with a monotonic restore revision', async () => {
+    const { db, archives, ownerCtx } = await makeFixture();
+    const actor = (await db.query<{ id: string; character_id: string }>(
+      `SELECT a.id, a.character_id
+       FROM platform_campaign_actors a
+       JOIN platform_characters c ON c.id = a.character_id
+       WHERE a.campaign_id = ? AND c.player_id = ?
+       ORDER BY a.id LIMIT 1`,
+      [ownerCtx.campaignId, ownerCtx.userId],
+    ))[0];
+    // ownerCtx.userId is not the player id, so use the first approved actor in this fixture.
+    const actualActor = actor ?? (await db.query<{ id: string; character_id: string }>(
+      `SELECT a.id, a.character_id
+       FROM platform_campaign_actors a
+       JOIN platform_characters c ON c.id = a.character_id
+       WHERE a.campaign_id = ?
+       ORDER BY a.id LIMIT 1`,
+      [ownerCtx.campaignId],
+    ))[0];
+    if (!actualActor) throw new Error('expected an approved Actor in the fixture');
+    const head = (await db.query<{ revision: number }>(
+      'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [ownerCtx.campaignId],
+    ))[0];
+    await db.execute(
+      `UPDATE platform_character_runtime_states
+       SET current_hp = ?, temporary_hp = ?, conditions_json = ?, runtime_status = ?, state_revision = ?
+       WHERE campaign_id = ? AND actor_id = ?`,
+      [5, 3, JSON.stringify(['poisoned']), 'active', Number(head.revision), ownerCtx.campaignId, actualActor.id],
+    );
+    const manual = await archives.createManual(ownerCtx, 'runtime checkpoint');
+    const raw = JSON.parse((await db.query<{ state_json: string }>(
+      'SELECT state_json FROM platform_archives WHERE id = ?', [manual.id],
+    ))[0].state_json) as {
+      schemaVersion: number;
+      actors: Array<{ id: string }>;
+      actorControlBindings: Array<{ actorId: string }>;
+      characterRuntimeStates: Array<{ actorId: string; currentHp: number; temporaryHp: number; conditions: string[]; stateRevision: number }>;
+    };
+    expect(raw.schemaVersion).toBe(3);
+    expect(raw.actors.some((item) => item.id === actualActor.id)).toBe(true);
+    expect(raw.actorControlBindings.some((item) => item.actorId === actualActor.id)).toBe(true);
+    expect(raw.characterRuntimeStates).toEqual(expect.arrayContaining([
+      expect.objectContaining({ actorId: actualActor.id, currentHp: 5, temporaryHp: 3, conditions: ['poisoned'] }),
+    ]));
+    const snapshotRuntime = raw.characterRuntimeStates.find((item) => item.actorId === actualActor.id)!;
+    await db.execute(
+      `UPDATE platform_character_runtime_states
+       SET current_hp = ?, temporary_hp = ?, conditions_json = ?, runtime_status = ?
+       WHERE campaign_id = ? AND actor_id = ?`,
+      [18, 0, JSON.stringify([]), 'active', ownerCtx.campaignId, actualActor.id],
+    );
+    await db.execute(
+      'UPDATE platform_actor_control_bindings SET active = 0 WHERE campaign_id = ? AND actor_id = ?',
+      [ownerCtx.campaignId, actualActor.id],
+    );
+    const beforeRestore = (await db.query<{ revision: number }>(
+      'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [ownerCtx.campaignId],
+    ))[0];
+    await archives.restore(ownerCtx, manual.id);
+    const restored = (await db.query<{ current_hp: number; temporary_hp: number; conditions_json: string; state_revision: number }>(
+      'SELECT current_hp, temporary_hp, conditions_json, state_revision FROM platform_character_runtime_states WHERE campaign_id = ? AND actor_id = ?',
+      [ownerCtx.campaignId, actualActor.id],
+    ))[0];
+    const afterRestore = (await db.query<{ revision: number }>(
+      'SELECT revision FROM platform_campaign_state_heads WHERE campaign_id = ?', [ownerCtx.campaignId],
+    ))[0];
+    expect(restored.current_hp).toBe(5);
+    expect(restored.temporary_hp).toBe(3);
+    expect(JSON.parse(restored.conditions_json)).toEqual(['poisoned']);
+    expect(Number(afterRestore.revision)).toBe(Number(beforeRestore.revision) + 1);
+    expect(Number(restored.state_revision)).toBe(Number(afterRestore.revision));
+    expect(Number(restored.state_revision)).toBeGreaterThan(snapshotRuntime.stateRevision);
+    const binding = (await db.query<{ active: number }>(
+      'SELECT active FROM platform_actor_control_bindings WHERE campaign_id = ? AND actor_id = ?',
+      [ownerCtx.campaignId, actualActor.id],
+    ))[0];
+    expect(binding.active).toBe(1);
+    await db.close();
+  });
+
   it('rejects a manual archive while the current turn is resolving', async () => {
     const { db, turns, archives, ownerCtx } = await makeFixture();
     const turn = await turns.startTurn(ownerCtx);

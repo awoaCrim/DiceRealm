@@ -6,6 +6,7 @@ import { CampaignMutationCoordinator } from '../campaigns/CampaignMutationCoordi
 import { ArchiveService } from '../archives/ArchiveService.js';
 import { CampaignService } from '../campaigns/CampaignService.js';
 import { CharacterService } from '../characters/CharacterService.js';
+import { ActorService } from '../actors/ActorService.js';
 import { IdentityService } from '../identity/IdentityService.js';
 import { createSqliteDatabase } from '../../platform/database/SqliteDatabaseAdapter.js';
 import { OutboxRepository } from '../../platform/events/OutboxRepository.js';
@@ -192,6 +193,96 @@ describe('NarrativeRound runtime', () => {
       expect(JSON.stringify(nextContextC.context.previousRoundSummary)).toContain('secret_fact');
       expect(JSON.stringify(nextContextA.context.previousRoundSummary)).not.toContain('secret_fact');
       expect(nextContextC.blocks.find((block) => block.type === 'previous_round_summary')?.sourceRefs.length).toBeGreaterThan(0);
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('passes canonical Actor identity through the live Provider context path', async () => {
+    const db = createSqliteDatabase(':memory:');
+    await db.migrate();
+    const identity = new IdentityService(db);
+    const campaigns = new CampaignService(db);
+    const owner = await identity.register({ login: 'actor-context-owner@narrative.test', password: 'correct-password' });
+    const player = await identity.register({ login: 'actor-context-player@narrative.test', password: 'correct-password' });
+    const created = await campaigns.create(owner.userId, { name: 'Actor context', ruleset: 'dnd5e' });
+    await campaigns.join({ userId: player.userId }, created.campaign.id, created.inviteCode);
+    const ownerCtx = await resolveCampaignContext(db, { userId: owner.userId }, created.campaign.id);
+    const playerCtx = await resolveCampaignContext(db, { userId: player.userId }, created.campaign.id);
+    const mutations = new CampaignMutationCoordinator(db);
+    const actors = new ActorService(db, mutations);
+    const characters = new CharacterService(db, mutations, actors);
+    const outbox = new OutboxRepository(db);
+    const narrative = new NarrativeRoundService(db, outbox, mutations, actors);
+    const turns = new TurnService(db, outbox, mutations, narrative, actors);
+    try {
+      const approve = async (name: string, secret: string) => {
+        const draft = await characters.createDraft(playerCtx, {
+          name,
+          sheet: { ac: 14, hpCurrent: 10, hpMax: 10, privateSecret: secret },
+        });
+        await characters.submitForReview(playerCtx, draft.id);
+        await characters.approve(ownerCtx, draft.id);
+        return draft.id;
+      };
+      const kaylaCharacterId = await approve('Kayla', 'kayla-private-state');
+      const siblingCharacterId = await approve('Sibling', 'sibling-private-state');
+      const controlled = await actors.listControlled(playerCtx);
+      const kayla = controlled.find((actor) => actor.characterId === kaylaCharacterId)!;
+      const sibling = controlled.find((actor) => actor.characterId === siblingCharacterId)!;
+      const turn = await turns.startTurn(ownerCtx);
+      await turns.submitAction(playerCtx, turn.id, {
+        actorId: kayla.id,
+        body: '我检查书桌下面的暗格。',
+      });
+      await turns.submitAction(playerCtx, turn.id, {
+        actorId: sibling.id,
+        body: 'SIBLING RAW ACTION MUST STAY PRIVATE',
+      });
+      const required = await narrative.getRequiredByTurn(created.campaign.id, turn.id);
+      const decision = required.decisions.find((item) => item.actorId === kayla.id);
+      if (!decision?.actionId) throw new Error('expected Kayla Decision/action');
+      let decisionPrompt: AiPrompt | undefined;
+      const provider = {
+        name: 'actor-context-scripted',
+        model: 'actor-context-test',
+        stream: async (input: AiPrompt) => {
+          if (input.stage === 'decision_interpretation') {
+            decisionPrompt = input;
+            return {
+              actionIntents: [{
+                actionId: decision.actionId,
+                actorId: decision.actorId,
+                mode: 'player_action',
+                actionType: 'healing',
+                actionRef: 'healing:basic',
+                targetIds: [],
+                declaredApproach: '检查暗格',
+                desiredOutcome: '发现线索',
+                resourceChoices: [],
+                fallbackPolicy: 'continue',
+              }],
+            };
+          }
+          return { publicNarrative: 'Kayla 的测试叙事。', privateUpdates: [] };
+        },
+      } as const;
+      const resolver = new NarrativeDecisionResolutionService(db, provider, outbox);
+      await resolver.resolveDecision(ownerCtx, turn.id, decision.id, { idempotencyKey: 'actor-context-provider' });
+      if (!decisionPrompt) throw new Error('expected decision Provider prompt');
+      const promptText = decisionPrompt.messages.map((message) => message.content).join('\\n');
+      expect(promptText).toContain('我检查书桌下面的暗格。');
+      expect(promptText).toContain('kayla-private-state');
+      expect(promptText).not.toContain('SIBLING RAW ACTION MUST STAY PRIVATE');
+      expect(promptText).not.toContain('sibling-private-state');
+      const auditIntent = (await db.query<{ actor_id: string; campaign_actor_id: string | null }>(
+        'SELECT actor_id, campaign_actor_id FROM platform_action_intents WHERE execution_id = (SELECT id FROM platform_ai_runs ORDER BY started_at DESC LIMIT 1)',
+      ))[0];
+      expect(auditIntent).toEqual({ actor_id: player.userId, campaign_actor_id: kayla.id });
+      const auditPlan = (await db.query<{ actor_id: string; campaign_actor_id: string | null }>(
+        'SELECT actor_id, campaign_actor_id FROM platform_roll_plans WHERE execution_id = (SELECT id FROM platform_ai_runs ORDER BY started_at DESC LIMIT 1)',
+      ))[0];
+      expect(auditPlan).toEqual({ actor_id: player.userId, campaign_actor_id: kayla.id });
     } finally {
       await db.close();
     }

@@ -1,0 +1,8 @@
+{"file":".trellis/spec/contracts/backend/quality-guidelines.md","reason":"Follow shared Zod schema-first contracts, additive DTO compatibility, accepted/rejected cross-field tests, and barrel exports."}
+{"file":".trellis/spec/server/backend/runtime-contract-state-safety.md","reason":"Restore must allocate a monotonic StateRevision and runtime mutations must remain behind the coordinator/CAS seams."}
+{"file":".trellis/spec/server/backend/narrative-runtime-fact-memory.md","reason":"Actor-scoped Decision/context projection, private audience filtering, sequential worker execution, and archive restore wake-up behavior."}
+{"file":".trellis/spec/server/backend/server-adjudication-dice-authority.md","reason":"Combat runtime seed and healing cap must remain server-owned mechanics, not caller/provider authority."}
+{"file":".trellis/spec/server/backend/database-guidelines.md","reason":"Archive V3 migration/restore repository boundaries, transaction ownership, and SQLite FK safety."}
+{"file":".trellis/spec/server/backend/quality-guidelines.md","reason":"Focused regression, HTTP projection, composition, typecheck, build, and cross-layer verification requirements."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Trace Actor identity from database through AI context, archive restore, combat projection, DTO and route."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Use one Actor identity projection and one runtime mutation cap/status seam instead of repeating legacy ID guesses."}

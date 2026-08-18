@@ -80,6 +80,10 @@
     {
       "name": "021_actor_scoped_action_slots.sql",
       "sha256": "892b47fa3370ae7610fe5f54c7638067f668347e59f56916cb42482bbd8a1ed5"
+    },
+    {
+      "name": "022_actor_adjudication_identity.sql",
+      "sha256": "ade77e02886c29878ad02f350a82044ffe7eb9f0597feddc09669179d5de7074"
     }
   ]
 }

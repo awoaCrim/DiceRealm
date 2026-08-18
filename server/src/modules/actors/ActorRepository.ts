@@ -76,6 +76,12 @@ export class ActorRepository {
     const rows = await this.executor.query<RuntimeStateRow>('SELECT * FROM platform_character_runtime_states WHERE campaign_id = ? AND actor_id = ?', [campaignId, actorId]);
     return rows[0] ?? null;
   }
+  async listRuntimeStates(campaignId: string): Promise<RuntimeStateRow[]> {
+    return this.executor.query<RuntimeStateRow>(
+      'SELECT * FROM platform_character_runtime_states WHERE campaign_id = ? ORDER BY actor_id ASC',
+      [campaignId],
+    );
+  }
   async insertRuntimeState(row: RuntimeStateRow): Promise<void> {
     await this.executor.execute(
       `INSERT INTO platform_character_runtime_states
@@ -92,6 +98,89 @@ export class ActorRepository {
       [row.current_hp, row.temporary_hp, row.conditions_json, row.runtime_status, row.state_revision, row.updated_at, row.campaign_id, row.actor_id, expectedRevision],
     );
     return result.changes === 1;
+  }
+
+  async deactivateBindingsIn(campaignId: string, now: string): Promise<void> {
+    await this.executor.execute(
+      'UPDATE platform_actor_control_bindings SET active = 0, updated_at = ? WHERE campaign_id = ?',
+      [now, campaignId],
+    );
+  }
+
+  async deactivateRuntimeStatesExcept(
+    campaignId: string,
+    activeActorIds: string[],
+    stateRevision: number,
+    now: string,
+  ): Promise<void> {
+    if (activeActorIds.length === 0) {
+      await this.executor.execute(
+        `UPDATE platform_character_runtime_states
+         SET runtime_status = 'inactive', state_revision = ?, updated_at = ?
+         WHERE campaign_id = ?`,
+        [stateRevision, now, campaignId],
+      );
+      return;
+    }
+    const placeholders = activeActorIds.map(() => '?').join(',');
+    await this.executor.execute(
+      `UPDATE platform_character_runtime_states
+       SET runtime_status = 'inactive', state_revision = ?, updated_at = ?
+       WHERE campaign_id = ? AND actor_id NOT IN (${placeholders})`,
+      [stateRevision, now, campaignId, ...activeActorIds],
+    );
+  }
+
+  async upsertRestoredActor(row: ActorRow): Promise<void> {
+    await this.executor.execute(
+      `INSERT INTO platform_campaign_actors
+       (id, campaign_id, display_name, character_type, control_mode, mechanics_mode, character_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         campaign_id = excluded.campaign_id,
+         display_name = excluded.display_name,
+         character_type = excluded.character_type,
+         control_mode = excluded.control_mode,
+         mechanics_mode = excluded.mechanics_mode,
+         character_id = excluded.character_id,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`,
+      [row.id, row.campaign_id, row.display_name, row.character_type, row.control_mode, row.mechanics_mode, row.character_id, row.created_at, row.updated_at],
+    );
+  }
+
+  async upsertRestoredBinding(row: ActorBindingRow): Promise<void> {
+    await this.executor.execute(
+      `INSERT INTO platform_actor_control_bindings
+       (id, campaign_id, actor_id, user_id, binding_role, active, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET
+         campaign_id = excluded.campaign_id,
+         actor_id = excluded.actor_id,
+         user_id = excluded.user_id,
+         binding_role = excluded.binding_role,
+         active = excluded.active,
+         created_at = excluded.created_at,
+         updated_at = excluded.updated_at`,
+      [row.id, row.campaign_id, row.actor_id, row.user_id, row.binding_role, row.active, row.created_at, row.updated_at],
+    );
+  }
+
+  async upsertRestoredRuntime(row: RuntimeStateRow): Promise<void> {
+    await this.executor.execute(
+      `INSERT INTO platform_character_runtime_states
+       (campaign_id, actor_id, current_hp, temporary_hp, conditions_json, runtime_status, state_revision, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(actor_id) DO UPDATE SET
+         campaign_id = excluded.campaign_id,
+         current_hp = excluded.current_hp,
+         temporary_hp = excluded.temporary_hp,
+         conditions_json = excluded.conditions_json,
+         runtime_status = excluded.runtime_status,
+         state_revision = excluded.state_revision,
+         updated_at = excluded.updated_at`,
+      [row.campaign_id, row.actor_id, row.current_hp, row.temporary_hp, row.conditions_json, row.runtime_status, row.state_revision, row.updated_at],
+    );
   }
 }
 

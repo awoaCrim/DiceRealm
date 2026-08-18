@@ -7,6 +7,10 @@ import type {
 import type { QueryExecutor } from '../../platform/database/DatabasePort.js';
 
 export interface ActionIntentInsert extends NormalizedActionIntent {
+  /** Legacy audit identity retained in actor_id. */
+  legacyActorId?: string | null;
+  /** Canonical live Actor identity stored in the additive column. */
+  campaignActorId?: string | null;
   turnId: string;
   executionId: string;
   intentOrder: number;
@@ -21,6 +25,10 @@ export interface AdjudicationDecisionInsert extends AdjudicationDecision {
 }
 
 export interface RollPlanInsert extends RollPlan {
+  /** Legacy audit identity retained in actor_id. */
+  legacyActorId?: string | null;
+  /** Canonical live Actor identity stored in the additive column. */
+  campaignActorId?: string | null;
   turnId: string;
 }
 
@@ -96,16 +104,16 @@ export class AdjudicationRepository {
   async insertIntent(tx: QueryExecutor, row: ActionIntentInsert): Promise<void> {
     await tx.execute(
       `INSERT INTO platform_action_intents
-       (id, action_id, campaign_id, turn_id, actor_id, execution_id, intent_order,
+       (id, action_id, campaign_id, turn_id, actor_id, campaign_actor_id, execution_id, intent_order,
         source_input, mode, action_type, action_ref, target_ids_json, declared_approach,
         desired_outcome, resource_choices_json, fallback_policy, based_on_state_revision,
         created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [row.intentId, row.actionId, row.campaignId, row.turnId, row.actorId, row.executionId,
-       row.intentOrder, row.sourceInput, row.mode, row.actionType, row.actionRef ?? null,
-       JSON.stringify(row.targetIds), row.declaredApproach ?? null, row.desiredOutcome ?? null,
-       JSON.stringify(row.resourceChoices), row.fallbackPolicy ?? null, row.basedOnStateRevision,
-       row.createdAt],
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [row.intentId, row.actionId, row.campaignId, row.turnId, row.legacyActorId ?? row.actorId,
+       row.campaignActorId ?? null, row.executionId, row.intentOrder, row.sourceInput, row.mode,
+       row.actionType, row.actionRef ?? null, JSON.stringify(row.targetIds),
+       row.declaredApproach ?? null, row.desiredOutcome ?? null, JSON.stringify(row.resourceChoices),
+       row.fallbackPolicy ?? null, row.basedOnStateRevision, row.createdAt],
     );
   }
 
@@ -124,17 +132,17 @@ export class AdjudicationRepository {
   async insertRollPlan(tx: QueryExecutor, row: RollPlanInsert): Promise<void> {
     await tx.execute(
       `INSERT INTO platform_roll_plans
-       (id, campaign_id, turn_id, intent_id, execution_id, actor_id, target_ids_json,
+       (id, campaign_id, turn_id, intent_id, execution_id, actor_id, campaign_actor_id, target_ids_json,
         roll_kind, dice_expression, modifier_breakdown_json, advantage_state, target_type,
         target_value, success_effects_json, failure_effects_json, rule_refs_json,
         ruleset_id, ruleset_version, based_on_state_revision, plan_hash, locked_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [row.id, row.campaignId, row.turnId, row.intentId, row.executionId, row.actorId,
-       JSON.stringify(row.targetIds), row.rollKind, row.diceExpression,
-       JSON.stringify(row.modifierBreakdown), row.advantageState, row.targetType,
-       row.targetValue, JSON.stringify(row.successEffects), JSON.stringify(row.failureEffects),
-       JSON.stringify(row.ruleRefs), row.rulesetId, row.rulesetVersion,
-       row.basedOnStateRevision, row.planHash, row.lockedAt],
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [row.id, row.campaignId, row.turnId, row.intentId, row.executionId,
+       row.legacyActorId ?? row.actorId, row.campaignActorId ?? null, JSON.stringify(row.targetIds),
+       row.rollKind, row.diceExpression, JSON.stringify(row.modifierBreakdown), row.advantageState,
+       row.targetType, row.targetValue, JSON.stringify(row.successEffects),
+       JSON.stringify(row.failureEffects), JSON.stringify(row.ruleRefs), row.rulesetId,
+       row.rulesetVersion, row.basedOnStateRevision, row.planHash, row.lockedAt],
     );
   }
 

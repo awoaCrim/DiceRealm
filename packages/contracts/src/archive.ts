@@ -4,6 +4,7 @@ import { turnSummarySchema, turnActionSchema } from './turn.js';
 import { worldFactKindSchema } from './world.js';
 import { characterStatusSchema } from './character.js';
 import { encounterStatusSchema } from './combat.js';
+import { campaignActorSchema, actorControlBindingSchema, characterRuntimeStateSchema } from './actor.js';
 import {
   narrativeDecisionSchema,
   narrativeRoundParticipantSchema,
@@ -172,10 +173,20 @@ export const archiveSnapshotV2Schema = z.object({
 });
 export type ArchiveSnapshotV2 = z.infer<typeof archiveSnapshotV2Schema>;
 
-/** 快照 v1/v2 判别联合：consumers 必须按 schemaVersion 显式 narrow。 */
+/** 快照 v3：V2 基础上加入 authoritative Actor/control/runtime state。 */
+export const archiveSnapshotV3Schema = archiveSnapshotV2Schema.extend({
+  schemaVersion: z.literal(3),
+  actors: z.array(campaignActorSchema),
+  actorControlBindings: z.array(actorControlBindingSchema),
+  characterRuntimeStates: z.array(characterRuntimeStateSchema),
+});
+export type ArchiveSnapshotV3 = z.infer<typeof archiveSnapshotV3Schema>;
+
+/** 快照 v1/v2/v3 判别联合：consumers 必须按 schemaVersion 显式 narrow。 */
 export const archiveSnapshotSchema = z.discriminatedUnion('schemaVersion', [
   archiveSnapshotV1Schema,
   archiveSnapshotV2Schema,
+  archiveSnapshotV3Schema,
 ]);
 export type ArchiveSnapshot = z.infer<typeof archiveSnapshotSchema>;
 

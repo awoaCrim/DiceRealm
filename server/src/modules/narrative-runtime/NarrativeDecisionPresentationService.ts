@@ -280,7 +280,7 @@ export class NarrativeDecisionPresentationService {
     const projection = await this.projectObservable(tx, outcomeRow.campaign_id, outcome);
     const actionSummaries = outcome.intents.map((intent) => {
       const action = actionById.get(intent.actionId);
-      if (!action || action.player_id !== intent.actorId) {
+      if (!action || (action.actor_id ?? action.player_id) !== intent.actorId) {
         throw new AppError('INTERNAL_ERROR', '机械结果缺少与叙事行动对应的玩家行动。');
       }
       return {

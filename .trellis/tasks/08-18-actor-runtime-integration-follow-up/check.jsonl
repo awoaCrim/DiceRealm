@@ -1,0 +1,8 @@
+{"file":"server/src/modules/ai-runtime/AiContextBuilder.ts","reason":"Verify canonical Actor identity projection for current action, character private context, facts, combat, and legacy fallback."}
+{"file":"server/src/modules/archives/ArchiveService.ts","reason":"Verify V3 capture/restore of actors, bindings, runtime state, inactive legacy policy, and monotonic restore revision."}
+{"file":"packages/contracts/src/archive.ts","reason":"Verify V1/V2 readability, V3 schema strictness, actor/runtime fields, and public exports."}
+{"file":"server/src/modules/combat/CombatService.ts","reason":"Verify Actor↔Character validation, runtime seed authority, mechanics cap, and projection consistency."}
+{"file":"server/src/modules/actors/ActorRuntimeStateService.ts","reason":"Verify bounded healing and preservation of runtimeStatus for condition-only mutation."}
+{"file":"server/src/modules/turns/TurnService.ts","reason":"Verify multi-Actor player read projection and backwards-compatible myAction field."}
+{"file":"server/src/routes/actorRoutes.ts","reason":"Verify minimum actor read API authorization and DTO projection."}
+{"file":"packages/contracts/src/actor.ts","reason":"Verify npc + pc_build is accepted while player_character characterId invariant remains enforced."}

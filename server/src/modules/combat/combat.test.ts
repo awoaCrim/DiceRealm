@@ -137,6 +137,85 @@ describe('combat service', () => {
     await db.close();
   });
 
+  it('seeds an existing Actor Combatant from runtime and rejects Actor/Character mismatch', async () => {
+    const { db, combat, ownerCtx, charA, charB } = await makeFixture();
+    const actorId = `actor:character:${charA}`;
+    await db.execute(
+      `UPDATE platform_character_runtime_states
+       SET current_hp = ?, temporary_hp = ?, conditions_json = ?, runtime_status = ?
+       WHERE campaign_id = ? AND actor_id = ?`,
+      [4, 2, JSON.stringify(['poisoned']), 'active', ownerCtx.campaignId, actorId],
+    );
+    const encounter = await combat.start(ownerCtx, {
+      name: 'runtime seed',
+      combatants: [
+        {
+          actorId,
+          characterId: charA,
+          name: 'Kayla input must not win',
+          initiativeBonus: 2,
+          hpCurrent: 20,
+          hpMax: 4,
+          ac: 16,
+          conditions: ['caller-condition-must-not-win'],
+          visibility: 'public',
+          targetPlayerId: null,
+        },
+        publicFighter,
+      ],
+    });
+    const seeded = encounter.combatants.find((combatant) => combatant.actorId === actorId)!;
+    expect(seeded.characterId).toBe(charA);
+    expect(seeded.hpCurrent).toBe(4);
+    expect(seeded.conditions).toEqual(['poisoned']);
+    const active = await combat.execute(ownerCtx, encounter.id, { kind: 'roll_initiative', payload: {} });
+    await combat.execute(ownerCtx, encounter.id, {
+      kind: 'apply_damage',
+      payload: {
+        actorCombatantId: active.activeCombatantId as string,
+        targetCombatantId: seeded.id,
+        amount: 3,
+      },
+    });
+    const runtime = (await db.query<{ current_hp: number }>(
+      'SELECT current_hp FROM platform_character_runtime_states WHERE campaign_id = ? AND actor_id = ?',
+      [ownerCtx.campaignId, actorId],
+    ))[0];
+    const projection = await combat.get(ownerCtx, encounter.id);
+    expect(runtime.current_hp).toBe(3);
+    expect(projection.combatants.find((combatant) => combatant.id === seeded.id)?.hpCurrent).toBe(3);
+    await combat.execute(ownerCtx, encounter.id, {
+      kind: 'apply_healing',
+      payload: {
+        actorCombatantId: active.activeCombatantId as string,
+        targetCombatantId: seeded.id,
+        amount: 99,
+      },
+    });
+    const healedRuntime = (await db.query<{ current_hp: number }>(
+      'SELECT current_hp FROM platform_character_runtime_states WHERE campaign_id = ? AND actor_id = ?',
+      [ownerCtx.campaignId, actorId],
+    ))[0];
+    expect(healedRuntime.current_hp).toBe(4);
+    await combat.execute(ownerCtx, encounter.id, { kind: 'end_encounter', payload: {} });
+    await expect(combat.start(ownerCtx, {
+      name: 'mismatched character',
+      combatants: [{
+        actorId,
+        characterId: charB,
+        name: 'wrong character reference',
+        initiativeBonus: 0,
+        hpCurrent: 4,
+        hpMax: 4,
+        ac: 10,
+        conditions: [],
+        visibility: 'public',
+        targetPlayerId: null,
+      }],
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    await db.close();
+  });
+
   it('rolls initiative with server RNG, sorts stably by total desc, and activates the encounter', async () => {
     const { db, combat, ownerCtx } = await makeFixture();
     // 注入 RNG 返回 0.5 → d20 固定为 10（d20 = floor(0.5*20)+1 = 11；见实现约定）。
@@ -427,9 +506,9 @@ describe('combat service', () => {
     });
     expect(after.combatants.find((c) => c.id === goblin.id)?.hpCurrent).toBe(3);
     const manual = await archives.createManual(ownerCtx, '战斗存档');
-    // 快照必须是 v2 且包含 encounters。
+    // 当前快照是 v3，且保留 v2 的 encounters 结构。
     const state = JSON.parse((await db.query<{ state_json: string }>('SELECT state_json FROM platform_archives WHERE id = ?', [manual.id]))[0].state_json);
-    expect(state.schemaVersion).toBe(2);
+    expect(state.schemaVersion).toBe(3);
     expect(state.encounters).toHaveLength(1);
     expect(state.encounters[0].combatants).toHaveLength(2);
     // 存档后修改战斗。
@@ -457,16 +536,22 @@ describe('combat service', () => {
     const t1 = await turns.startTurn(ownerCtx);
     const v1Archive = await archives.createManual(ownerCtx, 'v1-无战斗');
     const v1State = JSON.parse((await db.query<{ state_json: string }>('SELECT state_json FROM platform_archives WHERE id = ?', [v1Archive.id]))[0].state_json);
-    expect(v1State.schemaVersion).toBe(2);
+    expect(v1State.schemaVersion).toBe(3);
     delete v1State.encounters;
     v1State.schemaVersion = 1;
     await db.execute('UPDATE platform_archives SET state_json = ? WHERE id = ?', [JSON.stringify(v1State), v1Archive.id]);
     // 存档后开始一场战斗。
     const encounter = await combat.start(ownerCtx, { name: '战后战斗', combatants: [publicFighter] });
     await combat.execute(ownerCtx, encounter.id, { kind: 'roll_initiative', payload: {} });
-    // 再创建一个 v2 存档（含该战斗）。
+    // 再创建一个 v2 存档（含该战斗），并去掉 v3 新增的 Actor/runtime 区块，模拟历史 v2 快照。
     const v2 = await archives.createManual(ownerCtx, 'v2-含战斗');
-    expect(JSON.parse((await db.query<{ state_json: string }>('SELECT state_json FROM platform_archives WHERE id = ?', [v2.id]))[0].state_json).schemaVersion).toBe(2);
+    const v2State = JSON.parse((await db.query<{ state_json: string }>('SELECT state_json FROM platform_archives WHERE id = ?', [v2.id]))[0].state_json);
+    expect(v2State.schemaVersion).toBe(3);
+    delete v2State.actors;
+    delete v2State.actorControlBindings;
+    delete v2State.characterRuntimeStates;
+    v2State.schemaVersion = 2;
+    await db.execute('UPDATE platform_archives SET state_json = ? WHERE id = ?', [JSON.stringify(v2State), v2.id]);
     // 恢复 v1：当前 unsuperseded 战斗全部 supersede。
     await archives.restore(ownerCtx, v1Archive.id);
     const encRow = await db.query<{ superseded_at: string | null; superseded_by_archive_id: string | null }>(
@@ -482,6 +567,21 @@ describe('combat service', () => {
     );
     expect(encRow2[0].superseded_at).toBeNull();
     expect(encRow2[0].status).toBe('active');
+    // v2 没有 Actor/runtime 区块时，仍应从快照中的 combatant 投影恢复 Actor runtime。
+    const restoredCombatant = (await db.query<{ actor_id: string | null; hp_current: number; conditions_json: string }>(
+      'SELECT actor_id, hp_current, conditions_json FROM platform_combatants WHERE encounter_id = ? AND superseded_at IS NULL',
+      [encounter.id],
+    ))[0];
+    expect(restoredCombatant.actor_id).not.toBeNull();
+    const restoredRuntime = (await db.query<{ current_hp: number; conditions_json: string; runtime_status: string }>(
+      'SELECT current_hp, conditions_json, runtime_status FROM platform_character_runtime_states WHERE actor_id = ?',
+      [restoredCombatant.actor_id],
+    ))[0];
+    expect(restoredRuntime).toMatchObject({
+      current_hp: restoredCombatant.hp_current,
+      conditions_json: restoredCombatant.conditions_json,
+      runtime_status: restoredCombatant.hp_current === 0 ? 'defeated' : 'active',
+    });
     await db.close();
   });
 
@@ -507,7 +607,7 @@ describe('combat service', () => {
     // 无战斗时创建 manual 存档 → v2 快照 encounters=[]（空 encounter ids + 空 combatant ids）。
     const manual = await archives.createManual(ownerCtx, '无战斗存档');
     const state = JSON.parse((await db.query<{ state_json: string }>('SELECT state_json FROM platform_archives WHERE id = ?', [manual.id]))[0].state_json);
-    expect(state.schemaVersion).toBe(2);
+    expect(state.schemaVersion).toBe(3);
     expect(state.encounters).toEqual([]);
     // 存档后开始一场战斗。
     const encounter = await combat.start(ownerCtx, { name: '存档后战斗', combatants: [publicFighter] });

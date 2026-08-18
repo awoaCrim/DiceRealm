@@ -14,6 +14,7 @@ import { ActorRuntimeStateService } from './modules/actors/ActorRuntimeStateServ
 import { createAuthRouter } from './routes/authRoutes.js';
 import { createCampaignRouter } from './routes/campaignRoutes.js';
 import { createCharacterRouter } from './routes/characterRoutes.js';
+import { createActorRouter } from './routes/actorRoutes.js';
 import { CharacterService } from './modules/characters/CharacterService.js';
 import { WorldFactService } from './modules/world/WorldFactService.js';
 import { createWorldRouter } from './routes/worldRoutes.js';
@@ -178,6 +179,8 @@ function composePlatformApp(
   app.use('/api/campaigns', createCampaignRouter(database, campaigns));
   // 角色路由挂在 campaign-scoped 前缀下，与现有 /api/campaigns list/create/join 互不影响。
   app.use('/api/campaigns/:campaignId/characters', createCharacterRouter(database, characters));
+  // Actor read projection supplies canonical actorIds for multi-Actor action submission.
+  app.use('/api/campaigns/:campaignId/actors', createActorRouter(database, actors));
   // 世界事实路由同样挂在 campaign-scoped 前缀下。
   app.use('/api/campaigns/:campaignId/world', createWorldRouter(database, worldFacts));
   // 回合路由挂在 campaign-scoped 前缀下；owner/player 权限由 service 在事务内 enforce。

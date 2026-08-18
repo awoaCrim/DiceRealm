@@ -84,6 +84,20 @@ describe('HTTP character vertical flow', () => {
       expect(aOwnView.projection.myApproved.map((c) => c.id)).toContain(charId);
       expect(aOwnView.projection.myPending).toEqual([]);
 
+      // Actor read projection：owner 可读 campaign actors，player 只读自己的 controlled Actor。
+      const actorsBase = `${baseUrl}/api/campaigns/${createBody.campaign.id}/actors`;
+      const ownerActorsRes = await fetch(actorsBase, { headers: { cookie: owner.cookieJar.header() } });
+      expect(ownerActorsRes.status).toBe(200);
+      const ownerActors = (await ownerActorsRes.json()) as { actors: Array<{ characterId: string | null; displayName: string }> };
+      expect(ownerActors.actors.some((actor) => actor.characterId === charId && actor.displayName === '薇拉')).toBe(true);
+      const playerActorsRes = await fetch(actorsBase, { headers: { cookie: playerA.cookieJar.header() } });
+      expect(playerActorsRes.status).toBe(200);
+      const playerActors = (await playerActorsRes.json()) as { actors: Array<{ characterId: string | null }> };
+      expect(playerActors.actors.some((actor) => actor.characterId === charId)).toBe(true);
+      const otherPlayerActorsRes = await fetch(actorsBase, { headers: { cookie: playerB.cookieJar.header() } });
+      expect(otherPlayerActorsRes.status).toBe(200);
+      expect(((await otherPlayerActorsRes.json()) as { actors: unknown[] }).actors).toEqual([]);
+
       // playerB 看不到他人 draft/pending/rejected；但能看到已批准角色的安全 summary。
       const bList = await fetch(`${charsBase}`, { headers: { cookie: playerB.cookieJar.header() } });
       expect(bList.status).toBe(200);

@@ -67,7 +67,7 @@ Narration failure is persisted as a retryable narration attempt while the mechan
 
 ## Persistence and startup boundary
 
-Migration 016 adds explicit storage for action intents, adjudication decisions, immutable roll plans, roll records, resolved outcomes, narration attempts, and the run-kind/parent linkage needed to distinguish mechanical execution from legacy turn resolution.
+Migration 016 adds explicit storage for action intents, adjudication decisions, immutable roll plans, roll records, resolved outcomes, narration attempts, and the run-kind/parent linkage needed to distinguish mechanical execution from legacy turn resolution. Migration 022 adds nullable `campaign_actor_id` columns to `platform_action_intents` and `platform_roll_plans`; the existing `actor_id` columns retain their historical submitter/user meaning.
 
 Fresh/temp fixtures use the frozen `PHASE3_APPROVED_MIGRATION_FILENAMES` set. Ordinary startup also accepts only that exact set and does not infer approval from the migration directory or apply arbitrary pending migrations. A database missing migration 016 fails closed; it is not silently upgraded by normal startup. The separate retired-rule compatibility bridge may remove the exact old `011_rule_sources.sql` table state with a pre-migration SQLite backup, but it never applies 016.
 
@@ -76,8 +76,9 @@ Fresh/temp fixtures use the frozen `PHASE3_APPROVED_MIGRATION_FILENAMES` set. Or
 - Keep Provider proposals free of numeric mechanical authority and direct combat commands.
 - Keep `resourceChoices` from directly selecting advantage/disadvantage; test the server-owned derivation path separately.
 - Keep all formal state changes behind server validation and preserve the existing campaign CAS/ledger seam.
+- When a live Action is Actor-scoped, persist `action.actor_id`/normalized intent `actorId` as canonical identity in `campaign_actor_id`, but write the submitting user to the legacy `actor_id` audit column. Never write an `actor:*` id into the `platform_roll_plans.actor_id REFERENCES users(id)` field.
 - Assert that mechanical commit leaves the Turn lifecycle and `StateRevision` consistent even when Narration Provider execution fails.
 - Assert that a later authoritative revision does not block retry of an active historical Narration outcome, while archive supersede still blocks it.
 - Preserve Player/Owner entry projection and archive superseded semantics.
-- Test raw action isolation, hidden-target omission, observable entity/source/action grounding, stale revisions, unsupported actions, plan hashing, replay/idempotency, narration visibility, narration retry, migration admission, and rollback with temporary SQLite databases.
+- Test raw action isolation, hidden-target omission, observable entity/source/action grounding, stale revisions, unsupported actions, plan hashing, replay/idempotency, narration visibility, narration retry, canonical Actor audit columns, migration admission, and rollback with temporary SQLite databases.
 - Never use repository-root or configured development databases as test fixtures.

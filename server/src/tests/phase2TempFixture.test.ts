@@ -77,6 +77,7 @@ describe('approved migration set', () => {
       '019_action_branch_lifecycle.sql',
       '020_actor_character_runtime_foundation.sql',
       '021_actor_scoped_action_slots.sql',
+      '022_actor_adjudication_identity.sql',
     ]);
   });
 });

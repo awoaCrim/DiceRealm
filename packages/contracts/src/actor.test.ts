@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { actorBindingRoleSchema, campaignActorSchema, characterRuntimeStateSchema, runtimeMutationEffectSchema } from './actor.js';
+import { actorBindingRoleSchema, campaignActorSchema, characterRuntimeStateSchema, createNpcActorInputSchema, runtimeMutationEffectSchema } from './actor.js';
 
 describe('actor contracts', () => {
   it('accepts a userless NPC and runtime state', () => {
@@ -12,6 +12,18 @@ describe('actor contracts', () => {
       campaignId: 'campaign-1', actorId: 'actor:npc-1', currentHp: 4, temporaryHp: 0,
       conditions: ['blinded'], runtimeStatus: 'active', stateRevision: 3, updatedAt: '2026-01-01',
     }).conditions).toEqual(['blinded']);
+  });
+
+  it('allows NPCs to use pc_build mechanics independently from character type', () => {
+    const actor = campaignActorSchema.parse({
+      id: 'actor:npc-pc-build', campaignId: 'campaign-1', displayName: 'Companion',
+      characterType: 'npc', controlMode: 'ai', mechanicsMode: 'pc_build',
+      characterId: null, createdAt: '2026-01-01', updatedAt: '2026-01-01',
+    });
+    expect(actor.mechanicsMode).toBe('pc_build');
+    expect(createNpcActorInputSchema.parse({
+      displayName: 'Companion', mechanicsMode: 'pc_build', currentHp: 8,
+    }).mechanicsMode).toBe('pc_build');
   });
 
   it('rejects player bindings without a user and duplicate runtime conditions', () => {

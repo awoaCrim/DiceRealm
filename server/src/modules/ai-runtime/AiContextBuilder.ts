@@ -14,6 +14,8 @@ import { WorldFactRepository } from '../world/WorldFactRepository.js';
 import { CombatRepository } from '../combat/CombatRepository.js';
 import { NarrativeRoundRepository } from '../narrative-runtime/NarrativeRoundRepository.js';
 import { RoundProjectionService } from '../narrative-runtime/RoundProjectionService.js';
+import { ActorContextIdentityResolver, type ActorContextIdentity } from '../actors/ActorContextIdentityResolver.js';
+import { ActorRepository } from '../actors/ActorRepository.js';
 
 const TURN_RESOLUTION_JSON_TEMPLATE = JSON.stringify({
   publicNarrative: '非空公开叙事',
@@ -82,6 +84,7 @@ export function filterContextBlocks(
   actionId: string,
   actorId?: string,
   actorPrivateSourceRefs?: ReadonlySet<string>,
+  actorAudienceIds: ReadonlySet<string> = actorId ? new Set([actorId]) : new Set(),
 ): { blocks: ContextBlock[]; trace: ContextTrace } {
   const included: ContextBlock[] = [];
   const entries = [] as ContextTrace['entries'];
@@ -89,7 +92,8 @@ export function filterContextBlocks(
     const allowed = isAudienceAllowed(block.visibility, audience)
       && (block.visibility !== 'actor_private'
         || audience === 'gm_only'
-        || Boolean(actorId && (block.audienceActorIds?.includes(actorId) || actorPrivateSourceRefs?.has(block.sourceRefs[0]))));
+        || Boolean(actorId && (block.audienceActorIds?.some((candidate) => actorAudienceIds.has(candidate))
+          || actorPrivateSourceRefs?.has(block.sourceRefs[0]))));
     included.push(...(allowed ? [block] : []));
     for (const sourceRef of block.sourceRefs) {
       entries.push({
@@ -130,7 +134,11 @@ export function renderContextBlocks(
 }
 
 export class AiContextBuilder {
-  constructor(private readonly executor: QueryExecutor) {}
+  private readonly actorIdentityResolver: ActorContextIdentityResolver;
+
+  constructor(private readonly executor: QueryExecutor, actorIdentityResolver?: ActorContextIdentityResolver) {
+    this.actorIdentityResolver = actorIdentityResolver ?? new ActorContextIdentityResolver(executor);
+  }
 
   /** claim tx 内调用时传入 tx，保证 context 快照与 claim 写入使用同一事务执行器。 */
   async buildForTurn(
@@ -145,6 +153,9 @@ export class AiContextBuilder {
     if (!campaign) throw new Error('campaign not found');
     const turns = new TurnRepository(executor);
     const characters = new CharacterRepository(executor);
+    const actorIdentity = await this.actorIdentityResolver.resolve(campaignId, options.actorId, executor);
+    const actorRows = await new ActorRepository(executor).listByCampaign(campaignId);
+    const actorByCharacterId = new Map(actorRows.filter((actor) => actor.character_id).map((actor) => [actor.character_id as string, actor]));
     const facts = new WorldFactRepository(executor);
     const turn = (await turns.findTurnById(turnId));
     if (!turn) throw new Error('turn not found');
@@ -153,6 +164,7 @@ export class AiContextBuilder {
       .filter((row) => row.status === 'approved')
       .map((row) => ({
         id: row.id, playerId: row.player_id, name: row.name,
+        actorId: actorByCharacterId.get(row.id)?.id ?? null,
         sheet: JSON.parse(row.sheet_json) as Record<string, unknown>,
         derived: JSON.parse(row.derived_json) as Record<string, unknown>,
       }));
@@ -203,7 +215,7 @@ export class AiContextBuilder {
       && candidateDecision.campaign_id === campaignId
       && candidateDecision.round_id === narrativeRound.id
       && candidateDecision.turn_id === turnId
-      && (!options.actorId || candidateDecision.actor_id === options.actorId)
+      && (!options.actorId || (candidateDecision.campaign_actor_id ?? candidateDecision.actor_id) === options.actorId)
       ? candidateDecision
       : null;
     const currentActionId = decision?.action_id ?? options.actionId;
@@ -214,10 +226,10 @@ export class AiContextBuilder {
     const actionVisibility: ContextVisibility = intentStage ? 'party' : 'actor_private';
     const projectionAudience = narrativeAudienceFromContext(audience);
     const previousRoundSummary = narrativeRound
-      ? await projection.projectLatestClosedBefore(campaignId, turn.number, projectionAudience, options.actorId)
+      ? await projection.projectLatestClosedBefore(campaignId, turn.number, projectionAudience, actorIdentity?.actorId)
       : null;
     const currentWorkingFacts = decisionStage && narrativeRound
-      ? await projection.projectWorkingFacts(narrativeRound.id, projectionAudience, options.actorId)
+      ? await projection.projectWorkingFacts(narrativeRound.id, projectionAudience, actorIdentity?.actorId)
       : [];
     const contextCombat = audience === 'gm_only'
       ? combat
@@ -225,7 +237,8 @@ export class AiContextBuilder {
         ...encounter,
         combatants: encounter.combatants.filter((combatant) =>
           combatant.visibility === 'public'
-          || Boolean(options.actorId && combatant.targetPlayerId === options.actorId)),
+          || Boolean(actorIdentity && combatant.targetPlayerId
+            && actorIdentity.controllerUserIds.includes(combatant.targetPlayerId))),
       })).filter((encounter) => encounter.combatants.length > 0);
     const sourceBlocks: ContextBlock[] = [
       makeBlock('system-policy', 'system_policy', SYSTEM_INSTRUCTIONS, ['system:runtime-contract'], 'system', 'server_only', 'P0'),
@@ -240,7 +253,7 @@ export class AiContextBuilder {
         'scene',
         projectionVisibility(audience),
         'P1',
-        audience === 'actor_private' && options.actorId ? [options.actorId] : undefined,
+        audience === 'actor_private' && actorIdentity ? [actorIdentity.actorId] : undefined,
       )] : []),
       ...(currentWorkingFacts.length > 0 ? [makeBlock(
         'current-round-working-facts',
@@ -250,17 +263,21 @@ export class AiContextBuilder {
         'scene',
         projectionVisibility(audience),
         'P1',
-        audience === 'actor_private' && options.actorId ? [options.actorId] : undefined,
+        audience === 'actor_private' && actorIdentity ? [actorIdentity.actorId] : undefined,
       )] : []),
       ...scopedActions.map((action) => makeBlock(
         `recent-action-${action.id}`,
         'recent_action',
-        `玩家行动：\n- ${action.player_id}: ${action.body}`,
+        `玩家行动：\n- ${action.actor_id ?? action.player_id}（提交者 ${action.player_id}）: ${action.body}`,
         [`action:${action.id}`],
         'actor',
         actionVisibility,
         'P0',
-        actionVisibility === 'actor_private' ? [action.player_id] : undefined,
+        actionVisibility === 'actor_private'
+          ? actorIdentity?.isLegacy
+            ? [action.player_id]
+            : [action.actor_id ?? action.player_id, action.player_id]
+          : undefined,
       )),
       makeBlock(
         'approved-character-roster',
@@ -274,12 +291,14 @@ export class AiContextBuilder {
       ...approved.map((character) => makeBlock(
         `approved-character-${character.id}`,
         'actor_state',
-        `角色状态：\n- ${character.name} (${character.playerId}): ${JSON.stringify(character.sheet)}`,
+        `角色状态：\n- ${character.name} (${character.actorId ?? character.playerId}，提交者 ${character.playerId}): ${JSON.stringify(character.sheet)}`,
         [`character:${character.id}`],
         'actor',
         'actor_private',
         'P1',
-        [character.playerId],
+        actorIdentity?.isLegacy
+          ? [character.playerId]
+          : [character.actorId ?? character.playerId, character.playerId],
       )),
       ...allFacts.map((fact) => makeBlock(
         `world-fact-${fact.id}`,
@@ -289,7 +308,12 @@ export class AiContextBuilder {
         fact.visibility === 'owner_only' ? 'gm' : 'world',
         fact.visibility === 'owner_only' ? 'gm_only' : fact.visibility === 'player_private' ? 'actor_private' : 'public',
         fact.visibility === 'owner_only' ? 'P1' : 'P2',
-        fact.visibility === 'player_private' ? fact.knownBy : undefined,
+        fact.visibility === 'player_private' ? [
+          ...fact.knownBy,
+          ...(actorIdentity?.isLegacy ? [] : actorRows.filter((actor) => actor.character_id && fact.knownBy.includes(
+            approved.find((character) => character.id === actor.character_id)?.playerId ?? '',
+          )).map((actor) => actor.id)),
+        ] : undefined,
       )),
       ...contextCombat.map((encounter) => makeBlock(
         `encounter-${encounter.id}`,
@@ -311,33 +335,38 @@ export class AiContextBuilder {
       ].join('\n'), ['system:resolution-contract'], 'system', 'server_only', 'P0'),
     ];
     const actorPrivateRefs = new Set(
-      allFacts.filter((fact) => options.actorId && fact.knownBy.includes(options.actorId))
+      allFacts.filter((fact) => actorIdentity && fact.knownBy.some((id) => actorIdentity.controllerUserIds.includes(id) || id === actorIdentity.actorId))
         .map((fact) => `world-fact:${fact.id}`),
     );
-    const filtered = filterContextBlocks(sourceBlocks, audience, actionId, options.actorId, actorPrivateRefs);
+    const actorAudienceIds = actorIdentity
+      ? new Set(actorIdentity.isLegacy
+        ? [actorIdentity.actorId, ...actorIdentity.controllerUserIds]
+        : [actorIdentity.actorId])
+      : new Set<string>();
+    const filtered = filterContextBlocks(sourceBlocks, audience, actionId, options.actorId, actorPrivateRefs, actorAudienceIds);
     const visibleFacts = allFacts.filter((fact) => {
       const visibility = persistedToContextVisibility(fact.visibility);
       const actorScopedAllowed = visibility !== 'actor_private'
         || audience === 'gm_only'
-        || Boolean(options.actorId && fact.knownBy.includes(options.actorId));
+        || Boolean(actorIdentity && fact.knownBy.some((id) => actorIdentity.controllerUserIds.includes(id) || id === actorIdentity.actorId));
       return isAudienceAllowed(visibility, audience) && actorScopedAllowed;
     });
     // Keep the long-standing owner-safe context shape for existing Owner tooling,
     // while adding structured blocks/trace as a separate boundary.
     const visibleActions = audience === 'gm_only' || intentStage
       ? scopedActions
-      : scopedActions.filter((action) => Boolean(options.actorId && action.player_id === options.actorId));
+      : scopedActions.filter((action) => matchesActorIdentity(action.actor_id, action.player_id, actorIdentity));
     const visibleCharacters = audience === 'gm_only'
       ? approved
       : intentStage || audience === 'party'
         ? approved.map(({ id, playerId, name }) => ({ id, playerId, name }))
-        : approved.filter((character) => Boolean(options.actorId && character.playerId === options.actorId));
+        : approved.filter((character) => matchesCharacterIdentity(character.id, character.actorId, character.playerId, actorIdentity));
     const context = {
       campaignId,
       ruleset: campaign.ruleset,
       campaignStatus: campaign.status,
       turn: { id: turn.id, number: turn.number, status: turn.status },
-      actions: visibleActions.map((a) => ({ playerId: a.player_id, body: a.body })),
+      actions: visibleActions.map((a) => ({ playerId: a.player_id, actorId: a.actor_id ?? a.player_id, body: a.body })),
       characters: visibleCharacters,
       worldFacts: visibleFacts,
       previousRoundSummary,
@@ -348,7 +377,7 @@ export class AiContextBuilder {
     };
     const prompt = renderContextBlocks(
       campaignId,
-      approved.map((c) => ({ id: c.id, playerId: c.playerId, name: c.name })),
+      visibleCharacters.map((c) => ({ id: c.id, playerId: c.playerId, name: c.name })),
       filtered.blocks,
       decisionStage ? 'decision_interpretation' : intentStage ? 'intent_interpretation' : 'turn_resolution',
     );
@@ -399,6 +428,26 @@ function makeBlock(
     ...(audienceActorIds && audienceActorIds.length > 0 ? { audienceActorIds: [...new Set(audienceActorIds)] } : {}),
     estimatedTokens: estimateTokens(content),
   };
+}
+
+function matchesActorIdentity(
+  actionActorId: string | null | undefined,
+  playerId: string,
+  identity: ActorContextIdentity | null,
+): boolean {
+  if (!identity) return false;
+  return actionActorId ? actionActorId === identity.actorId : identity.legacyPlayerId === playerId;
+}
+
+function matchesCharacterIdentity(
+  characterId: string,
+  characterActorId: string | null,
+  playerId: string,
+  identity: ActorContextIdentity | null,
+): boolean {
+  if (!identity) return false;
+  if (identity.characterId) return characterId === identity.characterId;
+  return identity.legacyPlayerId === playerId || characterActorId === identity.actorId;
 }
 
 function estimateTokens(content: string): number {

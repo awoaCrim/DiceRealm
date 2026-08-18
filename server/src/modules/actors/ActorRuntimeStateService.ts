@@ -18,13 +18,20 @@ export class ActorRuntimeStateService {
     return characterRuntimeStateSchema.parse(mapRuntimeState(row));
   }
 
-  async apply(campaignId: string, actorId: string, effect: RuntimeMutationEffect, mutationId: string, expectedRevision?: number): Promise<{ replayed: boolean; state: CharacterRuntimeState; revision: number }> {
+  async apply(
+    campaignId: string,
+    actorId: string,
+    effect: RuntimeMutationEffect,
+    mutationId: string,
+    expectedRevision?: number,
+    mechanicsMaxHp?: number,
+  ): Promise<{ replayed: boolean; state: CharacterRuntimeState; revision: number }> {
     const parsed = runtimeMutationEffectSchema.parse(effect);
     if (!('transaction' in this.database)) throw new AppError('INTERNAL_ERROR', 'runtime mutation 需要 DatabasePort。');
     return this.database.transaction(async (tx) => {
       const execution = await this.mutations.mutateIn(tx, {
         campaignId, expectedRevision, mutationId, causeType: 'character_runtime_mutation', causeId: actorId,
-      }, async ({ stateRevision }) => this.applyIn(tx, campaignId, actorId, parsed, stateRevision));
+      }, async ({ stateRevision }) => this.applyIn(tx, campaignId, actorId, parsed, stateRevision, mechanicsMaxHp));
       if (!execution.result) {
         const state = await this.getIn(tx, campaignId, actorId);
         return { replayed: true, state, revision: execution.revision.revision };
@@ -34,17 +41,34 @@ export class ActorRuntimeStateService {
   }
 
   /** Caller-owned coordinator transaction seam. It does not allocate a revision. */
-  async applyIn(tx: QueryExecutor, campaignId: string, actorId: string, effect: RuntimeMutationEffect, stateRevision: number): Promise<CharacterRuntimeState> {
-    return this.applyEffectsIn(tx, campaignId, actorId, [effect], stateRevision);
+  async applyIn(
+    tx: QueryExecutor,
+    campaignId: string,
+    actorId: string,
+    effect: RuntimeMutationEffect,
+    stateRevision: number,
+    mechanicsMaxHp?: number,
+  ): Promise<CharacterRuntimeState> {
+    return this.applyEffectsIn(tx, campaignId, actorId, [effect], stateRevision, mechanicsMaxHp);
   }
 
-  async applyEffectsIn(tx: QueryExecutor, campaignId: string, actorId: string, effects: RuntimeMutationEffect[], stateRevision: number): Promise<CharacterRuntimeState> {
+  async applyEffectsIn(
+    tx: QueryExecutor,
+    campaignId: string,
+    actorId: string,
+    effects: RuntimeMutationEffect[],
+    stateRevision: number,
+    mechanicsMaxHp?: number,
+  ): Promise<CharacterRuntimeState> {
     const parsedEffects = effects.map((effect) => runtimeMutationEffectSchema.parse(effect));
     const actors = new ActorRepository(tx);
     const actor = await actors.findById(actorId);
     if (!actor || actor.campaign_id !== campaignId) throw new AppError('NOT_FOUND', 'Actor 不属于当前战役。');
     const existing = await actors.findRuntimeState(campaignId, actorId);
     if (!existing) throw new AppError('STATE_CONFLICT', 'Actor 缺少 runtime state。');
+    if (mechanicsMaxHp !== undefined && (!Number.isInteger(mechanicsMaxHp) || mechanicsMaxHp < 0)) {
+      throw new AppError('VALIDATION_ERROR', 'mechanics max HP 必须是非负整数。');
+    }
     const conditions = parseConditions(existing.conditions_json);
     let currentHp = Number(existing.current_hp);
     let temporaryHp = Number(existing.temporary_hp);
@@ -63,10 +87,16 @@ export class ActorRuntimeStateService {
         }
       }
     }
+    if (mechanicsMaxHp !== undefined) currentHp = Math.min(currentHp, mechanicsMaxHp);
     if (conditions.length > 32) throw new AppError('VALIDATION_ERROR', 'runtime conditions 超出上限。');
+    const hasDamage = parsedEffects.some((effect) => effect.kind === 'damage' && effect.amount > 0);
+    const hasHealing = parsedEffects.some((effect) => effect.kind === 'healing' && effect.amount > 0);
+    let runtimeStatus = existing.runtime_status;
+    if (hasDamage && currentHp === 0) runtimeStatus = 'defeated';
+    else if (hasHealing && existing.runtime_status === 'defeated' && currentHp > 0) runtimeStatus = 'active';
     const next: CharacterRuntimeState = characterRuntimeStateSchema.parse({
       campaignId, actorId, currentHp, temporaryHp, conditions,
-      runtimeStatus: currentHp === 0 ? 'defeated' : 'active', stateRevision, updatedAt: new Date().toISOString(),
+      runtimeStatus, stateRevision, updatedAt: new Date().toISOString(),
     });
     const ok = await actors.updateRuntimeState({
       campaign_id: campaignId, actor_id: actorId, current_hp: next.currentHp, temporary_hp: next.temporaryHp,

@@ -54,7 +54,7 @@ platform_actions  # active action branch plus superseded audit actions
 platform_outbox_consumer_receipts  # durable wake-up state; independent from SSE published_at
 ```
 
-Migrations `017_narrative_runtime_fact_memory.sql`, `018_narrative_work_consumer_receipts.sql`, `019_action_branch_lifecycle.sql`, `020_actor_character_runtime_foundation.sql` and `021_actor_scoped_action_slots.sql` are part of the frozen approved migration set and must be listed in both the source manifest and approved migration filenames.
+Migrations `017_narrative_runtime_fact_memory.sql`, `018_narrative_work_consumer_receipts.sql`, `019_action_branch_lifecycle.sql`, `020_actor_character_runtime_foundation.sql`, `021_actor_scoped_action_slots.sql` and `022_actor_adjudication_identity.sql` are part of the frozen approved migration set and must be listed in both the source manifest and approved migration filenames.
 
 ## 3. Contracts
 
@@ -129,6 +129,77 @@ stable runtime
 ```
 
 Previous raw actions, previous Provider messages and previous Narration entries are not reused as context. `AiContextBuilder` filters blocks before rendering and records stable `ContextTrace.sourceRefs`.
+
+### Scenario: Actor-scoped context and authoritative runtime restore
+
+#### 1. Scope / Trigger
+
+This contract applies when a live Decision, archive restore, or combat projection receives a canonical `CampaignActor` id. It preserves `player_id`/legacy `actor_id` as compatibility fields instead of comparing them directly with `campaign_actor_id`.
+
+#### 2. Signatures
+
+```ts
+ActorContextIdentityResolver.resolve(campaignId, requestedActorId?, executor?)
+AiContextBuilder.buildForTurn(campaignId, turnId, executor, {
+  audience, actorId?, actionId?, roundId?, decisionId?, stage?,
+})
+ArchiveSnapshotV3 = ArchiveSnapshotV2 & {
+  actors: CampaignActor[]
+  actorControlBindings: ActorControlBinding[]
+  characterRuntimeStates: CharacterRuntimeState[]
+}
+GET /api/campaigns/:campaignId/actors -> { actors: CampaignActor[] }
+```
+
+`022_actor_adjudication_identity.sql` adds nullable `campaign_actor_id` to `platform_action_intents` and `platform_roll_plans`. Their existing `actor_id` columns keep the historical submitter/user identity; live player resolution writes the submitting user there and the canonical Actor in the additive column.
+
+#### 3. Contracts
+
+- Canonical Actor context resolves `actorId`, active controller user ids, `characterId`, and the legacy player id.
+- Actor-private ContextBlocks use canonical Actor audience ids; legacy user ids remain in the block only for compatibility/fallback.
+- V3 capture writes all campaign Actors, bindings, and runtime rows. Restore uses the restore mutation's new StateRevision for every restored runtime row.
+- V1/V2 restore remains readable and reconstructs a bounded legacy runtime baseline from approved Character sheets, with V2 combatant projections taking precedence when available.
+- Player turn reads return `myActions[]`; `myAction` remains the first-action compatibility projection.
+
+#### 4. Validation & Error Matrix
+
+| Condition | Required result |
+|---|---|
+| Requested Actor belongs to another campaign or is missing | Fail closed to legacy identity; never use the foreign Actor row |
+| Canonical Actor action/private block belongs to a sibling Actor | Exclude from actor-private Provider context |
+| V3 restore has future runtime/binding rows | Mark rows outside the snapshot inactive; do not delete historical FK parents |
+| Existing Actor runtime current HP exceeds supplied mechanics cap | `VALIDATION_ERROR`; do not create the Combatant projection |
+| Actor and Character ids disagree | `VALIDATION_ERROR`; no combat start |
+| Condition-only runtime mutation | Preserve the existing `runtimeStatus` |
+
+#### 5. Good / Base / Bad Cases
+
+- **Good:** Kayla and Sibling share one user; Kayla's canonical action and private sheet are visible to Kayla's Decision Provider, while Sibling's raw action and sheet are absent.
+- **Base:** A legacy actorless action remains readable through its submitting user identity.
+- **Bad:** Compare `platform_narrative_decisions.actor_id` directly with `campaign_actor_id`, or write a canonical Actor id into the legacy `platform_roll_plans.actor_id` foreign key.
+
+#### 6. Tests Required
+
+- Scripted Provider vertical test asserting exact current action/private state and sibling isolation.
+- V3 archive capture/restore test asserting HP, temporary HP, conditions, binding activity, and restore revision monotonicity.
+- V1/V2 restore compatibility test with sheet/runtime baseline and V2 combatant precedence.
+- Combat seed test for Actor/Character mismatch, runtime HP/conditions authority, healing cap, and status preservation.
+- HTTP Actor projection test for owner-all versus player-controlled-only results.
+- Migration/manifest test for 022 and additive canonical audit columns.
+
+#### 7. Wrong vs Correct
+
+```ts
+// Wrong: canonical Actor id is written into the legacy users FK.
+await insertRollPlan({ ...plan, actorId: campaignActor.id })
+
+// Correct: preserve the legacy submitter and persist canonical identity separately.
+await insertRollPlan({
+  ...plan,
+  legacyActorId: action.player_id,
+  campaignActorId: action.actor_id,
+})
+```
 
 ## 4. Validation & Error Matrix
 

@@ -230,10 +230,12 @@ export class TurnService {
         progress: await this.progressOf(this.executor, turnId),
       };
     }
-    const myAction = await this.repository.findActionByTurnPlayer(turnId, ctx.playerId ?? '');
+    const myActions = await this.repository.listActionsByTurnPlayer(turnId, ctx.playerId ?? '');
+    const mappedActions = myActions.map(mapAction);
     return {
       turn: mapSummary(turn),
-      myAction: myAction ? mapAction(myAction) : null,
+      myActions: mappedActions,
+      myAction: mappedActions[0] ?? null,
       progress: await this.progressOf(this.executor, turnId),
     };
   }
@@ -242,10 +244,12 @@ export class TurnService {
     const repo = new TurnRepository(tx);
     const turn = await repo.findTurnById(turnId);
     if (!turn) throw new AppError('NOT_FOUND', '回合不存在。');
-    const myAction = await repo.findActionByTurnPlayer(turnId, playerId);
+    const myActions = await repo.listActionsByTurnPlayer(turnId, playerId);
+    const mappedActions = myActions.map(mapAction);
     return {
       turn: mapSummary(turn),
-      myAction: myAction ? mapAction(myAction) : null,
+      myActions: mappedActions,
+      myAction: mappedActions[0] ?? null,
       progress: await this.progressOf(tx, turnId),
     };
   }

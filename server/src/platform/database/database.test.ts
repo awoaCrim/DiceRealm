@@ -127,7 +127,7 @@ describe('SQLite migration SQL', () => {
     const db = createSqliteDatabase(':memory:');
     const legacyDir = mkdtempSync(join(tmpdir(), 'dnd-migrations-001-019-'));
     try {
-      for (const name of readdirSync(MIGRATIONS_DIR).filter((entry) => /^\d{3}_.*\.sql$/.test(entry) && !entry.startsWith('020_') && !entry.startsWith('021_'))) {
+      for (const name of readdirSync(MIGRATIONS_DIR).filter((entry) => /^\d{3}_.*\.sql$/.test(entry) && !entry.startsWith('020_') && !entry.startsWith('021_') && !entry.startsWith('022_'))) {
         cpSync(join(MIGRATIONS_DIR, name), join(legacyDir, name));
       }
       const legacyReport = await new MigrationRunner(db, legacyDir).run();
@@ -159,7 +159,11 @@ describe('SQLite migration SQL', () => {
         ['mig-draft-combatant', 'mig-encounter', 'mig-campaign', 'mig-draft', 'Draft PC instance', null, 0, 4, 4, 10, '[]', 'public', null, 1, now, now],
       );
       const currentReport = await new MigrationRunner(db, MIGRATIONS_DIR).run();
-      expect(currentReport.applied).toEqual(['020', '021']);
+      expect(currentReport.applied).toEqual(['020', '021', '022']);
+      const intentColumns = await db.query<{ name: string }>('PRAGMA table_info(platform_action_intents)');
+      const rollPlanColumns = await db.query<{ name: string }>('PRAGMA table_info(platform_roll_plans)');
+      expect(intentColumns.map((column) => column.name)).toContain('campaign_actor_id');
+      expect(rollPlanColumns.map((column) => column.name)).toContain('campaign_actor_id');
       const tables = await db.query<{ name: string }>(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('platform_campaign_actors', 'platform_actor_control_bindings', 'platform_character_runtime_states') ORDER BY name",
       );
@@ -296,7 +300,7 @@ describe('migration 019 action branch lifecycle', () => {
     const beforeDir = mkdtempSync(join(tmpdir(), 'dnd-migration-before-'));
     const afterDir = mkdtempSync(join(tmpdir(), 'dnd-migration-after-'));
     const beforeNames = readdirSync(MIGRATIONS_DIR)
-      .filter((name) => name.endsWith('.sql') && !['019', '020', '021'].includes(name.slice(0, 3)))
+      .filter((name) => name.endsWith('.sql') && !['019', '020', '021', '022'].includes(name.slice(0, 3)))
       .sort();
     try {
       for (const name of beforeNames) copyFileSync(join(MIGRATIONS_DIR, name), join(beforeDir, name));
