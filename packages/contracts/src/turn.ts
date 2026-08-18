@@ -116,6 +116,8 @@ export type TurnResolution = AiResolutionProposal;
 
 export const turnActionInputSchema = z.object({
   body: z.string().trim().min(1),
+  /** Optional live CampaignActor selected by the submitting user. */
+  actorId: z.string().min(1).optional(),
 });
 export type TurnActionInput = z.infer<typeof turnActionInputSchema>;
 
@@ -136,6 +138,7 @@ export const turnActionSchema = z.object({
   turnId: z.string().min(1),
   campaignId: z.string().min(1),
   playerId: z.string().min(1),
+  actorId: z.string().min(1).nullable().optional(),
   body: z.string(),
   submittedAt: z.string(),
   updatedAt: z.string(),

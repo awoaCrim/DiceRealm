@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid';
+import { turnActionInputSchema } from '@dnd/contracts';
 import type {
   TurnAction, TurnActionInput, TurnListEntry, TurnOwnerView, TurnPlayerView, TurnProgress, TurnSummary,
 } from '@dnd/contracts';
@@ -11,6 +12,7 @@ import { CharacterRepository } from '../characters/CharacterRepository.js';
 import { TurnRepository, type ActionRow, type TurnRow } from './TurnRepository.js';
 import { NarrativeRoundRepository } from '../narrative-runtime/NarrativeRoundRepository.js';
 import { NarrativeRoundService } from '../narrative-runtime/NarrativeRoundService.js';
+import { ActorService } from '../actors/ActorService.js';
 
 /**
  * TurnService：owner 开始回合、玩家提交/编辑行动、锁定与隐私投影。
@@ -23,16 +25,19 @@ export class TurnService {
   private readonly repository: TurnRepository;
   private readonly mutations: CampaignMutationCoordinator;
   private readonly narrative: NarrativeRoundService;
+  private readonly actors?: ActorService;
 
   constructor(
     private readonly executor: DatabasePort,
     private readonly outbox: EventPublisherPort,
     mutations?: CampaignMutationCoordinator,
     narrative?: NarrativeRoundService,
+    actors?: ActorService,
   ) {
     this.repository = new TurnRepository(executor);
     this.mutations = mutations ?? new CampaignMutationCoordinator(executor);
     this.narrative = narrative ?? new NarrativeRoundService(executor, outbox, this.mutations);
+    this.actors = actors;
   }
 
   /** owner 开始新回合：campaign 行锁 → 无未终结回合 → distinct approved → MAX+1（锁内安全）→ insert turn+requirements。 */
@@ -89,6 +94,7 @@ export class TurnService {
       throw new AppError('FORBIDDEN', '只有玩家可以提交行动。');
     }
     const playerId = ctx.playerId;
+    const parsedInput = turnActionInputSchema.parse(input);
     const mutationId = `turn-action:${nanoid(24)}`;
     return this.executor.transaction(async (tx) => {
       const execution = await this.mutations.mutateIn(tx, {
@@ -98,6 +104,9 @@ export class TurnService {
         causeId: turnId,
       }, async ({ stateRevision }) => {
       const repo = new TurnRepository(tx);
+      const selectedActor = this.actors
+        ? await this.actors.resolveControlledActorIn(tx, ctx.campaignId, ctx.userId, parsedInput.actorId)
+        : null;
       // 1) 条件 no-op 更新 turn 行获得锁；未命中 → NOT_FOUND。
       const lockedRow = await repo.lockTurnRow(turnId, ctx.campaignId);
       if (!lockedRow) {
@@ -139,18 +148,19 @@ export class TurnService {
       let firstSubmit = false;
       let actionId: string;
       if (existing) {
-        await repo.updateActionBody(existing.id, input.body, now);
+        await repo.updateActionBody(existing.id, parsedInput.body, now, selectedActor?.id);
         actionId = existing.id;
       } else {
         actionId = nanoid(24);
         await repo.insertAction({
           id: actionId, turn_id: turnId, campaign_id: ctx.campaignId, player_id: playerId,
-          body: input.body, submitted_at: now, updated_at: now,
+          actor_id: selectedActor?.id ?? null,
+          body: parsedInput.body, submitted_at: now, updated_at: now,
         });
         await repo.markRequirementSubmitted(turnId, playerId);
         firstSubmit = true;
       }
-      const submittedDecision = await this.narrative.linkSubmittedActionIn(tx, ctx.campaignId, turnId, playerId, actionId, now);
+      const submittedDecision = await this.narrative.linkSubmittedActionIn(tx, ctx.campaignId, turnId, playerId, actionId, now, selectedActor?.id);
       // 6) 首次提交才发 progress 事件（锁前编辑不发，避免重复）。
       if (firstSubmit) {
         await this.outbox.publishIn(tx, {
@@ -262,6 +272,7 @@ function mapSummary(row: TurnRow): TurnSummary {
 function mapAction(row: ActionRow): TurnAction {
   return {
     id: row.id, turnId: row.turn_id, campaignId: row.campaign_id, playerId: row.player_id,
+    actorId: row.actor_id ?? null,
     body: row.body, submittedAt: row.submitted_at, updatedAt: row.updated_at,
   };
 }

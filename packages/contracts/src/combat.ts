@@ -11,7 +11,7 @@ export type EncounterStatus = z.infer<typeof encounterStatusSchema>;
 export const combatantSchema = z.object({
   id: z.string().min(1),
   /** CampaignActor identity; legacy rows may be null until explicitly linked. */
-  actorId: z.string().min(1).nullable(),
+  actorId: z.string().min(1).nullable().optional(),
   name: z.string().min(1),
   /** NPC 为 null；PC 关联同 campaign 且 approved 的 platform_character。 */
   characterId: z.string().min(1).nullable(),

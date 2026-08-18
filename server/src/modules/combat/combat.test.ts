@@ -78,6 +78,8 @@ describe('combat service', () => {
     expect(encounter.round).toBe(1);
     expect(encounter.activeCombatantId).toBeNull();
     expect(encounter.combatants).toHaveLength(2);
+    expect(encounter.combatants.every((combatant) => Boolean(combatant.actorId))).toBe(true);
+    expect(encounter.combatants[0].id).not.toBe(encounter.combatants[0].actorId);
     expect(encounter.combatants[0].characterId).toBeNull();
     expect(encounter.combatants[0].initiative).toBeNull();
     expect(encounter.combatants[0].initiativeBonus).toBe(2);

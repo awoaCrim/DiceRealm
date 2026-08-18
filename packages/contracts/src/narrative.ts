@@ -95,7 +95,7 @@ export type NarrativeRound = z.infer<typeof narrativeRoundSchema>;
 export const narrativeRoundParticipantSchema = z.object({
   roundId: z.string().min(1),
   campaignId: z.string().min(1),
-  playerId: z.string().min(1),
+  playerId: z.string().min(1).nullable(),
   /** New live identity; null only for legacy participant rows. */
   actorId: z.string().min(1).nullable(),
   characterId: z.string().min(1).nullable(),
@@ -111,7 +111,12 @@ export const narrativeDecisionSchema = z.object({
   campaignId: z.string().min(1),
   turnId: z.string().min(1),
   actionId: z.string().min(1).nullable(),
+  /** Live CampaignActor identity; historical rows fall back to legacy actor_id. */
   actorId: z.string().min(1),
+  /** Live CampaignActor identity; null for historical decisions. */
+  campaignActorId: z.string().min(1).nullable().optional(),
+  /** Legacy player/user submitter identity. */
+  playerId: z.string().min(1).nullable().optional(),
   decisionOrder: z.number().int().nonnegative(),
   status: narrativeDecisionStatusSchema,
   executionId: z.string().min(1).nullable(),

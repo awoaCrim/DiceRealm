@@ -32,7 +32,7 @@ export interface NarrativeRoundRow {
 export interface NarrativeParticipantRow {
   round_id: string;
   campaign_id: string;
-  player_id: string;
+  player_id: string | null;
   actor_id: string | null;
   character_id: string | null;
   participant_order: number;
@@ -50,7 +50,7 @@ export interface NarrativeDecisionRow {
   campaign_id: string;
   turn_id: string;
   action_id: string | null;
-  actor_id: string;
+  actor_id: string | null;
   campaign_actor_id: string | null;
   decision_order: number;
   status: NarrativeDecisionStatus;
@@ -115,7 +115,7 @@ export interface InsertNarrativeRound {
 export interface InsertNarrativeParticipant {
   round_id: string;
   campaign_id: string;
-  player_id: string;
+  player_id?: string | null;
   actor_id?: string | null;
   character_id?: string | null;
   participant_order: number;
@@ -131,7 +131,7 @@ export interface InsertNarrativeDecision {
   campaign_id: string;
   turn_id: string;
   action_id?: string | null;
-  actor_id: string;
+  actor_id?: string | null;
   campaign_actor_id?: string | null;
   decision_order: number;
   status?: NarrativeDecisionStatus;
@@ -273,12 +273,14 @@ export class NarrativeRoundRepository {
     );
   }
 
-  async updateParticipantStatus(roundId: string, playerId: string, status: NarrativeParticipantStatus, updatedAt: string): Promise<boolean> {
+  async updateParticipantStatus(roundId: string, playerId: string | null, status: NarrativeParticipantStatus, updatedAt: string, campaignActorId?: string | null): Promise<boolean> {
     const result = await this.executor.execute(
       `UPDATE platform_narrative_round_participants
        SET status = ?, updated_at = ?
-       WHERE round_id = ? AND player_id = ? AND superseded_at IS NULL`,
-      [status, updatedAt, roundId, playerId],
+       WHERE round_id = ?
+         AND (((? IS NOT NULL) AND player_id = ?) OR ((? IS NOT NULL) AND actor_id = ?))
+         AND superseded_at IS NULL`,
+      [status, updatedAt, roundId, playerId, playerId, campaignActorId, campaignActorId],
     );
     return result.changes === 1;
   }
@@ -638,7 +640,7 @@ export class NarrativeRoundRepository {
       `INSERT INTO platform_narrative_round_participants
        (round_id, campaign_id, player_id, actor_id, character_id, participant_order, required, status, created_at, updated_at, superseded_at, superseded_by_archive_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)
-       ON CONFLICT (round_id, player_id) DO UPDATE SET
+       ON CONFLICT DO UPDATE SET
          campaign_id = excluded.campaign_id,
          actor_id = excluded.actor_id,
          character_id = excluded.character_id,
@@ -836,7 +838,9 @@ export function mapNarrativeDecision(row: NarrativeDecisionRow): NarrativeDecisi
     campaignId: row.campaign_id,
     turnId: row.turn_id,
     actionId: row.action_id,
-    actorId: row.campaign_actor_id ?? row.actor_id,
+    actorId: (row.campaign_actor_id ?? row.actor_id)!,
+    campaignActorId: row.campaign_actor_id,
+    playerId: row.actor_id,
     decisionOrder: Number(row.decision_order),
     status: row.status,
     executionId: row.execution_id,

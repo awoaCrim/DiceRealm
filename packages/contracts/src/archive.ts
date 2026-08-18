@@ -102,6 +102,7 @@ export const archiveSnapshotCombatantSchema = z.object({
   id: z.string().min(1),
   encounterId: z.string().min(1),
   campaignId: z.string().min(1),
+  actorId: z.string().min(1).nullable().optional(),
   characterId: z.string().min(1).nullable(),
   name: z.string().min(1),
   initiative: z.number().int().nullable(),

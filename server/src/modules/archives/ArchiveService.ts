@@ -412,8 +412,8 @@ export class ArchiveService {
         campaign_id: decision.campaignId,
         turn_id: restoredTurnId,
         action_id: decision.actionId,
-        actor_id: decision.actorId,
-        campaign_actor_id: decision.actorId,
+        actor_id: decision.playerId ?? decision.actorId,
+        campaign_actor_id: decision.campaignActorId ?? null,
         decision_order: decision.decisionOrder,
         status: decision.status,
         execution_id: decision.executionId,
@@ -509,7 +509,7 @@ export class ArchiveService {
         for (const combatant of entry.combatants) {
           await combat.upsertRestoredCombatant({
             id: combatant.id, encounter_id: combatant.encounterId, campaign_id: combatant.campaignId,
-            actor_id: combatant.actorId, character_id: combatant.characterId, name: combatant.name, initiative: combatant.initiative,
+            actor_id: combatant.actorId ?? null, character_id: combatant.characterId, name: combatant.name, initiative: combatant.initiative,
             initiative_bonus: combatant.initiativeBonus, hp_current: combatant.hpCurrent,
             hp_max: combatant.hpMax, ac: combatant.ac,
             conditions_json: JSON.stringify(combatant.conditions), visibility: combatant.visibility,
@@ -661,6 +661,7 @@ function mapTurnSummary(row: TurnRow): NonNullable<ArchiveSnapshot['currentTurn'
 function mapAction(row: ActionRow): TurnAction {
   return {
     id: row.id, turnId: row.turn_id, campaignId: row.campaign_id, playerId: row.player_id,
+    actorId: row.actor_id ?? null,
     body: row.body, submittedAt: row.submitted_at, updatedAt: row.updated_at,
   };
 }
@@ -669,6 +670,7 @@ function mapAction(row: ActionRow): TurnAction {
 function fromSnapshotAction(turnId: string, campaignId: string, action: TurnAction): ActionRow {
   return {
     id: action.id, turn_id: turnId, campaign_id: campaignId, player_id: action.playerId,
+    actor_id: action.actorId ?? null,
     body: action.body, submitted_at: action.submittedAt, updated_at: action.updatedAt,
   };
 }

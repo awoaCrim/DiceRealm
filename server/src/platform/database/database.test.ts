@@ -1,4 +1,4 @@
-import { copyFileSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -123,6 +123,47 @@ describe('transaction serialization', () => {
 });
 
 describe('SQLite migration SQL', () => {
+  it('applies migration 020 cleanly to an existing 001-019 database', async () => {
+    const db = createSqliteDatabase(':memory:');
+    const legacyDir = mkdtempSync(join(tmpdir(), 'dnd-migrations-001-019-'));
+    try {
+      for (const name of readdirSync(MIGRATIONS_DIR).filter((entry) => /^\d{3}_.*\.sql$/.test(entry) && !entry.startsWith('020_'))) {
+        cpSync(join(MIGRATIONS_DIR, name), join(legacyDir, name));
+      }
+      const legacyReport = await new MigrationRunner(db, legacyDir).run();
+      expect(legacyReport.applied).not.toContain('020');
+      const now = '2026-08-18T00:00:00.000Z';
+      await db.execute('INSERT INTO users (id, login, password_hash) VALUES (?, ?, ?)', ['mig-user', 'mig-user', 'hash']);
+      await db.execute(
+        'INSERT INTO campaigns (id, owner_id, name, ruleset, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        ['mig-campaign', 'mig-user', 'Migration campaign', 'dnd5e', 'active', now, now],
+      );
+      await db.execute(
+        'INSERT INTO platform_characters (id, campaign_id, player_id, name, status, sheet_json, derived_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        ['mig-character', 'mig-campaign', 'mig-user', 'Migrated PC', 'approved', '{"hpCurrent":9,"hpMax":12}', '{}', now, now],
+      );
+      const currentReport = await new MigrationRunner(db, MIGRATIONS_DIR).run();
+      expect(currentReport.applied).toEqual(['020']);
+      const tables = await db.query<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('platform_campaign_actors', 'platform_actor_control_bindings', 'platform_character_runtime_states') ORDER BY name",
+      );
+      expect(tables.map((row) => row.name)).toEqual([
+        'platform_actor_control_bindings', 'platform_campaign_actors', 'platform_character_runtime_states',
+      ]);
+      expect(await db.query('SELECT id, character_id FROM platform_campaign_actors WHERE id = ?', ['actor:character:mig-character']))
+        .toEqual([{ id: 'actor:character:mig-character', character_id: 'mig-character' }]);
+      expect(await db.query('SELECT current_hp FROM platform_character_runtime_states WHERE actor_id = ?', ['actor:character:mig-character']))
+        .toEqual([{ current_hp: 9 }]);
+      expect(await db.query('SELECT user_id FROM platform_actor_control_bindings WHERE actor_id = ?', ['actor:character:mig-character']))
+        .toEqual([{ user_id: 'mig-user' }]);
+      expect(await db.query<{ sheet_json: string }>('SELECT sheet_json FROM platform_characters WHERE id = ?', ['mig-character']))
+        .toEqual([{ sheet_json: '{"hpCurrent":9,"hpMax":12}' }]);
+    } finally {
+      rmSync(legacyDir, { recursive: true, force: true });
+      await db.close();
+    }
+  });
+
   it('uses CURRENT_TIMESTAMP rather than SQLite datetime()', () => {
     const sql = readFileSync(join(MIGRATIONS_DIR, '001_initial_platform.sql'), 'utf8');
     expect(sql).not.toMatch(/datetime\s*\(/i);

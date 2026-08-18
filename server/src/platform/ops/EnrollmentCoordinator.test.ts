@@ -190,17 +190,17 @@ describe('EnrollmentCoordinator enroll', () => {
   });
 });
 
-/** 构建含未来 020 迁移（current approved migration set 副本 + 020 + 匹配 manifest）的临时迁移目录。 */
+/** 构建含当前 020 与未来 021 迁移的临时目录，验证 020 会被精确 allowlist 应用而 021 不会。 */
 function migrationsWithFuture020(): { dir: string; manifestPath: string } {
   const dir = tempDir('dnd-enroll-mig20-');
-  const names = ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016', '017', '018', '019']
+  const names = ['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016', '017', '018', '019', '020']
     .map((version) => readdirSync(COMMITTED_MIGRATIONS_DIR).find((name) => name.startsWith(`${version}_`))!)
     .sort();
   for (const name of names) {
     cpSync(join(COMMITTED_MIGRATIONS_DIR, name), join(dir, name));
   }
-  writeFileSync(join(dir, '020_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
-  const allNames = [...names, '020_future_phase.sql'].sort();
+  writeFileSync(join(dir, '021_future_phase.sql'), 'CREATE TABLE IF NOT EXISTS future_phase_table (id INTEGER PRIMARY KEY);', 'utf8');
+  const allNames = [...names, '021_future_phase.sql'].sort();
   const manifest = {
     format: 1,
     files: allNames.map((name) => ({
@@ -245,7 +245,7 @@ describe('EnrollmentCoordinator init (final secure-ready contract)', () => {
         const admins = raw.prepare('SELECT COUNT(*) AS c FROM platform_administrators').get() as { c: number };
         expect(admins.c).toBe(0);
         const versions = raw.prepare('SELECT version FROM platform_migrations ORDER BY version').all().map((r) => (r as { version: string }).version);
-        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016', '017', '018', '019']);
+        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016', '017', '018', '019', '020']);
       } finally {
         raw.close();
       }
@@ -275,7 +275,7 @@ describe('EnrollmentCoordinator init (final secure-ready contract)', () => {
       const raw = new Database(databasePath, { readonly: true });
       try {
         const versions = raw.prepare('SELECT version FROM platform_migrations ORDER BY version').all().map((r) => (r as { version: string }).version);
-        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016', '017', '018', '019']);
+        expect(versions).toEqual(['001', '002', '003', '004', '005', '006', '007', '008', '009', '010', '012', '013', '014', '015', '016', '017', '018', '019', '020']);
         const future = raw.prepare("SELECT COUNT(*) AS c FROM sqlite_master WHERE type = 'table' AND name = 'future_phase_table'").get() as { c: number };
         expect(future.c).toBe(0);
       } finally {

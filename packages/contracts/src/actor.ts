@@ -71,7 +71,7 @@ export type CharacterRuntimeState = z.infer<typeof characterRuntimeStateSchema>;
 
 export const createNpcActorInputSchema = z.object({
   displayName: z.string().trim().min(1).max(160),
-  controlMode: actorControlModeSchema.default('ai'),
+  controlMode: z.enum(['ai', 'gm', 'shared', 'scripted']).default('ai'),
   mechanicsMode: z.enum(['npc_statblock', 'lightweight']).default('lightweight'),
   currentHp: z.number().int().nonnegative().default(1),
   temporaryHp: z.number().int().nonnegative().default(0),

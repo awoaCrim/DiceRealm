@@ -171,7 +171,7 @@ export class NarrativeDecisionResolutionService {
         const now = new Date().toISOString();
         const packageValue = await this.context.buildForTurn(campaignId, decision.turn_id, tx, {
           audience: 'actor_private',
-          actorId: decision.actor_id,
+          actorId: decision.campaign_actor_id ?? decision.actor_id ?? undefined,
           actionId: decision.action_id ?? undefined,
           roundId,
           decisionId,

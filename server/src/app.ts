@@ -172,7 +172,7 @@ function composePlatformApp(
   // TurnService 依赖 EventPublisherPort 端口；composition root 注入 concrete OutboxRepository（与业务同 tx 写 outbox）。
   const outbox = new OutboxRepository(database);
   const narrative = new NarrativeRoundService(database, outbox, mutations, actors);
-  const turns = new TurnService(database, outbox, mutations, narrative);
+  const turns = new TurnService(database, outbox, mutations, narrative, actors);
   app.use(createSessionMiddleware(identity));
   app.use('/api/auth', createAuthRouter(identity));
   app.use('/api/campaigns', createCampaignRouter(database, campaigns));

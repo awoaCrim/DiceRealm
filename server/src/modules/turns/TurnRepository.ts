@@ -20,6 +20,7 @@ export interface ActionRow {
   turn_id: string;
   campaign_id: string;
   player_id: string;
+  actor_id?: string | null;
   body: string;
   submitted_at: string;
   updated_at: string;
@@ -189,16 +190,16 @@ export class TurnRepository {
   async insertAction(row: ActionRow): Promise<void> {
     await this.executor.execute(
       `INSERT INTO platform_actions
-        (id, turn_id, campaign_id, player_id, body, submitted_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [row.id, row.turn_id, row.campaign_id, row.player_id, row.body, row.submitted_at, row.updated_at],
+        (id, turn_id, campaign_id, player_id, actor_id, body, submitted_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [row.id, row.turn_id, row.campaign_id, row.player_id, row.actor_id ?? null, row.body, row.submitted_at, row.updated_at],
     );
   }
 
-  async updateActionBody(actionId: string, body: string, updatedAt: string): Promise<boolean> {
+  async updateActionBody(actionId: string, body: string, updatedAt: string, actorId?: string | null): Promise<boolean> {
     const result = await this.executor.execute(
-      'UPDATE platform_actions SET body = ?, updated_at = ? WHERE id = ? AND superseded_at IS NULL',
-      [body, updatedAt, actionId],
+      'UPDATE platform_actions SET body = ?, actor_id = COALESCE(?, actor_id), updated_at = ? WHERE id = ? AND superseded_at IS NULL',
+      [body, actorId ?? null, updatedAt, actionId],
     );
     return result.changes === 1;
   }

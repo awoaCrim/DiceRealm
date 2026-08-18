@@ -91,7 +91,8 @@ export interface RecordWorkingFactOptions {
 export class NarrativeRoundService {
   private readonly mutations: CampaignMutationCoordinator;
   private readonly factProvenance = new FactProvenanceService();
-  private readonly actors: ActorService;
+  /** Optional to preserve legacy service-only fixtures; composition root injects it for live actor identity. */
+  private readonly actors?: ActorService;
 
   constructor(
     private readonly executor: DatabasePort,
@@ -100,7 +101,7 @@ export class NarrativeRoundService {
     actors?: ActorService,
   ) {
     this.mutations = mutations ?? new CampaignMutationCoordinator(executor);
-    this.actors = actors ?? new ActorService(executor, this.mutations);
+    this.actors = actors;
   }
 
   async getByTurn(campaignId: string, turnId: string): Promise<NarrativeRoundView | null> {
@@ -165,6 +166,33 @@ export class NarrativeRoundService {
     return this.executor.transaction((tx) => this.ensureForTurnIn(tx, campaignId, turnId));
   }
 
+  /** Add a userless/AI Actor as an optional Narrative participant without fabricating a users row. */
+  async addActorParticipantIn(tx: QueryExecutor, campaignId: string, turnId: string, actorId: string): Promise<NarrativeDecision> {
+    if (!this.actors) throw new AppError('STATE_CONFLICT', 'live Actor narrative seam 未注入。');
+    const actor = await this.actors.assertActorIn(tx, campaignId, actorId);
+    const round = await this.ensureForTurnIn(tx, campaignId, turnId);
+    const repository = new NarrativeRoundRepository(tx);
+    const participants = await repository.listParticipants(round.id, true);
+    const existingParticipant = participants.find((participant) => participant.actor_id === actor.id);
+    if (!existingParticipant) {
+      const now = new Date().toISOString();
+      const order = participants.length;
+      await repository.insertParticipant({
+        round_id: round.id, campaign_id: campaignId, player_id: null, actor_id: actor.id,
+        character_id: actor.character_id, participant_order: order, required: false,
+        status: 'waiting', created_at: now, updated_at: now,
+      });
+      await repository.insertDecision({
+        id: `narrative-decision:${round.id}:${actor.id}`, round_id: round.id, campaign_id: campaignId,
+        turn_id: turnId, action_id: null, actor_id: null, campaign_actor_id: actor.id,
+        decision_order: participants.length, status: 'waiting', created_at: now, updated_at: now,
+      });
+    }
+    const decision = await repository.findDecisionByActor(round.id, actor.id);
+    if (!decision) throw new AppError('INTERNAL_ERROR', 'Actor narrative decision 创建失败。');
+    return mapNarrativeDecision(decision);
+  }
+
   /** Link a submitted action to its single participant decision. */
   async linkSubmittedActionIn(
     tx: QueryExecutor,
@@ -173,10 +201,11 @@ export class NarrativeRoundService {
     playerId: string,
     actionId: string,
     now = new Date().toISOString(),
+    campaignActorId?: string,
   ): Promise<NarrativeDecision> {
     const round = await this.ensureForTurnIn(tx, campaignId, turnId);
     const repository = new NarrativeRoundRepository(tx);
-    const decision = await repository.findDecisionByActor(round.id, playerId);
+    const decision = await repository.findDecisionByActor(round.id, campaignActorId ?? playerId);
     if (!decision) throw new AppError('FORBIDDEN', '你不是该叙事回合的参与者。');
     if (!(await repository.linkActionAndSubmit(decision.id, actionId, now))) {
       throw new AppError('STATE_CONFLICT', '叙事决策已被并发修改。');
@@ -296,9 +325,10 @@ export class NarrativeRoundService {
           "UPDATE platform_turns SET status = 'resolving', updated_at = ? WHERE id = ? AND status IN ('waiting_for_actions','locked','needs_owner_attention')",
           [now, existing.turn_id],
         );
-        await repository.updateParticipantStatus(roundId, existing.actor_id, 'processing', now);
+        await repository.updateParticipantStatus(roundId, existing.actor_id, 'processing', now, existing.campaign_actor_id);
         await this.outbox.publishIn(tx, {
-          type: 'narrative.decision.claimed', campaignId, roundId, decisionId, actorId: existing.actor_id,
+          type: 'narrative.decision.claimed', campaignId, roundId, decisionId,
+          actorId: existing.campaign_actor_id ?? existing.actor_id ?? '',
         });
         const claimed = await repository.findDecisionById(decisionId);
         if (!claimed) throw new AppError('INTERNAL_ERROR', '叙事决策 claim 结果读取失败。');
@@ -479,10 +509,11 @@ export class NarrativeRoundService {
     if (!(await repository.claimDecision(input.roundId, input.decisionId, input.executionId, input.stateRevision, now))) {
       throw new AppError('STATE_CONFLICT', '叙事决策已被其它 worker 处理或前序决策尚未完成。');
     }
-    await repository.updateParticipantStatus(input.roundId, decision.actor_id, 'processing', now);
+    await repository.updateParticipantStatus(input.roundId, decision.actor_id, 'processing', now, decision.campaign_actor_id);
     await this.outbox.publishIn(tx, {
       type: 'narrative.decision.claimed', campaignId: input.campaignId,
-      roundId: input.roundId, decisionId: input.decisionId, actorId: decision.actor_id,
+      roundId: input.roundId, decisionId: input.decisionId,
+      actorId: decision.campaign_actor_id ?? decision.actor_id ?? '',
     });
     const claimed = await repository.findDecisionById(input.decisionId);
     if (!claimed) throw new AppError('INTERNAL_ERROR', '叙事决策 claim 结果读取失败。');
@@ -878,7 +909,7 @@ export class NarrativeRoundService {
     // character when one user controls multiple approved Characters.
     const approvedCharacters = (await new CharacterRepository(tx).listByCampaign(turn.campaign_id))
       .filter((character) => character.status === 'approved');
-    const actors = await this.actors.listIn(tx, turn.campaign_id);
+    const actors = this.actors ? await this.actors.listIn(tx, turn.campaign_id) : [];
     const actorsByPlayer = new Map<string, typeof actors>();
     for (const actor of actors) {
       const character = approvedCharacters.find((candidate) => candidate.id === actor.character_id);
@@ -894,7 +925,8 @@ export class NarrativeRoundService {
       const existingParticipant = (await repository.listParticipants(roundId, true))
         .find((participant) => participant.player_id === requirement.player_id);
       const action = actionByPlayer.get(requirement.player_id);
-      const selectedActor = actorsByPlayer.get(requirement.player_id)?.[0];
+      const selectedActor = (action?.actor_id ? actors.find((candidate) => candidate.id === action.actor_id) : undefined)
+        ?? actorsByPlayer.get(requirement.player_id)?.[0];
       const status = action ? 'submitted' : (existingParticipant?.status ?? 'waiting');
       if (!existingParticipant) {
         const character = selectedActor?.character_id ? approvedCharacters.find((candidate) => candidate.id === selectedActor.character_id) : undefined;

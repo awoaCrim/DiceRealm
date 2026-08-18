@@ -50,8 +50,155 @@ CREATE INDEX IF NOT EXISTS platform_character_runtime_states_campaign_idx
 
 -- Dual identity columns. Null means this row predates the live Actor cutover.
 ALTER TABLE platform_combatants ADD COLUMN actor_id TEXT REFERENCES platform_campaign_actors(id);
-ALTER TABLE platform_narrative_round_participants ADD COLUMN actor_id TEXT REFERENCES platform_campaign_actors(id);
-ALTER TABLE platform_narrative_decisions ADD COLUMN campaign_actor_id TEXT REFERENCES platform_campaign_actors(id);
+
+-- Userless NPC narrative participants need a nullable submitter/player column.
+-- Rebuild only this table so the legacy player_id meaning and all rows remain intact;
+-- the unique actor index below becomes the live identity boundary.
+DROP INDEX IF EXISTS platform_narrative_participants_campaign_idx;
+PRAGMA legacy_alter_table = ON;
+ALTER TABLE platform_narrative_round_participants RENAME TO platform_narrative_round_participants_legacy;
+CREATE TABLE platform_narrative_round_participants (
+  round_id TEXT NOT NULL REFERENCES platform_narrative_rounds(id),
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+  player_id TEXT REFERENCES users(id),
+  actor_id TEXT REFERENCES platform_campaign_actors(id),
+  character_id TEXT REFERENCES platform_characters(id),
+  participant_order INTEGER NOT NULL CHECK (participant_order >= 0),
+  required INTEGER NOT NULL DEFAULT 1 CHECK (required IN (0,1)),
+  status TEXT NOT NULL CHECK (status IN ('waiting','submitted','processing','resolved','skipped','needs_owner_attention')),
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  superseded_at TEXT,
+  superseded_by_archive_id TEXT REFERENCES platform_archives(id),
+  PRIMARY KEY (round_id, player_id, actor_id)
+);
+INSERT INTO platform_narrative_round_participants
+  (round_id, campaign_id, player_id, actor_id, character_id, participant_order, required, status,
+   created_at, updated_at, superseded_at, superseded_by_archive_id)
+SELECT round_id, campaign_id, player_id, NULL, character_id, participant_order, required, status,
+       created_at, updated_at, superseded_at, superseded_by_archive_id
+FROM platform_narrative_round_participants_legacy;
+DROP TABLE platform_narrative_round_participants_legacy;
+CREATE UNIQUE INDEX platform_narrative_participants_legacy_unique_idx
+  ON platform_narrative_round_participants(round_id, player_id)
+  WHERE player_id IS NOT NULL;
+CREATE UNIQUE INDEX platform_narrative_participants_actor_unique_idx
+  ON platform_narrative_round_participants(round_id, actor_id)
+  WHERE actor_id IS NOT NULL;
+CREATE INDEX platform_narrative_participants_campaign_idx
+  ON platform_narrative_round_participants(campaign_id, round_id, participant_order, superseded_at);
+-- Decisions also need a nullable legacy submitter for userless Actors.
+DROP INDEX IF EXISTS platform_narrative_decisions_order_idx;
+ALTER TABLE platform_narrative_decisions RENAME TO platform_narrative_decisions_legacy;
+CREATE TABLE platform_narrative_decisions (
+  id TEXT PRIMARY KEY,
+  round_id TEXT NOT NULL REFERENCES platform_narrative_rounds(id),
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+  turn_id TEXT NOT NULL,
+  action_id TEXT,
+  actor_id TEXT REFERENCES users(id),
+  campaign_actor_id TEXT REFERENCES platform_campaign_actors(id),
+  decision_order INTEGER NOT NULL CHECK (decision_order >= 0),
+  status TEXT NOT NULL CHECK (status IN ('waiting','submitted','processing','resolved','skipped','needs_owner_attention')),
+  execution_id TEXT,
+  outcome_id TEXT,
+  claim_revision INTEGER CHECK (claim_revision IS NULL OR claim_revision >= 0),
+  applied_state_revision INTEGER CHECK (applied_state_revision IS NULL OR applied_state_revision >= 0),
+  failure_code TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  superseded_at TEXT,
+  superseded_by_archive_id TEXT REFERENCES platform_archives(id)
+);
+INSERT INTO platform_narrative_decisions
+  (id, round_id, campaign_id, turn_id, action_id, actor_id, campaign_actor_id, decision_order, status,
+   execution_id, outcome_id, claim_revision, applied_state_revision, failure_code, created_at, updated_at,
+   superseded_at, superseded_by_archive_id)
+SELECT id, round_id, campaign_id, turn_id, action_id, actor_id, NULL, decision_order, status,
+       execution_id, outcome_id, claim_revision, applied_state_revision, failure_code, created_at, updated_at,
+       superseded_at, superseded_by_archive_id
+FROM platform_narrative_decisions_legacy;
+DROP TABLE platform_narrative_decisions_legacy;
+
+-- SQLite rewrites dependent FK SQL during table rename. Rebuild the two fact
+-- tables that reference decisions so their FK target remains the live table.
+DROP INDEX IF EXISTS platform_narrative_working_facts_round_idx;
+DROP INDEX IF EXISTS platform_narrative_working_facts_campaign_idx;
+ALTER TABLE platform_narrative_working_facts RENAME TO platform_narrative_working_facts_legacy;
+CREATE TABLE platform_narrative_working_facts (
+  id TEXT PRIMARY KEY,
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+  round_id TEXT NOT NULL REFERENCES platform_narrative_rounds(id),
+  decision_id TEXT REFERENCES platform_narrative_decisions(id),
+  action_id TEXT,
+  fact_kind TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  visibility TEXT NOT NULL CHECK (visibility IN ('public','player_private','owner_only')),
+  audience_actor_ids_json TEXT NOT NULL DEFAULT '[]',
+  authority TEXT NOT NULL CHECK (authority IN ('server_mechanical','runtime_state','event_evidence','ai_candidate')),
+  validation_status TEXT NOT NULL CHECK (validation_status IN ('authoritative','candidate','pending','rejected')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('state_transaction','mechanical_resolved_outcome','narrative_decision','narration_result','turn_or_narrative_event','gm_authored')),
+  source_refs_json TEXT NOT NULL,
+  based_on_state_revision INTEGER NOT NULL CHECK (based_on_state_revision >= 0),
+  applied_state_revision INTEGER CHECK (applied_state_revision IS NULL OR applied_state_revision >= 0),
+  execution_id TEXT,
+  outcome_id TEXT,
+  event_id TEXT,
+  created_at TEXT NOT NULL,
+  superseded_at TEXT,
+  superseded_by_archive_id TEXT REFERENCES platform_archives(id)
+);
+INSERT INTO platform_narrative_working_facts SELECT * FROM platform_narrative_working_facts_legacy;
+DROP TABLE platform_narrative_working_facts_legacy;
+CREATE INDEX platform_narrative_working_facts_round_idx
+  ON platform_narrative_working_facts(round_id, created_at, superseded_at);
+CREATE INDEX platform_narrative_working_facts_campaign_idx
+  ON platform_narrative_working_facts(campaign_id, visibility, superseded_at);
+
+DROP INDEX IF EXISTS platform_narrative_round_facts_projection_idx;
+DROP INDEX IF EXISTS platform_narrative_round_facts_campaign_idx;
+ALTER TABLE platform_narrative_round_facts RENAME TO platform_narrative_round_facts_legacy;
+CREATE TABLE platform_narrative_round_facts (
+  id TEXT PRIMARY KEY,
+  fact_set_id TEXT NOT NULL REFERENCES platform_narrative_round_fact_sets(id),
+  campaign_id TEXT NOT NULL REFERENCES campaigns(id),
+  round_id TEXT NOT NULL REFERENCES platform_narrative_rounds(id),
+  decision_id TEXT REFERENCES platform_narrative_decisions(id),
+  action_id TEXT,
+  fact_kind TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  visibility TEXT NOT NULL CHECK (visibility IN ('public','player_private','owner_only')),
+  audience_actor_ids_json TEXT NOT NULL DEFAULT '[]',
+  authority TEXT NOT NULL CHECK (authority IN ('server_mechanical','runtime_state','event_evidence','ai_candidate')),
+  validation_status TEXT NOT NULL CHECK (validation_status IN ('authoritative','candidate','pending','rejected')),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('state_transaction','mechanical_resolved_outcome','narrative_decision','narration_result','turn_or_narrative_event','gm_authored')),
+  source_refs_json TEXT NOT NULL,
+  based_on_state_revision INTEGER NOT NULL CHECK (based_on_state_revision >= 0),
+  applied_state_revision INTEGER CHECK (applied_state_revision IS NULL OR applied_state_revision >= 0),
+  execution_id TEXT,
+  outcome_id TEXT,
+  event_id TEXT,
+  created_at TEXT NOT NULL,
+  superseded_at TEXT,
+  superseded_by_archive_id TEXT REFERENCES platform_archives(id),
+  UNIQUE (fact_set_id, id)
+);
+INSERT INTO platform_narrative_round_facts SELECT * FROM platform_narrative_round_facts_legacy;
+DROP TABLE platform_narrative_round_facts_legacy;
+CREATE INDEX platform_narrative_round_facts_projection_idx
+  ON platform_narrative_round_facts(round_id, visibility, validation_status, superseded_at);
+CREATE INDEX platform_narrative_round_facts_campaign_idx
+  ON platform_narrative_round_facts(campaign_id, created_at, superseded_at);
+
+CREATE UNIQUE INDEX platform_narrative_decisions_legacy_actor_unique_idx
+  ON platform_narrative_decisions(round_id, actor_id)
+  WHERE actor_id IS NOT NULL;
+CREATE UNIQUE INDEX platform_narrative_decisions_action_unique_idx
+  ON platform_narrative_decisions(round_id, action_id)
+  WHERE action_id IS NOT NULL;
+CREATE INDEX platform_narrative_decisions_order_idx
+  ON platform_narrative_decisions(round_id, decision_order, superseded_at);
+PRAGMA legacy_alter_table = OFF;
 ALTER TABLE platform_actions ADD COLUMN actor_id TEXT REFERENCES platform_campaign_actors(id);
 
 CREATE INDEX IF NOT EXISTS platform_combatants_actor_idx
