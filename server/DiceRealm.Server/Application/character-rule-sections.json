@@ -1,0 +1,948 @@
+{
+  "species": [
+    {
+      "id": "species:xphb:aasimar",
+      "textHash": "f04705efdbf5f3eff889359d56947d00ff51ea5ce721fb08bc14c525371fc543",
+      "sections": [
+        {
+          "canonicalName": "Celestial Resistance",
+          "name": "天界抗性",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.0",
+          "offset": 186,
+          "length": 16
+        },
+        {
+          "canonicalName": "Darkvision",
+          "name": "黑暗视觉",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.1",
+          "offset": 213,
+          "length": 15
+        },
+        {
+          "canonicalName": "Healing Hands",
+          "name": "治疗之手",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.2",
+          "offset": 239,
+          "length": 74
+        },
+        {
+          "canonicalName": "Light Bearer",
+          "name": "光明使者",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.3",
+          "offset": 324,
+          "length": 22
+        },
+        {
+          "canonicalName": "Celestial Revelation",
+          "name": "天界启示",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.4",
+          "offset": 357,
+          "length": 466
+        }
+      ]
+    },
+    {
+      "id": "species:xphb:dragonborn",
+      "textHash": "3524f6e4028c8ec8a4e56537b6c64e9317dfcd69f0fc623bc54eec1f60d25e28",
+      "sections": [
+        {
+          "canonicalName": "Draconic Ancestry",
+          "name": "龙族血统",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.0",
+          "offset": 84,
+          "length": 211
+        },
+        {
+          "canonicalName": "Breath Weapon",
+          "name": "吐息武器",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.1",
+          "offset": 306,
+          "length": 255
+        },
+        {
+          "canonicalName": "Damage Resistance",
+          "name": "伤害抗性",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.2",
+          "offset": 572,
+          "length": 23
+        },
+        {
+          "canonicalName": "Darkvision",
+          "name": "黑暗视觉",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.3",
+          "offset": 606,
+          "length": 15
+        },
+        {
+          "canonicalName": "Draconic Flight",
+          "name": "龙族飞行",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.4",
+          "offset": 632,
+          "length": 153
+        }
+      ]
+    },
+    {
+      "id": "species:xphb:dwarf",
+      "textHash": "aad3281c1f89d10395356ee3381426f64f59e5d8a56b9501b0c8a55f818795b1",
+      "sections": [
+        {
+          "canonicalName": "Darkvision",
+          "name": "黑暗视觉",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.0",
+          "offset": 66,
+          "length": 13
+        },
+        {
+          "canonicalName": "Dwarven Resilience",
+          "name": "矮人韧性",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.1",
+          "offset": 90,
+          "length": 34
+        },
+        {
+          "canonicalName": "Dwarven Toughness",
+          "name": "矮人体质",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.2",
+          "offset": 135,
+          "length": 27
+        },
+        {
+          "canonicalName": "Stonecunning",
+          "name": "石工巧思",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.3",
+          "offset": 173,
+          "length": 116
+        }
+      ]
+    },
+    {
+      "id": "species:xphb:elf",
+      "textHash": "a377ebd4a4e9a096bb660ef0f6a7728fcadd15a542bc1e3ae01e7c1751c87715",
+      "sections": [
+        {
+          "canonicalName": "Darkvision",
+          "name": "黑暗视觉",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.0",
+          "offset": 604,
+          "length": 15
+        },
+        {
+          "canonicalName": "Elven Lineage",
+          "name": "精灵血系",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.1",
+          "offset": 630,
+          "length": 404
+        },
+        {
+          "canonicalName": "Fey Ancestry",
+          "name": "妖精血统",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.2",
+          "offset": 1045,
+          "length": 24
+        },
+        {
+          "canonicalName": "Keen Senses",
+          "name": "敏锐感官",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.3",
+          "offset": 1080,
+          "length": 17
+        },
+        {
+          "canonicalName": "Trance",
+          "name": "恍惚冥想",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.4",
+          "offset": 1108,
+          "length": 59
+        },
+        {
+          "canonicalName": "Elven Lineage",
+          "name": "精灵血系（卓尔）",
+          "selectionKey": "species:elf/lineage",
+          "selectionValue": "drow",
+          "path": "_versions.0._mod.0.items",
+          "offset": 1220,
+          "length": 225
+        },
+        {
+          "canonicalName": "Darkvision",
+          "name": "黑暗视觉",
+          "selectionKey": "species:elf/lineage",
+          "selectionValue": "drow",
+          "path": "_versions.0._mod.1.items",
+          "offset": 1470,
+          "length": 13
+        },
+        {
+          "canonicalName": "Elven Lineage",
+          "name": "精灵血系（高等精灵）",
+          "selectionKey": "species:elf/lineage",
+          "selectionValue": "high-elf",
+          "path": "_versions.1._mod.0.items",
+          "offset": 1718,
+          "length": 245
+        },
+        {
+          "canonicalName": "Elven Lineage",
+          "name": "精灵血系（木精灵）",
+          "selectionKey": "species:elf/lineage",
+          "selectionValue": "wood-elf",
+          "path": "_versions.2._mod.0.items",
+          "offset": 2232,
+          "length": 224
+        }
+      ]
+    },
+    {
+      "id": "species:xphb:gnome",
+      "textHash": "8e59dd9dbd8e00e8a61d8b4faf84961e4904cb733ddbeb9672d6e9c373216a0a",
+      "sections": [
+        {
+          "canonicalName": "Darkvision",
+          "name": "黑暗视觉",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.0",
+          "offset": 59,
+          "length": 14
+        },
+        {
+          "canonicalName": "Gnomish Cunning",
+          "name": "侏儒狡黠",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.1",
+          "offset": 84,
+          "length": 18
+        },
+        {
+          "canonicalName": "Gnomish Lineage",
+          "name": "侏儒血系",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.2",
+          "offset": 113,
+          "length": 452
+        },
+        {
+          "canonicalName": "Gnomish Lineage",
+          "name": "侏儒血系（森林侏儒）",
+          "selectionKey": "species:gnome/lineage",
+          "selectionValue": "forest",
+          "path": "_versions.0._mod.0.items",
+          "offset": 622,
+          "length": 95
+        },
+        {
+          "canonicalName": "Gnomish Lineage",
+          "name": "侏儒血系（岩石侏儒）",
+          "selectionKey": "species:gnome/lineage",
+          "selectionValue": "rock",
+          "path": "_versions.1._mod.0.items",
+          "offset": 911,
+          "length": 257
+        }
+      ]
+    },
+    {
+      "id": "species:xphb:goliath",
+      "textHash": "b12e4afe76e2d56cb773877b1d6d4ddbdc14655bbec71f1c9a90c30c6dc575be",
+      "sections": [
+        {
+          "canonicalName": "Giant Ancestry",
+          "name": "巨人血脉",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.0",
+          "offset": 50,
+          "length": 459
+        },
+        {
+          "canonicalName": "Large Form",
+          "name": "大型形态",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.1",
+          "offset": 520,
+          "length": 115
+        },
+        {
+          "canonicalName": "Powerful Build",
+          "name": "强壮体魄",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.2",
+          "offset": 646,
+          "length": 48
+        },
+        {
+          "canonicalName": "Giant Ancestry",
+          "name": "巨人血脉（云）",
+          "selectionKey": "species:goliath/ancestry",
+          "selectionValue": "cloud",
+          "path": "_versions.0._mod.0.items",
+          "offset": 748,
+          "length": 111
+        },
+        {
+          "canonicalName": "Giant Ancestry",
+          "name": "巨人血脉（火）",
+          "selectionKey": "species:goliath/ancestry",
+          "selectionValue": "fire",
+          "path": "_versions.1._mod.0.items",
+          "offset": 901,
+          "length": 116
+        },
+        {
+          "canonicalName": "Giant Ancestry",
+          "name": "巨人血脉（霜）",
+          "selectionKey": "species:goliath/ancestry",
+          "selectionValue": "frost",
+          "path": "_versions.2._mod.0.items",
+          "offset": 1059,
+          "length": 136
+        },
+        {
+          "canonicalName": "Giant Ancestry",
+          "name": "巨人血脉（丘陵）",
+          "selectionKey": "species:goliath/ancestry",
+          "selectionValue": "hill",
+          "path": "_versions.3._mod.0.items",
+          "offset": 1239,
+          "length": 117
+        },
+        {
+          "canonicalName": "Giant Ancestry",
+          "name": "巨人血脉（石）",
+          "selectionKey": "species:goliath/ancestry",
+          "selectionValue": "stone",
+          "path": "_versions.4._mod.0.items",
+          "offset": 1398,
+          "length": 125
+        },
+        {
+          "canonicalName": "Giant Ancestry",
+          "name": "巨人血脉（风暴）",
+          "selectionKey": "species:goliath/ancestry",
+          "selectionValue": "storm",
+          "path": "_versions.5._mod.0.items",
+          "offset": 1567,
+          "length": 121
+        }
+      ]
+    },
+    {
+      "id": "species:xphb:halfling",
+      "textHash": "94fcefb8526ff679768f65cce20380a83b40975fd1a718e12ae7076648b11e6a",
+      "sections": [
+        {
+          "canonicalName": "Brave",
+          "name": "勇敢",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.0",
+          "offset": 49,
+          "length": 24
+        },
+        {
+          "canonicalName": "Halfling Nimbleness",
+          "name": "半身人灵巧",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.1",
+          "offset": 85,
+          "length": 35
+        },
+        {
+          "canonicalName": "Luck",
+          "name": "幸运",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.2",
+          "offset": 129,
+          "length": 44
+        },
+        {
+          "canonicalName": "Naturally Stealthy",
+          "name": "天生隐匿",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.3",
+          "offset": 184,
+          "length": 34
+        }
+      ]
+    },
+    {
+      "id": "species:xphb:human",
+      "textHash": "f9b51ee3d020a5b759b0e78ab7f435c9fdb20308d521d3e0b80b66deb11ff770",
+      "sections": [
+        {
+          "canonicalName": "Resourceful",
+          "name": "机智",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.0",
+          "offset": 105,
+          "length": 19
+        },
+        {
+          "canonicalName": "Skillful",
+          "name": "技能娴熟",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.1",
+          "offset": 135,
+          "length": 13
+        },
+        {
+          "canonicalName": "Versatile",
+          "name": "全能",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.2",
+          "offset": 157,
+          "length": 13
+        }
+      ]
+    },
+    {
+      "id": "species:xphb:orc",
+      "textHash": "3176a2d92de011afefde7f50544a37fdf52afae3649db91128e3b63cbdf898f1",
+      "sections": [
+        {
+          "canonicalName": "Adrenaline Rush",
+          "name": "肾上腺素飙升",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.0",
+          "offset": 62,
+          "length": 82
+        },
+        {
+          "canonicalName": "Darkvision",
+          "name": "黑暗视觉",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.1",
+          "offset": 155,
+          "length": 13
+        },
+        {
+          "canonicalName": "Relentless Endurance",
+          "name": "不屈耐力",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.2",
+          "offset": 179,
+          "length": 56
+        }
+      ]
+    },
+    {
+      "id": "species:xphb:tiefling",
+      "textHash": "0e3935ebcbdeec681c2ded1882285884b08c144aa9f681e19ee3081ca240986c",
+      "sections": [
+        {
+          "canonicalName": "Darkvision",
+          "name": "黑暗视觉",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.0",
+          "offset": 603,
+          "length": 15
+        },
+        {
+          "canonicalName": "Fiendish Legacy",
+          "name": "邪魔遗赠",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.1",
+          "offset": 629,
+          "length": 381
+        },
+        {
+          "canonicalName": "Otherworldly Presence",
+          "name": "异界存在",
+          "selectionKey": "",
+          "selectionValue": "",
+          "path": "entries.2",
+          "offset": 1021,
+          "length": 40
+        },
+        {
+          "canonicalName": "Fiendish Legacy",
+          "name": "邪魔遗赠（深渊）",
+          "selectionKey": "species:tiefling/lineage",
+          "selectionValue": "abyssal",
+          "path": "_versions.0._mod.0.items",
+          "offset": 1115,
+          "length": 228
+        },
+        {
+          "canonicalName": "Fiendish Legacy",
+          "name": "邪魔遗赠（冥府）",
+          "selectionKey": "species:tiefling/lineage",
+          "selectionValue": "chthonic",
+          "path": "_versions.1._mod.0.items",
+          "offset": 1598,
+          "length": 227
+        },
+        {
+          "canonicalName": "Fiendish Legacy",
+          "name": "邪魔遗赠（炼狱）",
+          "selectionKey": "species:tiefling/lineage",
+          "selectionValue": "infernal",
+          "path": "_versions.2._mod.0.items",
+          "offset": 2069,
+          "length": 225
+        }
+      ]
+    }
+  ],
+  "featureBodies": [
+    {
+      "id": "class-feature:barbarian:10:xphb:subclass-feature",
+      "sourceHash": "4411cc3636ced2f653edcd2b8f6a802c6270e80d0e04c6d478bf22f68ab6591b",
+      "bodyKey": "class-feature:barbarian:Subclass Feature:e7dd05cb08d2eb67e25eff4ccd50daa6fc319b3950125d522a3e48e0737aa29a"
+    },
+    {
+      "id": "class-feature:barbarian:14:xphb:subclass-feature",
+      "sourceHash": "006568204a155259ce3222979c069317b90184a55ba858288637c52c7e1cbb65",
+      "bodyKey": "class-feature:barbarian:Subclass Feature:e7dd05cb08d2eb67e25eff4ccd50daa6fc319b3950125d522a3e48e0737aa29a"
+    },
+    {
+      "id": "class-feature:barbarian:6:xphb:subclass-feature",
+      "sourceHash": "2de302d010876cb0ff5a1756a1e3da0f6125d8792eb8b7e5f2a3f931cd344259",
+      "bodyKey": "class-feature:barbarian:Subclass Feature:e7dd05cb08d2eb67e25eff4ccd50daa6fc319b3950125d522a3e48e0737aa29a"
+    },
+    {
+      "id": "class-feature:barbarian:12:xphb:ability-score-improvement",
+      "sourceHash": "16261fb8ab7f225569d42f1ada46fb7110c4bc65a29c8c11b54791954e43a0f4",
+      "bodyKey": "class-feature:barbarian:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:barbarian:16:xphb:ability-score-improvement",
+      "sourceHash": "21678ddb4a9f3293f3358add689a3bbcf96f7a5fb5cc77a8679cc4c159db1ff5",
+      "bodyKey": "class-feature:barbarian:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:barbarian:8:xphb:ability-score-improvement",
+      "sourceHash": "71249ccb089694e43966ff0fcfd7610bbe7898cc1819fd9178ce904524c11746",
+      "bodyKey": "class-feature:barbarian:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:bard:12:xphb:ability-score-improvement",
+      "sourceHash": "3a516a6476ab4753f28db9fd3eba0ed146dd9403a6f92c7cd373dfcf8e46866a",
+      "bodyKey": "class-feature:bard:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:bard:16:xphb:ability-score-improvement",
+      "sourceHash": "20e252cbbf462729a66fb7b75762fd9f3abeaebaeeb2a124bc04576fef5034ec",
+      "bodyKey": "class-feature:bard:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:bard:8:xphb:ability-score-improvement",
+      "sourceHash": "224d84286616137c5defabc107922f45787d11fc7fa258998ed0fb91d386bc0e",
+      "bodyKey": "class-feature:bard:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:bard:14:xphb:subclass-feature",
+      "sourceHash": "491aefbe7c425433a3f22acd4c54b42ecdf2591fca1e189590de1227826e3708",
+      "bodyKey": "class-feature:bard:Subclass Feature:34e2b3d4f67f085b8949335330eb89ede1d07fb7bfb6e7afefe1ea587a8d99c7"
+    },
+    {
+      "id": "class-feature:bard:6:xphb:subclass-feature",
+      "sourceHash": "c81f7b4a109e9b9ff94ecd50b63ca1807b7a82a9638ffbc775a749e7e16e7f58",
+      "bodyKey": "class-feature:bard:Subclass Feature:34e2b3d4f67f085b8949335330eb89ede1d07fb7bfb6e7afefe1ea587a8d99c7"
+    },
+    {
+      "id": "class-feature:cleric:12:xphb:ability-score-improvement",
+      "sourceHash": "727820e26a61cec0c96c3c05b50bc86ca588500e87cf1ade283b424e72861f61",
+      "bodyKey": "class-feature:cleric:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:cleric:16:xphb:ability-score-improvement",
+      "sourceHash": "4c8db35a7891bea5294b30935957be8109725ae0d064d07e99485ea6b97f0255",
+      "bodyKey": "class-feature:cleric:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:cleric:8:xphb:ability-score-improvement",
+      "sourceHash": "b0e4b1c41285c804de1fcbc237a2a3c92235c6ec2ddf160482c47ff836ff4335",
+      "bodyKey": "class-feature:cleric:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:cleric:17:xphb:subclass-feature",
+      "sourceHash": "16b38ead7b07a93ff9d50afe3c67f4b1c2670d41cfc99826cff83bfb88e0023c",
+      "bodyKey": "class-feature:cleric:Subclass Feature:398a4818d1416f6dca57acd4480233336eccd0f9c5dc595ed87e8b6ba2bc323e"
+    },
+    {
+      "id": "class-feature:cleric:6:xphb:subclass-feature",
+      "sourceHash": "e21b58c4fe811cc0b1df89ba1e032207a0458bd2593e8bcb6c87f665db1a2bcf",
+      "bodyKey": "class-feature:cleric:Subclass Feature:398a4818d1416f6dca57acd4480233336eccd0f9c5dc595ed87e8b6ba2bc323e"
+    },
+    {
+      "id": "class-feature:druid:10:xphb:subclass-feature",
+      "sourceHash": "b83b0d38a04a41001512e2eae5596b15a52ba279a502855769fe6a400b0e5b3b",
+      "bodyKey": "class-feature:druid:Subclass Feature:5ff39020587b4e6c3fa648d7a701831ccc3b9a08b86b792715ca0196e36c6678"
+    },
+    {
+      "id": "class-feature:druid:14:xphb:subclass-feature",
+      "sourceHash": "63e91c7943f6eec1fcfd77b44fff6a1022a5a6efdfbe4c9314446069af95cea4",
+      "bodyKey": "class-feature:druid:Subclass Feature:5ff39020587b4e6c3fa648d7a701831ccc3b9a08b86b792715ca0196e36c6678"
+    },
+    {
+      "id": "class-feature:druid:6:xphb:subclass-feature",
+      "sourceHash": "2aa9a879bbc1666c0f5b9661091b3e5ff1ed49a1ef5f1a274a91f5c934b31bfb",
+      "bodyKey": "class-feature:druid:Subclass Feature:5ff39020587b4e6c3fa648d7a701831ccc3b9a08b86b792715ca0196e36c6678"
+    },
+    {
+      "id": "class-feature:druid:12:xphb:ability-score-improvement",
+      "sourceHash": "799b502a0f7c871b142bad2cfb3d4cf861c24804579a6c722e48ff3f44b948e0",
+      "bodyKey": "class-feature:druid:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    },
+    {
+      "id": "class-feature:druid:16:xphb:ability-score-improvement",
+      "sourceHash": "709591131a83a6c0a240a922fb026c6f0c803d8a3788ec36d8826b6cbfd96fec",
+      "bodyKey": "class-feature:druid:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    },
+    {
+      "id": "class-feature:druid:8:xphb:ability-score-improvement",
+      "sourceHash": "891049a717501a0ca9ea1beca0d78004ea82eec446ac152495a0a99c4d13d60c",
+      "bodyKey": "class-feature:druid:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    },
+    {
+      "id": "class-feature:fighter:10:xphb:subclass-feature",
+      "sourceHash": "9cf5d43758980bb696fc8a28a62a1cd978b7e1540b3e68bab29810be6f4c2ad5",
+      "bodyKey": "class-feature:fighter:Subclass Feature:b5b4b91b819ac7a80ec734dbe423cfc980c634d321a8633bed869cee7af749e3"
+    },
+    {
+      "id": "class-feature:fighter:15:xphb:subclass-feature",
+      "sourceHash": "11563fde83f3eba08c53b9fabebbbfe8aa5716588e6a8cbe9d57ffaa8dbf3f49",
+      "bodyKey": "class-feature:fighter:Subclass Feature:b5b4b91b819ac7a80ec734dbe423cfc980c634d321a8633bed869cee7af749e3"
+    },
+    {
+      "id": "class-feature:fighter:18:xphb:subclass-feature",
+      "sourceHash": "4380d7038b9194705eeb72a68f648b1a43c61ea026bbf2a847180e94f84a4884",
+      "bodyKey": "class-feature:fighter:Subclass Feature:b5b4b91b819ac7a80ec734dbe423cfc980c634d321a8633bed869cee7af749e3"
+    },
+    {
+      "id": "class-feature:fighter:7:xphb:subclass-feature",
+      "sourceHash": "9f6ebd371d3a9c07029e6fee2fb58b9faefe9beff84db84973c293b89e09aba6",
+      "bodyKey": "class-feature:fighter:Subclass Feature:b5b4b91b819ac7a80ec734dbe423cfc980c634d321a8633bed869cee7af749e3"
+    },
+    {
+      "id": "class-feature:fighter:12:xphb:ability-score-improvement",
+      "sourceHash": "78503114fc569f5b83b0e42ef83dfebd713c836e6ee09266b5c00f0ab41fdced",
+      "bodyKey": "class-feature:fighter:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:fighter:14:xphb:ability-score-improvement",
+      "sourceHash": "c670439800a167dda3b2fa4caf4a7a231ecc629a4c625c2e6fb7928012c98b21",
+      "bodyKey": "class-feature:fighter:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:fighter:16:xphb:ability-score-improvement",
+      "sourceHash": "b5b94f17fac7d0b20c07fbce596e2fd29c52ffed2c6cd428e152ab6326ebc1b9",
+      "bodyKey": "class-feature:fighter:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:fighter:6:xphb:ability-score-improvement",
+      "sourceHash": "8dc59a8b5ad3531b7898afe0d1cfc31240afc7e84e78bf1b5c6cf977ba558c45",
+      "bodyKey": "class-feature:fighter:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:fighter:8:xphb:ability-score-improvement",
+      "sourceHash": "7fc6754101f0071a4ba8b8634caaf6b2ccf3f9cc0003c4694b677fafc120ad39",
+      "bodyKey": "class-feature:fighter:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:fighter:13:xphb:indomitable",
+      "sourceHash": "86e635cf66232fa211627ba995dede8d37d2ea257ef586a33cea5b0b42432a0b",
+      "bodyKey": "class-feature:fighter:Indomitable:428828c347f2cbc5df4636cfae15b4cf168e995d4bc30977d6c482d73072d76c"
+    },
+    {
+      "id": "class-feature:fighter:17:xphb:indomitable",
+      "sourceHash": "a84640ae4aa3998c8e9e962006f78737a64b1e9165c7cc092a5a1caf721eb0a6",
+      "bodyKey": "class-feature:fighter:Indomitable:428828c347f2cbc5df4636cfae15b4cf168e995d4bc30977d6c482d73072d76c"
+    },
+    {
+      "id": "class-feature:fighter:9:xphb:indomitable",
+      "sourceHash": "a0e8dbb3f45e916b99714cd9cd64c6b4e0ff055140d2c29ee12306e65069b7f4",
+      "bodyKey": "class-feature:fighter:Indomitable:428828c347f2cbc5df4636cfae15b4cf168e995d4bc30977d6c482d73072d76c"
+    },
+    {
+      "id": "class-feature:fighter:17:xphb:action-surge",
+      "sourceHash": "f22eb09cb1071e2a807f8569442b89d6f02cadc1c00b17597f99501ce3f823b1",
+      "bodyKey": "class-feature:fighter:Action Surge:57e30a0f8723b9781d219531339f7446461aa7e75eb6d3cf98dfb8d57ab6f75e"
+    },
+    {
+      "id": "class-feature:fighter:2:xphb:action-surge",
+      "sourceHash": "266174ae28d2d904954871247add780cc6ea2891955175948e3da99821285d7a",
+      "bodyKey": "class-feature:fighter:Action Surge:57e30a0f8723b9781d219531339f7446461aa7e75eb6d3cf98dfb8d57ab6f75e"
+    },
+    {
+      "id": "class-feature:monk:11:xphb:subclass-feature",
+      "sourceHash": "774b3d0019096adf6ac8abd54c38d49e13ddf8f71727abff6b8a482ace5e7f66",
+      "bodyKey": "class-feature:monk:Subclass Feature:5584d4a3a5f41772a53c64bead5b60f24e18ce9ebb17ae4a4c343dc221a6db9d"
+    },
+    {
+      "id": "class-feature:monk:17:xphb:subclass-feature",
+      "sourceHash": "ca5ec127e3f8160ff137d4dcf37c87cbf9d2c296075d2f572ab5c1bcff9da70e",
+      "bodyKey": "class-feature:monk:Subclass Feature:5584d4a3a5f41772a53c64bead5b60f24e18ce9ebb17ae4a4c343dc221a6db9d"
+    },
+    {
+      "id": "class-feature:monk:6:xphb:subclass-feature",
+      "sourceHash": "3aec98c44686d24e308ab042867ff3c5c9dc5d4c2320e50bba7504932bc49a36",
+      "bodyKey": "class-feature:monk:Subclass Feature:5584d4a3a5f41772a53c64bead5b60f24e18ce9ebb17ae4a4c343dc221a6db9d"
+    },
+    {
+      "id": "class-feature:monk:12:xphb:ability-score-improvement",
+      "sourceHash": "926553a12d5b4bff350d459801c5366eb1fa1e7ba7728c3b7c42d605fc5a59dc",
+      "bodyKey": "class-feature:monk:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:monk:16:xphb:ability-score-improvement",
+      "sourceHash": "55e1d6bd584c31b94c58f44c7bfc87b60effc62ed9291636b3b3865852706719",
+      "bodyKey": "class-feature:monk:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:monk:8:xphb:ability-score-improvement",
+      "sourceHash": "d4b6bd516e9b0d3fc1e908c0a2754cc54ab179f18edb8225ed56423fc3cbfbf2",
+      "bodyKey": "class-feature:monk:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:paladin:12:xphb:ability-score-improvement",
+      "sourceHash": "584f56f2b2aa310b48ae1784144999a6853006e1aca34e50f3aaeb2c1138798d",
+      "bodyKey": "class-feature:paladin:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    },
+    {
+      "id": "class-feature:paladin:16:xphb:ability-score-improvement",
+      "sourceHash": "ad16e147a08b400e014ca5404a904eefca065f6be18ce4e118308f5edb061eb8",
+      "bodyKey": "class-feature:paladin:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    },
+    {
+      "id": "class-feature:paladin:8:xphb:ability-score-improvement",
+      "sourceHash": "ea35625e5213508a3ffa7781e2252490a11abee524cbfbaa1abe6d5ccd489b11",
+      "bodyKey": "class-feature:paladin:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    },
+    {
+      "id": "class-feature:paladin:15:xphb:subclass-feature",
+      "sourceHash": "3b90bc3d7f3814d299842182da4cb142f65cefd322fcd7534d5ef2776e202c7f",
+      "bodyKey": "class-feature:paladin:Subclass Feature:9d86fbc286950ee73c0623fed4e61b918285a85218cba6619aa27206b8903528"
+    },
+    {
+      "id": "class-feature:paladin:20:xphb:subclass-feature",
+      "sourceHash": "1195f525a0fc42bff26606b743812034dcef296cf9e995c1e07ee9d6155e7550",
+      "bodyKey": "class-feature:paladin:Subclass Feature:9d86fbc286950ee73c0623fed4e61b918285a85218cba6619aa27206b8903528"
+    },
+    {
+      "id": "class-feature:paladin:7:xphb:subclass-feature",
+      "sourceHash": "c34af28a49b91ef4681233db9dc6656fbea30ee82e728b012edec48daa5f15d4",
+      "bodyKey": "class-feature:paladin:Subclass Feature:9d86fbc286950ee73c0623fed4e61b918285a85218cba6619aa27206b8903528"
+    },
+    {
+      "id": "class-feature:ranger:11:xphb:subclass-feature",
+      "sourceHash": "ba73e9f97211e13fde7c15f76c8843b54a35789e05d9ba52e5f24023d3dc49b2",
+      "bodyKey": "class-feature:ranger:Subclass Feature:7a84826cf447c015d4767b1b55cb65460384a1a0df5e9c62de9ae17190271135"
+    },
+    {
+      "id": "class-feature:ranger:15:xphb:subclass-feature",
+      "sourceHash": "ebf6d30d04dccf5762a2e93e905332891c347a536c5c2b87a7bd5143e3a3252f",
+      "bodyKey": "class-feature:ranger:Subclass Feature:7a84826cf447c015d4767b1b55cb65460384a1a0df5e9c62de9ae17190271135"
+    },
+    {
+      "id": "class-feature:ranger:7:xphb:subclass-feature",
+      "sourceHash": "9282332f4ecc7c989c3fb0767288dc487706cb731a031a97b23f63c9520abb1c",
+      "bodyKey": "class-feature:ranger:Subclass Feature:7a84826cf447c015d4767b1b55cb65460384a1a0df5e9c62de9ae17190271135"
+    },
+    {
+      "id": "class-feature:ranger:12:xphb:ability-score-improvement",
+      "sourceHash": "a5623713147dac98fe05caa788f066ba99d392dedb5bb069d48a303e14ca1f16",
+      "bodyKey": "class-feature:ranger:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:ranger:16:xphb:ability-score-improvement",
+      "sourceHash": "5d43060be2b3afe423f34279e4b0668178b6e92ae86a0a413706b330d0a8cdfb",
+      "bodyKey": "class-feature:ranger:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:ranger:8:xphb:ability-score-improvement",
+      "sourceHash": "a090359f412c227475dccc6efbbc060db4007ecf2258abcc8d9fcab1d730e096",
+      "bodyKey": "class-feature:ranger:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:rogue:10:xphb:ability-score-improvement",
+      "sourceHash": "f494a0127539b7a75f8b9e26e90b9a5725306244581a7a057311158b67c62659",
+      "bodyKey": "class-feature:rogue:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:rogue:12:xphb:ability-score-improvement",
+      "sourceHash": "1730e5875d91850931766a1c45ad81235d7c97d803b7ddfdc003388bc5b8906d",
+      "bodyKey": "class-feature:rogue:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:rogue:16:xphb:ability-score-improvement",
+      "sourceHash": "2a9d807cd67a8f4d2e5bb496c2fc791eb403c1e34724ada650f72167cd88bf66",
+      "bodyKey": "class-feature:rogue:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:rogue:8:xphb:ability-score-improvement",
+      "sourceHash": "d2662be03ff0b2740e9396ffeee9775bf99f5b7f2af7fbe4c86887de3952d965",
+      "bodyKey": "class-feature:rogue:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:rogue:13:xphb:subclass-feature",
+      "sourceHash": "d1859e8cefc005786b728a84eb368e5703f0a650423630e6388909563cdeb8ff",
+      "bodyKey": "class-feature:rogue:Subclass Feature:5353b04de3ddfd0cc94ba43a6318aa02e8b3dc6fd18c300af15ce468b8cb8d55"
+    },
+    {
+      "id": "class-feature:rogue:17:xphb:subclass-feature",
+      "sourceHash": "46f043b9ba90d66a26c7d0be38ec5a304472ef3a0b5debdd3eb88afbb510e9a9",
+      "bodyKey": "class-feature:rogue:Subclass Feature:5353b04de3ddfd0cc94ba43a6318aa02e8b3dc6fd18c300af15ce468b8cb8d55"
+    },
+    {
+      "id": "class-feature:rogue:9:xphb:subclass-feature",
+      "sourceHash": "e749b9573f30a33c11216f708b50d1e830fa5665d89e88135d2745ec32734f16",
+      "bodyKey": "class-feature:rogue:Subclass Feature:5353b04de3ddfd0cc94ba43a6318aa02e8b3dc6fd18c300af15ce468b8cb8d55"
+    },
+    {
+      "id": "class-feature:sorcerer:10:xphb:metamagic",
+      "sourceHash": "5ad17d78ece30f1f4638113b2c20aaada8d20b8b88c71fbf9e7e972a7ef3001d",
+      "bodyKey": "class-feature:sorcerer:Metamagic:264b5ec15fb5762a5e6dd791204d673be461f5bea5717ed31895779347cc88b5"
+    },
+    {
+      "id": "class-feature:sorcerer:17:xphb:metamagic",
+      "sourceHash": "54d53b16be281c78e194c78912386082c69b8864a279f46e4e7adab2f6614099",
+      "bodyKey": "class-feature:sorcerer:Metamagic:264b5ec15fb5762a5e6dd791204d673be461f5bea5717ed31895779347cc88b5"
+    },
+    {
+      "id": "class-feature:sorcerer:12:xphb:ability-score-improvement",
+      "sourceHash": "309d141af884072c320825e75083bbf6fc21c9393fa086b7034848e20ab93a68",
+      "bodyKey": "class-feature:sorcerer:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:sorcerer:16:xphb:ability-score-improvement",
+      "sourceHash": "14302b73df8f303ee0118cfe8b733b80b53c46dd8564fe564c311763f1326ee7",
+      "bodyKey": "class-feature:sorcerer:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:sorcerer:8:xphb:ability-score-improvement",
+      "sourceHash": "c65ac5b90e86bf921093c6731e5bdce2723c3297a7cb71cd113cfb8f46d9e735",
+      "bodyKey": "class-feature:sorcerer:Ability Score Improvement:eb858a2b0a9a66d0217999acbed4d37619864d7727c3a020a6700af96153c714"
+    },
+    {
+      "id": "class-feature:sorcerer:14:xphb:subclass-feature",
+      "sourceHash": "478b5dbb347698d0f421960850217dfbaf78bd5812ba488571f12181f1105ad1",
+      "bodyKey": "class-feature:sorcerer:Subclass Feature:a4235f3e9f269ee107e899af7377a5c8d695bf6202486d7d01db682919f0c493"
+    },
+    {
+      "id": "class-feature:sorcerer:18:xphb:subclass-feature",
+      "sourceHash": "16243fa356499294cc2ccf47a8ffd66e75ef8c7dc7818c1a2d30be813435b3aa",
+      "bodyKey": "class-feature:sorcerer:Subclass Feature:a4235f3e9f269ee107e899af7377a5c8d695bf6202486d7d01db682919f0c493"
+    },
+    {
+      "id": "class-feature:sorcerer:6:xphb:subclass-feature",
+      "sourceHash": "d0a53f2cb63c470dcddfb1c49b1005d7af469e463d937d0879a51fb620d77bcc",
+      "bodyKey": "class-feature:sorcerer:Subclass Feature:a4235f3e9f269ee107e899af7377a5c8d695bf6202486d7d01db682919f0c493"
+    },
+    {
+      "id": "class-feature:warlock:10:xphb:subclass-feature",
+      "sourceHash": "776a4baa2ae62c27c945bc25974b92a62ac4bbdf9ec7c005b9c3c8af940bccc8",
+      "bodyKey": "class-feature:warlock:Subclass Feature:aef1f1d6d497fa7583ff3973fbc2c6ba6e80e867da8f2e6935f09dd211e781cd"
+    },
+    {
+      "id": "class-feature:warlock:14:xphb:subclass-feature",
+      "sourceHash": "64e7f0aaac821b51d9542132e6d20ea41dc8a8080859cd720f4009b840cd36e0",
+      "bodyKey": "class-feature:warlock:Subclass Feature:aef1f1d6d497fa7583ff3973fbc2c6ba6e80e867da8f2e6935f09dd211e781cd"
+    },
+    {
+      "id": "class-feature:warlock:6:xphb:subclass-feature",
+      "sourceHash": "99fcba0dfb7b1c3191e3c5404274071c45147e85d9e26f5c953f455c15660551",
+      "bodyKey": "class-feature:warlock:Subclass Feature:aef1f1d6d497fa7583ff3973fbc2c6ba6e80e867da8f2e6935f09dd211e781cd"
+    },
+    {
+      "id": "class-feature:warlock:12:xphb:ability-score-improvement",
+      "sourceHash": "292fb3ef922068692ef1735989e1f9f71462ff31de5b981813461632029b8064",
+      "bodyKey": "class-feature:warlock:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    },
+    {
+      "id": "class-feature:warlock:16:xphb:ability-score-improvement",
+      "sourceHash": "f355c9b6c8f1e708f049d4da3c2035bbe4f4ee28aafec809fae4ff2817a1dd0b",
+      "bodyKey": "class-feature:warlock:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    },
+    {
+      "id": "class-feature:warlock:8:xphb:ability-score-improvement",
+      "sourceHash": "76926b7c6b7c1100ed6acbeb9fc78d7418a398ef63829a0b17041c3be765d50c",
+      "bodyKey": "class-feature:warlock:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    },
+    {
+      "id": "class-feature:wizard:10:xphb:subclass-feature",
+      "sourceHash": "02731cc4b16bfd358b72276b20568645a3a816460464a81ad44102f82de69370",
+      "bodyKey": "class-feature:wizard:Subclass Feature:8ac8776a59752435ebb8734a05b445fa1299ad69a3544eb8d1d1495aaec6a665"
+    },
+    {
+      "id": "class-feature:wizard:14:xphb:subclass-feature",
+      "sourceHash": "332bebd79709d9b9c0cc3f0203824a39dd9f1c1d7f1d5eb65990c6c8092d385a",
+      "bodyKey": "class-feature:wizard:Subclass Feature:8ac8776a59752435ebb8734a05b445fa1299ad69a3544eb8d1d1495aaec6a665"
+    },
+    {
+      "id": "class-feature:wizard:6:xphb:subclass-feature",
+      "sourceHash": "604774795693e91a5b3dd7ae9084665bac32588692743a97fb8897831fc9f79e",
+      "bodyKey": "class-feature:wizard:Subclass Feature:8ac8776a59752435ebb8734a05b445fa1299ad69a3544eb8d1d1495aaec6a665"
+    },
+    {
+      "id": "class-feature:wizard:12:xphb:ability-score-improvement",
+      "sourceHash": "70ecf034ac252a7df78073cfc06f9bee75dfc62b9b4e6b0b4d9c42cb9644a8ed",
+      "bodyKey": "class-feature:wizard:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    },
+    {
+      "id": "class-feature:wizard:16:xphb:ability-score-improvement",
+      "sourceHash": "a837c80da82b25fba6e4f16ae4ba8860ac15fd7505fd72fb5694b945449bc2d7",
+      "bodyKey": "class-feature:wizard:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    },
+    {
+      "id": "class-feature:wizard:8:xphb:ability-score-improvement",
+      "sourceHash": "12219de6387e1f393399d2f38d5129247d92dc573daccd753973333fa98d8563",
+      "bodyKey": "class-feature:wizard:Ability Score Improvement:97c15fab8a596fe827b68b4d699df2b8494387377cfc71b25fadba7ccd21130d"
+    }
+  ]
+}

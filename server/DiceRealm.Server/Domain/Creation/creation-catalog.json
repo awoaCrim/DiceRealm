@@ -1,0 +1,7363 @@
+{
+  "ruleset": "dnd2024",
+  "source": "XPHB",
+  "revision": "e5f3e77b303a92df10487207857200245e71957c",
+  "schemaVersion": 1,
+  "level": 1,
+  "abilities": [
+    "str",
+    "dex",
+    "con",
+    "int",
+    "wis",
+    "cha"
+  ],
+  "standardArray": [
+    15,
+    14,
+    13,
+    12,
+    10,
+    8
+  ],
+  "pointCosts": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    7,
+    9
+  ],
+  "pointBudget": 27,
+  "skills": [
+    {
+      "id": "acrobatics",
+      "name": "Acrobatics",
+      "ability": "dex"
+    },
+    {
+      "id": "animal-handling",
+      "name": "Animal Handling",
+      "ability": "wis"
+    },
+    {
+      "id": "arcana",
+      "name": "Arcana",
+      "ability": "int"
+    },
+    {
+      "id": "athletics",
+      "name": "Athletics",
+      "ability": "str"
+    },
+    {
+      "id": "deception",
+      "name": "Deception",
+      "ability": "cha"
+    },
+    {
+      "id": "history",
+      "name": "History",
+      "ability": "int"
+    },
+    {
+      "id": "insight",
+      "name": "Insight",
+      "ability": "wis"
+    },
+    {
+      "id": "intimidation",
+      "name": "Intimidation",
+      "ability": "cha"
+    },
+    {
+      "id": "investigation",
+      "name": "Investigation",
+      "ability": "int"
+    },
+    {
+      "id": "medicine",
+      "name": "Medicine",
+      "ability": "wis"
+    },
+    {
+      "id": "nature",
+      "name": "Nature",
+      "ability": "int"
+    },
+    {
+      "id": "perception",
+      "name": "Perception",
+      "ability": "wis"
+    },
+    {
+      "id": "performance",
+      "name": "Performance",
+      "ability": "cha"
+    },
+    {
+      "id": "persuasion",
+      "name": "Persuasion",
+      "ability": "cha"
+    },
+    {
+      "id": "religion",
+      "name": "Religion",
+      "ability": "int"
+    },
+    {
+      "id": "sleight-of-hand",
+      "name": "Sleight of Hand",
+      "ability": "dex"
+    },
+    {
+      "id": "stealth",
+      "name": "Stealth",
+      "ability": "dex"
+    },
+    {
+      "id": "survival",
+      "name": "Survival",
+      "ability": "wis"
+    }
+  ],
+  "classes": [
+    {
+      "id": "barbarian",
+      "name": "Barbarian",
+      "label": "野蛮人",
+      "hitDie": 12,
+      "saves": [
+        "str",
+        "con"
+      ],
+      "skills": [
+        "animal-handling",
+        "athletics",
+        "intimidation",
+        "nature",
+        "perception",
+        "survival"
+      ],
+      "skillCount": 2,
+      "armor": [
+        "light",
+        "medium",
+        "shield"
+      ],
+      "weapons": [
+        "simple",
+        "martial"
+      ],
+      "tools": {
+        "fixed": [],
+        "choices": []
+      },
+      "features": [
+        "Rage",
+        "Unarmored Defense",
+        "Weapon Mastery"
+      ],
+      "spellAbility": "",
+      "cantrips": 0,
+      "prepared": 0,
+      "spellbook": 0,
+      "slots": 0,
+      "pactMagic": false,
+      "automaticSpells": [],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "greataxe",
+              "quantity": 1
+            },
+            {
+              "id": "handaxe",
+              "quantity": 4
+            },
+            {
+              "id": "explorer-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 1500,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 7500,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "bard",
+      "name": "Bard",
+      "label": "吟游诗人",
+      "hitDie": 8,
+      "saves": [
+        "dex",
+        "cha"
+      ],
+      "skills": [
+        "acrobatics",
+        "animal-handling",
+        "arcana",
+        "athletics",
+        "deception",
+        "history",
+        "insight",
+        "intimidation",
+        "investigation",
+        "medicine",
+        "nature",
+        "perception",
+        "performance",
+        "persuasion",
+        "religion",
+        "sleight-of-hand",
+        "stealth",
+        "survival"
+      ],
+      "skillCount": 3,
+      "armor": [
+        "light"
+      ],
+      "weapons": [
+        "simple"
+      ],
+      "tools": {
+        "fixed": [],
+        "choices": [
+          {
+            "count": 3,
+            "options": [
+              "bagpipes",
+              "drum",
+              "dulcimer",
+              "flute",
+              "horn",
+              "lute",
+              "lyre",
+              "pan-flute",
+              "shawm",
+              "viol"
+            ]
+          }
+        ]
+      },
+      "features": [
+        "Bardic Inspiration",
+        "Spellcasting"
+      ],
+      "spellAbility": "cha",
+      "cantrips": 2,
+      "prepared": 4,
+      "spellbook": 0,
+      "slots": 2,
+      "pactMagic": false,
+      "automaticSpells": [],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "leather-armor",
+              "quantity": 1
+            },
+            {
+              "id": "dagger",
+              "quantity": 2
+            },
+            {
+              "id": "entertainer-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 1900,
+          "choices": [
+            {
+              "count": 1,
+              "options": [
+                "bagpipes",
+                "drum",
+                "dulcimer",
+                "flute",
+                "horn",
+                "lute",
+                "lyre",
+                "pan-flute",
+                "shawm",
+                "viol"
+              ],
+              "matchTraining": false
+            }
+          ]
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 9000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "cleric",
+      "name": "Cleric",
+      "label": "牧师",
+      "hitDie": 8,
+      "saves": [
+        "wis",
+        "cha"
+      ],
+      "skills": [
+        "history",
+        "insight",
+        "medicine",
+        "persuasion",
+        "religion"
+      ],
+      "skillCount": 2,
+      "armor": [
+        "light",
+        "medium",
+        "shield"
+      ],
+      "weapons": [
+        "simple"
+      ],
+      "tools": {
+        "fixed": [],
+        "choices": []
+      },
+      "features": [
+        "Spellcasting",
+        "Divine Order"
+      ],
+      "spellAbility": "wis",
+      "cantrips": 3,
+      "prepared": 4,
+      "spellbook": 0,
+      "slots": 2,
+      "pactMagic": false,
+      "automaticSpells": [],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "chain-shirt",
+              "quantity": 1
+            },
+            {
+              "id": "shield",
+              "quantity": 1
+            },
+            {
+              "id": "mace",
+              "quantity": 1
+            },
+            {
+              "id": "holy-symbol",
+              "quantity": 1
+            },
+            {
+              "id": "priest-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 700,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 11000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "druid",
+      "name": "Druid",
+      "label": "德鲁伊",
+      "hitDie": 8,
+      "saves": [
+        "int",
+        "wis"
+      ],
+      "skills": [
+        "arcana",
+        "animal-handling",
+        "insight",
+        "medicine",
+        "nature",
+        "perception",
+        "religion",
+        "survival"
+      ],
+      "skillCount": 2,
+      "armor": [
+        "light",
+        "shield"
+      ],
+      "weapons": [
+        "simple"
+      ],
+      "tools": {
+        "fixed": [
+          "herbalism-kit"
+        ],
+        "choices": []
+      },
+      "features": [
+        "Druidic",
+        "Primal Order",
+        "Spellcasting"
+      ],
+      "spellAbility": "wis",
+      "cantrips": 2,
+      "prepared": 4,
+      "spellbook": 0,
+      "slots": 2,
+      "pactMagic": false,
+      "automaticSpells": [
+        "speak-with-animals"
+      ],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "leather-armor",
+              "quantity": 1
+            },
+            {
+              "id": "shield",
+              "quantity": 1
+            },
+            {
+              "id": "sickle",
+              "quantity": 1
+            },
+            {
+              "id": "quarterstaff",
+              "quantity": 1
+            },
+            {
+              "id": "explorer-s-pack",
+              "quantity": 1
+            },
+            {
+              "id": "herbalism-kit",
+              "quantity": 1
+            }
+          ],
+          "copper": 900,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "fighter",
+      "name": "Fighter",
+      "label": "战士",
+      "hitDie": 10,
+      "saves": [
+        "str",
+        "con"
+      ],
+      "skills": [
+        "acrobatics",
+        "animal-handling",
+        "athletics",
+        "history",
+        "insight",
+        "intimidation",
+        "persuasion",
+        "perception",
+        "survival"
+      ],
+      "skillCount": 2,
+      "armor": [
+        "light",
+        "medium",
+        "heavy",
+        "shield"
+      ],
+      "weapons": [
+        "simple",
+        "martial"
+      ],
+      "tools": {
+        "fixed": [],
+        "choices": []
+      },
+      "features": [
+        "Fighting Style",
+        "Second Wind",
+        "Weapon Mastery"
+      ],
+      "spellAbility": "",
+      "cantrips": 0,
+      "prepared": 0,
+      "spellbook": 0,
+      "slots": 0,
+      "pactMagic": false,
+      "automaticSpells": [],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "chain-mail",
+              "quantity": 1
+            },
+            {
+              "id": "greatsword",
+              "quantity": 1
+            },
+            {
+              "id": "flail",
+              "quantity": 1
+            },
+            {
+              "id": "javelin",
+              "quantity": 8
+            },
+            {
+              "id": "dungeoneer-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 400,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [
+            {
+              "id": "studded-leather-armor",
+              "quantity": 1
+            },
+            {
+              "id": "scimitar",
+              "quantity": 1
+            },
+            {
+              "id": "shortsword",
+              "quantity": 1
+            },
+            {
+              "id": "longbow",
+              "quantity": 1
+            },
+            {
+              "id": "arrows-20",
+              "quantity": 1
+            },
+            {
+              "id": "quiver",
+              "quantity": 1
+            },
+            {
+              "id": "dungeoneer-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 1100,
+          "choices": []
+        },
+        {
+          "id": "C",
+          "items": [],
+          "copper": 15500,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "monk",
+      "name": "Monk",
+      "label": "武僧",
+      "hitDie": 8,
+      "saves": [
+        "str",
+        "dex"
+      ],
+      "skills": [
+        "acrobatics",
+        "athletics",
+        "history",
+        "insight",
+        "religion",
+        "stealth"
+      ],
+      "skillCount": 2,
+      "armor": [],
+      "weapons": [
+        "simple"
+      ],
+      "tools": {
+        "fixed": [],
+        "choices": [
+          {
+            "count": 1,
+            "options": [
+              "alchemist-s-supplies",
+              "bagpipes",
+              "brewer-s-supplies",
+              "calligrapher-s-supplies",
+              "carpenter-s-tools",
+              "cartographer-s-tools",
+              "cobbler-s-tools",
+              "cook-s-utensils",
+              "drum",
+              "dulcimer",
+              "flute",
+              "glassblower-s-tools",
+              "horn",
+              "jeweler-s-tools",
+              "leatherworker-s-tools",
+              "lute",
+              "lyre",
+              "mason-s-tools",
+              "painter-s-supplies",
+              "pan-flute",
+              "potter-s-tools",
+              "shawm",
+              "smith-s-tools",
+              "tinker-s-tools",
+              "viol",
+              "weaver-s-tools",
+              "woodcarver-s-tools"
+            ]
+          }
+        ]
+      },
+      "features": [
+        "Martial Arts",
+        "Unarmored Defense"
+      ],
+      "spellAbility": "",
+      "cantrips": 0,
+      "prepared": 0,
+      "spellbook": 0,
+      "slots": 0,
+      "pactMagic": false,
+      "automaticSpells": [],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "spear",
+              "quantity": 1
+            },
+            {
+              "id": "dagger",
+              "quantity": 5
+            },
+            {
+              "id": "explorer-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 1100,
+          "choices": [
+            {
+              "count": 1,
+              "options": [
+                "alchemist-s-supplies",
+                "bagpipes",
+                "brewer-s-supplies",
+                "calligrapher-s-supplies",
+                "carpenter-s-tools",
+                "cartographer-s-tools",
+                "cobbler-s-tools",
+                "cook-s-utensils",
+                "drum",
+                "dulcimer",
+                "flute",
+                "glassblower-s-tools",
+                "horn",
+                "jeweler-s-tools",
+                "leatherworker-s-tools",
+                "lute",
+                "lyre",
+                "mason-s-tools",
+                "painter-s-supplies",
+                "pan-flute",
+                "potter-s-tools",
+                "shawm",
+                "smith-s-tools",
+                "tinker-s-tools",
+                "viol",
+                "weaver-s-tools",
+                "woodcarver-s-tools"
+              ],
+              "matchTraining": true
+            }
+          ]
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "paladin",
+      "name": "Paladin",
+      "label": "圣武士",
+      "hitDie": 10,
+      "saves": [
+        "wis",
+        "cha"
+      ],
+      "skills": [
+        "athletics",
+        "insight",
+        "intimidation",
+        "medicine",
+        "persuasion",
+        "religion"
+      ],
+      "skillCount": 2,
+      "armor": [
+        "light",
+        "medium",
+        "heavy",
+        "shield"
+      ],
+      "weapons": [
+        "simple",
+        "martial"
+      ],
+      "tools": {
+        "fixed": [],
+        "choices": []
+      },
+      "features": [
+        "Lay on Hands",
+        "Spellcasting",
+        "Weapon Mastery"
+      ],
+      "spellAbility": "cha",
+      "cantrips": 0,
+      "prepared": 2,
+      "spellbook": 0,
+      "slots": 2,
+      "pactMagic": false,
+      "automaticSpells": [],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "chain-mail",
+              "quantity": 1
+            },
+            {
+              "id": "shield",
+              "quantity": 1
+            },
+            {
+              "id": "longsword",
+              "quantity": 1
+            },
+            {
+              "id": "javelin",
+              "quantity": 6
+            },
+            {
+              "id": "holy-symbol",
+              "quantity": 1
+            },
+            {
+              "id": "priest-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 900,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 15000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "ranger",
+      "name": "Ranger",
+      "label": "游侠",
+      "hitDie": 10,
+      "saves": [
+        "str",
+        "dex"
+      ],
+      "skills": [
+        "animal-handling",
+        "athletics",
+        "insight",
+        "investigation",
+        "nature",
+        "perception",
+        "stealth",
+        "survival"
+      ],
+      "skillCount": 3,
+      "armor": [
+        "light",
+        "medium",
+        "shield"
+      ],
+      "weapons": [
+        "simple",
+        "martial"
+      ],
+      "tools": {
+        "fixed": [],
+        "choices": []
+      },
+      "features": [
+        "Spellcasting",
+        "Favored Enemy",
+        "Weapon Mastery"
+      ],
+      "spellAbility": "wis",
+      "cantrips": 0,
+      "prepared": 2,
+      "spellbook": 0,
+      "slots": 2,
+      "pactMagic": false,
+      "automaticSpells": [
+        "hunter-s-mark"
+      ],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "studded-leather-armor",
+              "quantity": 1
+            },
+            {
+              "id": "scimitar",
+              "quantity": 1
+            },
+            {
+              "id": "shortsword",
+              "quantity": 1
+            },
+            {
+              "id": "longbow",
+              "quantity": 1
+            },
+            {
+              "id": "arrows-20",
+              "quantity": 1
+            },
+            {
+              "id": "quiver",
+              "quantity": 1
+            },
+            {
+              "id": "sprig-of-mistletoe",
+              "quantity": 1
+            },
+            {
+              "id": "explorer-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 700,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 15000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "rogue",
+      "name": "Rogue",
+      "label": "游荡者",
+      "hitDie": 8,
+      "saves": [
+        "dex",
+        "int"
+      ],
+      "skills": [
+        "acrobatics",
+        "athletics",
+        "deception",
+        "insight",
+        "intimidation",
+        "investigation",
+        "perception",
+        "persuasion",
+        "sleight-of-hand",
+        "stealth"
+      ],
+      "skillCount": 4,
+      "armor": [
+        "light"
+      ],
+      "weapons": [
+        "simple"
+      ],
+      "tools": {
+        "fixed": [
+          "thieves-tools"
+        ],
+        "choices": []
+      },
+      "features": [
+        "Expertise",
+        "Sneak Attack",
+        "Thieves' Cant",
+        "Weapon Mastery"
+      ],
+      "spellAbility": "",
+      "cantrips": 0,
+      "prepared": 0,
+      "spellbook": 0,
+      "slots": 0,
+      "pactMagic": false,
+      "automaticSpells": [],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "leather-armor",
+              "quantity": 1
+            },
+            {
+              "id": "dagger",
+              "quantity": 2
+            },
+            {
+              "id": "shortsword",
+              "quantity": 1
+            },
+            {
+              "id": "shortbow",
+              "quantity": 1
+            },
+            {
+              "id": "arrows-20",
+              "quantity": 1
+            },
+            {
+              "id": "quiver",
+              "quantity": 1
+            },
+            {
+              "id": "thieves-tools",
+              "quantity": 1
+            },
+            {
+              "id": "burglar-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 800,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 10000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "sorcerer",
+      "name": "Sorcerer",
+      "label": "术士",
+      "hitDie": 6,
+      "saves": [
+        "con",
+        "cha"
+      ],
+      "skills": [
+        "arcana",
+        "deception",
+        "insight",
+        "intimidation",
+        "persuasion",
+        "religion"
+      ],
+      "skillCount": 2,
+      "armor": [],
+      "weapons": [
+        "simple"
+      ],
+      "tools": {
+        "fixed": [],
+        "choices": []
+      },
+      "features": [
+        "Spellcasting",
+        "Innate Sorcery"
+      ],
+      "spellAbility": "cha",
+      "cantrips": 4,
+      "prepared": 2,
+      "spellbook": 0,
+      "slots": 2,
+      "pactMagic": false,
+      "automaticSpells": [],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "spear",
+              "quantity": 1
+            },
+            {
+              "id": "dagger",
+              "quantity": 2
+            },
+            {
+              "id": "crystal",
+              "quantity": 1
+            },
+            {
+              "id": "dungeoneer-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 2800,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "warlock",
+      "name": "Warlock",
+      "label": "邪术师",
+      "hitDie": 8,
+      "saves": [
+        "wis",
+        "cha"
+      ],
+      "skills": [
+        "arcana",
+        "deception",
+        "history",
+        "intimidation",
+        "investigation",
+        "nature",
+        "religion"
+      ],
+      "skillCount": 2,
+      "armor": [
+        "light"
+      ],
+      "weapons": [
+        "simple"
+      ],
+      "tools": {
+        "fixed": [],
+        "choices": []
+      },
+      "features": [
+        "Eldritch Invocations",
+        "Pact Magic",
+        "Eldritch Invocation Options"
+      ],
+      "spellAbility": "cha",
+      "cantrips": 2,
+      "prepared": 2,
+      "spellbook": 0,
+      "slots": 1,
+      "pactMagic": true,
+      "automaticSpells": [],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "leather-armor",
+              "quantity": 1
+            },
+            {
+              "id": "sickle",
+              "quantity": 1
+            },
+            {
+              "id": "dagger",
+              "quantity": 2
+            },
+            {
+              "id": "orb",
+              "quantity": 1
+            },
+            {
+              "id": "book",
+              "quantity": 1
+            },
+            {
+              "id": "scholar-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 1500,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 10000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "wizard",
+      "name": "Wizard",
+      "label": "法师",
+      "hitDie": 6,
+      "saves": [
+        "int",
+        "wis"
+      ],
+      "skills": [
+        "arcana",
+        "history",
+        "insight",
+        "investigation",
+        "medicine",
+        "nature",
+        "religion"
+      ],
+      "skillCount": 2,
+      "armor": [],
+      "weapons": [
+        "simple"
+      ],
+      "tools": {
+        "fixed": [],
+        "choices": []
+      },
+      "features": [
+        "Spellcasting",
+        "Ritual Adept",
+        "Arcane Recovery"
+      ],
+      "spellAbility": "int",
+      "cantrips": 3,
+      "prepared": 4,
+      "spellbook": 6,
+      "slots": 2,
+      "pactMagic": false,
+      "automaticSpells": [],
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "dagger",
+              "quantity": 2
+            },
+            {
+              "id": "quarterstaff",
+              "quantity": 1
+            },
+            {
+              "id": "robe",
+              "quantity": 1
+            },
+            {
+              "id": "spellbook",
+              "quantity": 1
+            },
+            {
+              "id": "scholar-s-pack",
+              "quantity": 1
+            }
+          ],
+          "copper": 500,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5500,
+          "choices": []
+        }
+      ]
+    }
+  ],
+  "species": [
+    {
+      "id": "aasimar",
+      "name": "Aasimar",
+      "sizes": [
+        "S",
+        "M"
+      ],
+      "speed": 30,
+      "resistances": [
+        "necrotic",
+        "radiant"
+      ],
+      "features": [
+        "Celestial Resistance",
+        "Darkvision",
+        "Healing Hands",
+        "Light Bearer"
+      ]
+    },
+    {
+      "id": "dragonborn",
+      "name": "Dragonborn",
+      "sizes": [
+        "M"
+      ],
+      "speed": 30,
+      "resistances": [],
+      "features": [
+        "Draconic Ancestry",
+        "Breath Weapon",
+        "Damage Resistance",
+        "Darkvision"
+      ]
+    },
+    {
+      "id": "dwarf",
+      "name": "Dwarf",
+      "sizes": [
+        "M"
+      ],
+      "speed": 30,
+      "resistances": [
+        "poison"
+      ],
+      "features": [
+        "Darkvision",
+        "Dwarven Resilience",
+        "Dwarven Toughness",
+        "Stonecunning"
+      ]
+    },
+    {
+      "id": "elf",
+      "name": "Elf",
+      "sizes": [
+        "M"
+      ],
+      "speed": 30,
+      "resistances": [],
+      "features": [
+        "Darkvision",
+        "Elven Lineage",
+        "Fey Ancestry",
+        "Keen Senses",
+        "Trance"
+      ]
+    },
+    {
+      "id": "gnome",
+      "name": "Gnome",
+      "sizes": [
+        "S"
+      ],
+      "speed": 30,
+      "resistances": [],
+      "features": [
+        "Darkvision",
+        "Gnomish Cunning",
+        "Gnomish Lineage"
+      ]
+    },
+    {
+      "id": "goliath",
+      "name": "Goliath",
+      "sizes": [
+        "M"
+      ],
+      "speed": 35,
+      "resistances": [],
+      "features": [
+        "Giant Ancestry",
+        "Powerful Build"
+      ]
+    },
+    {
+      "id": "halfling",
+      "name": "Halfling",
+      "sizes": [
+        "S"
+      ],
+      "speed": 30,
+      "resistances": [],
+      "features": [
+        "Brave",
+        "Halfling Nimbleness",
+        "Luck",
+        "Naturally Stealthy"
+      ]
+    },
+    {
+      "id": "human",
+      "name": "Human",
+      "sizes": [
+        "S",
+        "M"
+      ],
+      "speed": 30,
+      "resistances": [],
+      "features": [
+        "Resourceful",
+        "Skillful",
+        "Versatile"
+      ]
+    },
+    {
+      "id": "orc",
+      "name": "Orc",
+      "sizes": [
+        "M"
+      ],
+      "speed": 30,
+      "resistances": [],
+      "features": [
+        "Adrenaline Rush",
+        "Darkvision",
+        "Relentless Endurance"
+      ]
+    },
+    {
+      "id": "tiefling",
+      "name": "Tiefling",
+      "sizes": [
+        "S",
+        "M"
+      ],
+      "speed": 30,
+      "resistances": [],
+      "features": [
+        "Darkvision",
+        "Fiendish Legacy",
+        "Otherworldly Presence"
+      ]
+    }
+  ],
+  "backgrounds": [
+    {
+      "id": "acolyte",
+      "name": "Acolyte",
+      "abilities": [
+        "int",
+        "wis",
+        "cha"
+      ],
+      "skills": [
+        "insight",
+        "religion"
+      ],
+      "feat": "magic-initiate",
+      "spellClass": "cleric",
+      "tools": {
+        "fixed": [
+          "calligrapher-s-supplies"
+        ],
+        "choices": []
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "book",
+              "quantity": 1
+            },
+            {
+              "id": "calligrapher-s-supplies",
+              "quantity": 1
+            },
+            {
+              "id": "holy-symbol",
+              "quantity": 1
+            },
+            {
+              "id": "parchment",
+              "quantity": 10
+            },
+            {
+              "id": "robe",
+              "quantity": 1
+            }
+          ],
+          "copper": 800,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "artisan",
+      "name": "Artisan",
+      "abilities": [
+        "str",
+        "dex",
+        "int"
+      ],
+      "skills": [
+        "investigation",
+        "persuasion"
+      ],
+      "feat": "crafter",
+      "spellClass": "",
+      "tools": {
+        "fixed": [],
+        "choices": [
+          {
+            "count": 1,
+            "options": [
+              "alchemist-s-supplies",
+              "brewer-s-supplies",
+              "calligrapher-s-supplies",
+              "carpenter-s-tools",
+              "cartographer-s-tools",
+              "cobbler-s-tools",
+              "cook-s-utensils",
+              "glassblower-s-tools",
+              "jeweler-s-tools",
+              "leatherworker-s-tools",
+              "mason-s-tools",
+              "painter-s-supplies",
+              "potter-s-tools",
+              "smith-s-tools",
+              "tinker-s-tools",
+              "weaver-s-tools",
+              "woodcarver-s-tools"
+            ]
+          }
+        ]
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "pouch",
+              "quantity": 2
+            },
+            {
+              "id": "traveler-s-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 3200,
+          "choices": [
+            {
+              "count": 1,
+              "options": [
+                "alchemist-s-supplies",
+                "brewer-s-supplies",
+                "calligrapher-s-supplies",
+                "carpenter-s-tools",
+                "cartographer-s-tools",
+                "cobbler-s-tools",
+                "cook-s-utensils",
+                "glassblower-s-tools",
+                "jeweler-s-tools",
+                "leatherworker-s-tools",
+                "mason-s-tools",
+                "painter-s-supplies",
+                "potter-s-tools",
+                "smith-s-tools",
+                "tinker-s-tools",
+                "weaver-s-tools",
+                "woodcarver-s-tools"
+              ],
+              "matchTraining": false
+            }
+          ]
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "charlatan",
+      "name": "Charlatan",
+      "abilities": [
+        "dex",
+        "con",
+        "cha"
+      ],
+      "skills": [
+        "deception",
+        "sleight-of-hand"
+      ],
+      "feat": "skilled",
+      "spellClass": "",
+      "tools": {
+        "fixed": [
+          "forgery-kit"
+        ],
+        "choices": []
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "forgery-kit",
+              "quantity": 1
+            },
+            {
+              "id": "costume",
+              "quantity": 1
+            },
+            {
+              "id": "fine-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 1500,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "criminal",
+      "name": "Criminal",
+      "abilities": [
+        "dex",
+        "con",
+        "int"
+      ],
+      "skills": [
+        "sleight-of-hand",
+        "stealth"
+      ],
+      "feat": "alert",
+      "spellClass": "",
+      "tools": {
+        "fixed": [
+          "thieves-tools"
+        ],
+        "choices": []
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "dagger",
+              "quantity": 2
+            },
+            {
+              "id": "thieves-tools",
+              "quantity": 1
+            },
+            {
+              "id": "crowbar",
+              "quantity": 1
+            },
+            {
+              "id": "pouch",
+              "quantity": 2
+            },
+            {
+              "id": "traveler-s-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 1600,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "entertainer",
+      "name": "Entertainer",
+      "abilities": [
+        "str",
+        "dex",
+        "cha"
+      ],
+      "skills": [
+        "acrobatics",
+        "performance"
+      ],
+      "feat": "musician",
+      "spellClass": "",
+      "tools": {
+        "fixed": [],
+        "choices": [
+          {
+            "count": 1,
+            "options": [
+              "bagpipes",
+              "drum",
+              "dulcimer",
+              "flute",
+              "horn",
+              "lute",
+              "lyre",
+              "pan-flute",
+              "shawm",
+              "viol"
+            ]
+          }
+        ]
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "costume",
+              "quantity": 2
+            },
+            {
+              "id": "mirror",
+              "quantity": 1
+            },
+            {
+              "id": "perfume",
+              "quantity": 1
+            },
+            {
+              "id": "traveler-s-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 1100,
+          "choices": [
+            {
+              "count": 1,
+              "options": [
+                "bagpipes",
+                "drum",
+                "dulcimer",
+                "flute",
+                "horn",
+                "lute",
+                "lyre",
+                "pan-flute",
+                "shawm",
+                "viol"
+              ],
+              "matchTraining": false
+            }
+          ]
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "farmer",
+      "name": "Farmer",
+      "abilities": [
+        "str",
+        "con",
+        "wis"
+      ],
+      "skills": [
+        "animal-handling",
+        "nature"
+      ],
+      "feat": "tough",
+      "spellClass": "",
+      "tools": {
+        "fixed": [
+          "carpenter-s-tools"
+        ],
+        "choices": []
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "sickle",
+              "quantity": 1
+            },
+            {
+              "id": "carpenter-s-tools",
+              "quantity": 1
+            },
+            {
+              "id": "healer-s-kit",
+              "quantity": 1
+            },
+            {
+              "id": "iron-pot",
+              "quantity": 1
+            },
+            {
+              "id": "shovel",
+              "quantity": 1
+            },
+            {
+              "id": "traveler-s-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 3000,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "guard",
+      "name": "Guard",
+      "abilities": [
+        "str",
+        "int",
+        "wis"
+      ],
+      "skills": [
+        "athletics",
+        "perception"
+      ],
+      "feat": "alert",
+      "spellClass": "",
+      "tools": {
+        "fixed": [],
+        "choices": [
+          {
+            "count": 1,
+            "options": [
+              "dice-set",
+              "dragonchess-set",
+              "playing-cards",
+              "three-dragon-ante-set"
+            ]
+          }
+        ]
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "spear",
+              "quantity": 1
+            },
+            {
+              "id": "light-crossbow",
+              "quantity": 1
+            },
+            {
+              "id": "bolts-20",
+              "quantity": 1
+            },
+            {
+              "id": "hooded-lantern",
+              "quantity": 1
+            },
+            {
+              "id": "manacles",
+              "quantity": 1
+            },
+            {
+              "id": "quiver",
+              "quantity": 1
+            },
+            {
+              "id": "traveler-s-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 1200,
+          "choices": [
+            {
+              "count": 1,
+              "options": [
+                "dice-set",
+                "dragonchess-set",
+                "playing-cards",
+                "three-dragon-ante-set"
+              ],
+              "matchTraining": false
+            }
+          ]
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "guide",
+      "name": "Guide",
+      "abilities": [
+        "dex",
+        "con",
+        "wis"
+      ],
+      "skills": [
+        "stealth",
+        "survival"
+      ],
+      "feat": "magic-initiate",
+      "spellClass": "druid",
+      "tools": {
+        "fixed": [
+          "cartographer-s-tools"
+        ],
+        "choices": []
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "shortbow",
+              "quantity": 1
+            },
+            {
+              "id": "arrows-20",
+              "quantity": 1
+            },
+            {
+              "id": "cartographer-s-tools",
+              "quantity": 1
+            },
+            {
+              "id": "bedroll",
+              "quantity": 1
+            },
+            {
+              "id": "quiver",
+              "quantity": 1
+            },
+            {
+              "id": "tent",
+              "quantity": 1
+            },
+            {
+              "id": "traveler-s-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 300,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "hermit",
+      "name": "Hermit",
+      "abilities": [
+        "con",
+        "wis",
+        "cha"
+      ],
+      "skills": [
+        "medicine",
+        "religion"
+      ],
+      "feat": "healer",
+      "spellClass": "",
+      "tools": {
+        "fixed": [
+          "herbalism-kit"
+        ],
+        "choices": []
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "quarterstaff",
+              "quantity": 1
+            },
+            {
+              "id": "herbalism-kit",
+              "quantity": 1
+            },
+            {
+              "id": "bedroll",
+              "quantity": 1
+            },
+            {
+              "id": "book",
+              "quantity": 1
+            },
+            {
+              "id": "lamp",
+              "quantity": 1
+            },
+            {
+              "id": "oil",
+              "quantity": 3
+            },
+            {
+              "id": "traveler-s-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 1600,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "merchant",
+      "name": "Merchant",
+      "abilities": [
+        "con",
+        "int",
+        "cha"
+      ],
+      "skills": [
+        "animal-handling",
+        "persuasion"
+      ],
+      "feat": "lucky",
+      "spellClass": "",
+      "tools": {
+        "fixed": [
+          "navigator-s-tools"
+        ],
+        "choices": []
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "navigator-s-tools",
+              "quantity": 1
+            },
+            {
+              "id": "pouch",
+              "quantity": 2
+            },
+            {
+              "id": "traveler-s-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 2200,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "noble",
+      "name": "Noble",
+      "abilities": [
+        "str",
+        "int",
+        "cha"
+      ],
+      "skills": [
+        "history",
+        "persuasion"
+      ],
+      "feat": "skilled",
+      "spellClass": "",
+      "tools": {
+        "fixed": [],
+        "choices": [
+          {
+            "count": 1,
+            "options": [
+              "dice-set",
+              "dragonchess-set",
+              "playing-cards",
+              "three-dragon-ante-set"
+            ]
+          }
+        ]
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "fine-clothes",
+              "quantity": 1
+            },
+            {
+              "id": "perfume",
+              "quantity": 1
+            }
+          ],
+          "copper": 2900,
+          "choices": [
+            {
+              "count": 1,
+              "options": [
+                "dice-set",
+                "dragonchess-set",
+                "playing-cards",
+                "three-dragon-ante-set"
+              ],
+              "matchTraining": false
+            }
+          ]
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "sage",
+      "name": "Sage",
+      "abilities": [
+        "con",
+        "int",
+        "wis"
+      ],
+      "skills": [
+        "arcana",
+        "history"
+      ],
+      "feat": "magic-initiate",
+      "spellClass": "wizard",
+      "tools": {
+        "fixed": [
+          "calligrapher-s-supplies"
+        ],
+        "choices": []
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "quarterstaff",
+              "quantity": 1
+            },
+            {
+              "id": "calligrapher-s-supplies",
+              "quantity": 1
+            },
+            {
+              "id": "book",
+              "quantity": 1
+            },
+            {
+              "id": "parchment",
+              "quantity": 8
+            },
+            {
+              "id": "robe",
+              "quantity": 1
+            }
+          ],
+          "copper": 800,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "sailor",
+      "name": "Sailor",
+      "abilities": [
+        "str",
+        "dex",
+        "wis"
+      ],
+      "skills": [
+        "acrobatics",
+        "perception"
+      ],
+      "feat": "tavern-brawler",
+      "spellClass": "",
+      "tools": {
+        "fixed": [
+          "navigator-s-tools"
+        ],
+        "choices": []
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "dagger",
+              "quantity": 1
+            },
+            {
+              "id": "navigator-s-tools",
+              "quantity": 1
+            },
+            {
+              "id": "rope",
+              "quantity": 1
+            },
+            {
+              "id": "traveler-s-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 2000,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "scribe",
+      "name": "Scribe",
+      "abilities": [
+        "dex",
+        "int",
+        "wis"
+      ],
+      "skills": [
+        "investigation",
+        "perception"
+      ],
+      "feat": "skilled",
+      "spellClass": "",
+      "tools": {
+        "fixed": [
+          "calligrapher-s-supplies"
+        ],
+        "choices": []
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "calligrapher-s-supplies",
+              "quantity": 1
+            },
+            {
+              "id": "fine-clothes",
+              "quantity": 1
+            },
+            {
+              "id": "lamp",
+              "quantity": 1
+            },
+            {
+              "id": "oil",
+              "quantity": 1
+            },
+            {
+              "id": "parchment",
+              "quantity": 1
+            }
+          ],
+          "copper": 2300,
+          "choices": []
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "soldier",
+      "name": "Soldier",
+      "abilities": [
+        "str",
+        "dex",
+        "con"
+      ],
+      "skills": [
+        "athletics",
+        "intimidation"
+      ],
+      "feat": "savage-attacker",
+      "spellClass": "",
+      "tools": {
+        "fixed": [],
+        "choices": [
+          {
+            "count": 1,
+            "options": [
+              "dice-set",
+              "dragonchess-set",
+              "playing-cards",
+              "three-dragon-ante-set"
+            ]
+          }
+        ]
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "spear",
+              "quantity": 1
+            },
+            {
+              "id": "shortbow",
+              "quantity": 1
+            },
+            {
+              "id": "arrows-20",
+              "quantity": 1
+            },
+            {
+              "id": "healer-s-kit",
+              "quantity": 1
+            },
+            {
+              "id": "quiver",
+              "quantity": 1
+            },
+            {
+              "id": "traveler-s-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 1400,
+          "choices": [
+            {
+              "count": 1,
+              "options": [
+                "dice-set",
+                "dragonchess-set",
+                "playing-cards",
+                "three-dragon-ante-set"
+              ],
+              "matchTraining": false
+            }
+          ]
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    },
+    {
+      "id": "wayfarer",
+      "name": "Wayfarer",
+      "abilities": [
+        "dex",
+        "wis",
+        "cha"
+      ],
+      "skills": [
+        "insight",
+        "stealth"
+      ],
+      "feat": "lucky",
+      "spellClass": "",
+      "tools": {
+        "fixed": [
+          "thieves-tools"
+        ],
+        "choices": []
+      },
+      "equipment": [
+        {
+          "id": "A",
+          "items": [
+            {
+              "id": "dagger",
+              "quantity": 2
+            },
+            {
+              "id": "thieves-tools",
+              "quantity": 1
+            },
+            {
+              "id": "bedroll",
+              "quantity": 1
+            },
+            {
+              "id": "pouch",
+              "quantity": 2
+            },
+            {
+              "id": "traveler-s-clothes",
+              "quantity": 1
+            }
+          ],
+          "copper": 1600,
+          "choices": [
+            {
+              "count": 1,
+              "options": [
+                "dice-set",
+                "dragonchess-set",
+                "playing-cards",
+                "three-dragon-ante-set"
+              ],
+              "matchTraining": false
+            }
+          ]
+        },
+        {
+          "id": "B",
+          "items": [],
+          "copper": 5000,
+          "choices": []
+        }
+      ]
+    }
+  ],
+  "feats": [
+    {
+      "id": "alert",
+      "name": "Alert",
+      "category": "O",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "archery",
+      "name": "Archery",
+      "category": "FS",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "blind-fighting",
+      "name": "Blind Fighting",
+      "category": "FS",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "crafter",
+      "name": "Crafter",
+      "category": "O",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": [
+          {
+            "count": 3,
+            "options": [
+              "carpenter-s-tools",
+              "leatherworker-s-tools",
+              "mason-s-tools",
+              "potter-s-tools",
+              "smith-s-tools",
+              "tinker-s-tools",
+              "weaver-s-tools",
+              "woodcarver-s-tools"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "defense",
+      "name": "Defense",
+      "category": "FS",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "dueling",
+      "name": "Dueling",
+      "category": "FS",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "great-weapon-fighting",
+      "name": "Great Weapon Fighting",
+      "category": "FS",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "healer",
+      "name": "Healer",
+      "category": "O",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "interception",
+      "name": "Interception",
+      "category": "FS",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "lucky",
+      "name": "Lucky",
+      "category": "O",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "magic-initiate",
+      "name": "Magic Initiate",
+      "category": "O",
+      "repeatable": true,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "musician",
+      "name": "Musician",
+      "category": "O",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": [
+          {
+            "count": 3,
+            "options": [
+              "bagpipes",
+              "drum",
+              "dulcimer",
+              "flute",
+              "horn",
+              "lute",
+              "lyre",
+              "pan-flute",
+              "shawm",
+              "viol"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "protection",
+      "name": "Protection",
+      "category": "FS",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "savage-attacker",
+      "name": "Savage Attacker",
+      "category": "O",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "skilled",
+      "name": "Skilled",
+      "category": "O",
+      "repeatable": true,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "tavern-brawler",
+      "name": "Tavern Brawler",
+      "category": "O",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "thrown-weapon-fighting",
+      "name": "Thrown Weapon Fighting",
+      "category": "FS",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "tough",
+      "name": "Tough",
+      "category": "O",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "two-weapon-fighting",
+      "name": "Two-Weapon Fighting",
+      "category": "FS",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    },
+    {
+      "id": "unarmed-fighting",
+      "name": "Unarmed Fighting",
+      "category": "FS",
+      "repeatable": false,
+      "tools": {
+        "fixed": [],
+        "choices": []
+      }
+    }
+  ],
+  "languages": [
+    {
+      "id": "abyssal",
+      "name": "Abyssal",
+      "kind": "rare"
+    },
+    {
+      "id": "celestial",
+      "name": "Celestial",
+      "kind": "rare"
+    },
+    {
+      "id": "common",
+      "name": "Common",
+      "kind": "standard"
+    },
+    {
+      "id": "common-sign-language",
+      "name": "Common Sign Language",
+      "kind": "standard"
+    },
+    {
+      "id": "deep-speech",
+      "name": "Deep Speech",
+      "kind": "rare"
+    },
+    {
+      "id": "draconic",
+      "name": "Draconic",
+      "kind": "standard"
+    },
+    {
+      "id": "druidic",
+      "name": "Druidic",
+      "kind": "rare"
+    },
+    {
+      "id": "dwarvish",
+      "name": "Dwarvish",
+      "kind": "standard"
+    },
+    {
+      "id": "elvish",
+      "name": "Elvish",
+      "kind": "standard"
+    },
+    {
+      "id": "giant",
+      "name": "Giant",
+      "kind": "standard"
+    },
+    {
+      "id": "gnomish",
+      "name": "Gnomish",
+      "kind": "standard"
+    },
+    {
+      "id": "goblin",
+      "name": "Goblin",
+      "kind": "standard"
+    },
+    {
+      "id": "halfling",
+      "name": "Halfling",
+      "kind": "standard"
+    },
+    {
+      "id": "infernal",
+      "name": "Infernal",
+      "kind": "rare"
+    },
+    {
+      "id": "orc",
+      "name": "Orc",
+      "kind": "standard"
+    },
+    {
+      "id": "primordial",
+      "name": "Primordial",
+      "kind": "rare"
+    },
+    {
+      "id": "sylvan",
+      "name": "Sylvan",
+      "kind": "rare"
+    },
+    {
+      "id": "thieves-cant",
+      "name": "Thieves' Cant",
+      "kind": "rare"
+    },
+    {
+      "id": "undercommon",
+      "name": "Undercommon",
+      "kind": "rare"
+    }
+  ],
+  "spells": [
+    {
+      "id": "acid-splash",
+      "name": "Acid Splash",
+      "level": 0,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "alarm",
+      "name": "Alarm",
+      "level": 1,
+      "classes": [
+        "ranger",
+        "wizard"
+      ],
+      "school": "A"
+    },
+    {
+      "id": "animal-friendship",
+      "name": "Animal Friendship",
+      "level": 1,
+      "classes": [
+        "bard",
+        "druid",
+        "ranger"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "armor-of-agathys",
+      "name": "Armor of Agathys",
+      "level": 1,
+      "classes": [
+        "warlock"
+      ],
+      "school": "A"
+    },
+    {
+      "id": "arms-of-hadar",
+      "name": "Arms of Hadar",
+      "level": 1,
+      "classes": [
+        "warlock"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "bane",
+      "name": "Bane",
+      "level": 1,
+      "classes": [
+        "bard",
+        "cleric",
+        "warlock"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "blade-ward",
+      "name": "Blade Ward",
+      "level": 0,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "A"
+    },
+    {
+      "id": "bless",
+      "name": "Bless",
+      "level": 1,
+      "classes": [
+        "cleric",
+        "paladin"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "burning-hands",
+      "name": "Burning Hands",
+      "level": 1,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "charm-person",
+      "name": "Charm Person",
+      "level": 1,
+      "classes": [
+        "bard",
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "chill-touch",
+      "name": "Chill Touch",
+      "level": 0,
+      "classes": [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "N"
+    },
+    {
+      "id": "chromatic-orb",
+      "name": "Chromatic Orb",
+      "level": 1,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "color-spray",
+      "name": "Color Spray",
+      "level": 1,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "I"
+    },
+    {
+      "id": "command",
+      "name": "Command",
+      "level": 1,
+      "classes": [
+        "bard",
+        "cleric",
+        "paladin"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "compelled-duel",
+      "name": "Compelled Duel",
+      "level": 1,
+      "classes": [
+        "paladin"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "comprehend-languages",
+      "name": "Comprehend Languages",
+      "level": 1,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "D"
+    },
+    {
+      "id": "create-or-destroy-water",
+      "name": "Create or Destroy Water",
+      "level": 1,
+      "classes": [
+        "cleric",
+        "druid"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "cure-wounds",
+      "name": "Cure Wounds",
+      "level": 1,
+      "classes": [
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger"
+      ],
+      "school": "A"
+    },
+    {
+      "id": "dancing-lights",
+      "name": "Dancing Lights",
+      "level": 0,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "I"
+    },
+    {
+      "id": "detect-evil-and-good",
+      "name": "Detect Evil and Good",
+      "level": 1,
+      "classes": [
+        "cleric",
+        "paladin"
+      ],
+      "school": "D"
+    },
+    {
+      "id": "detect-magic",
+      "name": "Detect Magic",
+      "level": 1,
+      "classes": [
+        "bard",
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "D"
+    },
+    {
+      "id": "detect-poison-and-disease",
+      "name": "Detect Poison and Disease",
+      "level": 1,
+      "classes": [
+        "cleric",
+        "druid",
+        "paladin",
+        "ranger"
+      ],
+      "school": "D"
+    },
+    {
+      "id": "disguise-self",
+      "name": "Disguise Self",
+      "level": 1,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "I"
+    },
+    {
+      "id": "dissonant-whispers",
+      "name": "Dissonant Whispers",
+      "level": 1,
+      "classes": [
+        "bard"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "divine-favor",
+      "name": "Divine Favor",
+      "level": 1,
+      "classes": [
+        "paladin"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "divine-smite",
+      "name": "Divine Smite",
+      "level": 1,
+      "classes": [
+        "paladin"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "druidcraft",
+      "name": "Druidcraft",
+      "level": 0,
+      "classes": [
+        "druid"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "eldritch-blast",
+      "name": "Eldritch Blast",
+      "level": 0,
+      "classes": [
+        "warlock"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "elementalism",
+      "name": "Elementalism",
+      "level": 0,
+      "classes": [
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "ensnaring-strike",
+      "name": "Ensnaring Strike",
+      "level": 1,
+      "classes": [
+        "ranger"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "entangle",
+      "name": "Entangle",
+      "level": 1,
+      "classes": [
+        "druid",
+        "ranger"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "expeditious-retreat",
+      "name": "Expeditious Retreat",
+      "level": 1,
+      "classes": [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "faerie-fire",
+      "name": "Faerie Fire",
+      "level": 1,
+      "classes": [
+        "bard",
+        "druid"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "false-life",
+      "name": "False Life",
+      "level": 1,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "N"
+    },
+    {
+      "id": "feather-fall",
+      "name": "Feather Fall",
+      "level": 1,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "find-familiar",
+      "name": "Find Familiar",
+      "level": 1,
+      "classes": [
+        "wizard"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "fire-bolt",
+      "name": "Fire Bolt",
+      "level": 0,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "fog-cloud",
+      "name": "Fog Cloud",
+      "level": 1,
+      "classes": [
+        "druid",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "friends",
+      "name": "Friends",
+      "level": 0,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "goodberry",
+      "name": "Goodberry",
+      "level": 1,
+      "classes": [
+        "druid",
+        "ranger"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "grease",
+      "name": "Grease",
+      "level": 1,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "guidance",
+      "name": "Guidance",
+      "level": 0,
+      "classes": [
+        "cleric",
+        "druid"
+      ],
+      "school": "D"
+    },
+    {
+      "id": "guiding-bolt",
+      "name": "Guiding Bolt",
+      "level": 1,
+      "classes": [
+        "cleric"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "hail-of-thorns",
+      "name": "Hail of Thorns",
+      "level": 1,
+      "classes": [
+        "ranger"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "healing-word",
+      "name": "Healing Word",
+      "level": 1,
+      "classes": [
+        "bard",
+        "cleric",
+        "druid"
+      ],
+      "school": "A"
+    },
+    {
+      "id": "hellish-rebuke",
+      "name": "Hellish Rebuke",
+      "level": 1,
+      "classes": [
+        "warlock"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "heroism",
+      "name": "Heroism",
+      "level": 1,
+      "classes": [
+        "bard",
+        "paladin"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "hex",
+      "name": "Hex",
+      "level": 1,
+      "classes": [
+        "warlock"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "hunter-s-mark",
+      "name": "Hunter's Mark",
+      "level": 1,
+      "classes": [
+        "ranger"
+      ],
+      "school": "D"
+    },
+    {
+      "id": "ice-knife",
+      "name": "Ice Knife",
+      "level": 1,
+      "classes": [
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "identify",
+      "name": "Identify",
+      "level": 1,
+      "classes": [
+        "bard",
+        "wizard"
+      ],
+      "school": "D"
+    },
+    {
+      "id": "illusory-script",
+      "name": "Illusory Script",
+      "level": 1,
+      "classes": [
+        "bard",
+        "warlock",
+        "wizard"
+      ],
+      "school": "I"
+    },
+    {
+      "id": "inflict-wounds",
+      "name": "Inflict Wounds",
+      "level": 1,
+      "classes": [
+        "cleric"
+      ],
+      "school": "N"
+    },
+    {
+      "id": "jump",
+      "name": "Jump",
+      "level": 1,
+      "classes": [
+        "druid",
+        "ranger",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "light",
+      "name": "Light",
+      "level": 0,
+      "classes": [
+        "bard",
+        "cleric",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "longstrider",
+      "name": "Longstrider",
+      "level": 1,
+      "classes": [
+        "bard",
+        "druid",
+        "ranger",
+        "wizard"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "mage-armor",
+      "name": "Mage Armor",
+      "level": 1,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "A"
+    },
+    {
+      "id": "mage-hand",
+      "name": "Mage Hand",
+      "level": 0,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "magic-missile",
+      "name": "Magic Missile",
+      "level": 1,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "mending",
+      "name": "Mending",
+      "level": 0,
+      "classes": [
+        "bard",
+        "cleric",
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "message",
+      "name": "Message",
+      "level": 0,
+      "classes": [
+        "bard",
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "mind-sliver",
+      "name": "Mind Sliver",
+      "level": 0,
+      "classes": [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "minor-illusion",
+      "name": "Minor Illusion",
+      "level": 0,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "I"
+    },
+    {
+      "id": "poison-spray",
+      "name": "Poison Spray",
+      "level": 0,
+      "classes": [
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "N"
+    },
+    {
+      "id": "prestidigitation",
+      "name": "Prestidigitation",
+      "level": 0,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "produce-flame",
+      "name": "Produce Flame",
+      "level": 0,
+      "classes": [
+        "druid"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "protection-from-evil-and-good",
+      "name": "Protection from Evil and Good",
+      "level": 1,
+      "classes": [
+        "cleric",
+        "druid",
+        "paladin",
+        "warlock",
+        "wizard"
+      ],
+      "school": "A"
+    },
+    {
+      "id": "purify-food-and-drink",
+      "name": "Purify Food and Drink",
+      "level": 1,
+      "classes": [
+        "cleric",
+        "druid",
+        "paladin"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "ray-of-frost",
+      "name": "Ray of Frost",
+      "level": 0,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "ray-of-sickness",
+      "name": "Ray of Sickness",
+      "level": 1,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "N"
+    },
+    {
+      "id": "resistance",
+      "name": "Resistance",
+      "level": 0,
+      "classes": [
+        "cleric",
+        "druid"
+      ],
+      "school": "A"
+    },
+    {
+      "id": "sacred-flame",
+      "name": "Sacred Flame",
+      "level": 0,
+      "classes": [
+        "cleric"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "sanctuary",
+      "name": "Sanctuary",
+      "level": 1,
+      "classes": [
+        "cleric"
+      ],
+      "school": "A"
+    },
+    {
+      "id": "searing-smite",
+      "name": "Searing Smite",
+      "level": 1,
+      "classes": [
+        "paladin"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "shield",
+      "name": "Shield",
+      "level": 1,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "A"
+    },
+    {
+      "id": "shield-of-faith",
+      "name": "Shield of Faith",
+      "level": 1,
+      "classes": [
+        "cleric",
+        "paladin"
+      ],
+      "school": "A"
+    },
+    {
+      "id": "shillelagh",
+      "name": "Shillelagh",
+      "level": 0,
+      "classes": [
+        "druid"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "shocking-grasp",
+      "name": "Shocking Grasp",
+      "level": 0,
+      "classes": [
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "silent-image",
+      "name": "Silent Image",
+      "level": 1,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "I"
+    },
+    {
+      "id": "sleep",
+      "name": "Sleep",
+      "level": 1,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "sorcerous-burst",
+      "name": "Sorcerous Burst",
+      "level": 0,
+      "classes": [
+        "sorcerer"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "spare-the-dying",
+      "name": "Spare the Dying",
+      "level": 0,
+      "classes": [
+        "cleric",
+        "druid"
+      ],
+      "school": "N"
+    },
+    {
+      "id": "speak-with-animals",
+      "name": "Speak with Animals",
+      "level": 1,
+      "classes": [
+        "bard",
+        "druid",
+        "ranger",
+        "warlock"
+      ],
+      "school": "D"
+    },
+    {
+      "id": "starry-wisp",
+      "name": "Starry Wisp",
+      "level": 0,
+      "classes": [
+        "bard",
+        "druid"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "tasha-s-hideous-laughter",
+      "name": "Tasha's Hideous Laughter",
+      "level": 1,
+      "classes": [
+        "bard",
+        "warlock",
+        "wizard"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "tenser-s-floating-disk",
+      "name": "Tenser's Floating Disk",
+      "level": 1,
+      "classes": [
+        "wizard"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "thaumaturgy",
+      "name": "Thaumaturgy",
+      "level": 0,
+      "classes": [
+        "cleric"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "thorn-whip",
+      "name": "Thorn Whip",
+      "level": 0,
+      "classes": [
+        "druid"
+      ],
+      "school": "T"
+    },
+    {
+      "id": "thunderclap",
+      "name": "Thunderclap",
+      "level": 0,
+      "classes": [
+        "bard",
+        "druid",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "thunderous-smite",
+      "name": "Thunderous Smite",
+      "level": 1,
+      "classes": [
+        "paladin"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "thunderwave",
+      "name": "Thunderwave",
+      "level": 1,
+      "classes": [
+        "bard",
+        "druid",
+        "sorcerer",
+        "wizard"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "toll-the-dead",
+      "name": "Toll the Dead",
+      "level": 0,
+      "classes": [
+        "cleric",
+        "warlock",
+        "wizard"
+      ],
+      "school": "N"
+    },
+    {
+      "id": "true-strike",
+      "name": "True Strike",
+      "level": 0,
+      "classes": [
+        "bard",
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "D"
+    },
+    {
+      "id": "unseen-servant",
+      "name": "Unseen Servant",
+      "level": 1,
+      "classes": [
+        "bard",
+        "warlock",
+        "wizard"
+      ],
+      "school": "C"
+    },
+    {
+      "id": "vicious-mockery",
+      "name": "Vicious Mockery",
+      "level": 0,
+      "classes": [
+        "bard"
+      ],
+      "school": "E"
+    },
+    {
+      "id": "witch-bolt",
+      "name": "Witch Bolt",
+      "level": 1,
+      "classes": [
+        "sorcerer",
+        "warlock",
+        "wizard"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "word-of-radiance",
+      "name": "Word of Radiance",
+      "level": 0,
+      "classes": [
+        "cleric"
+      ],
+      "school": "V"
+    },
+    {
+      "id": "wrathful-smite",
+      "name": "Wrathful Smite",
+      "level": 1,
+      "classes": [
+        "paladin"
+      ],
+      "school": "N"
+    }
+  ],
+  "equipment": [
+    {
+      "id": "acid",
+      "name": "Acid",
+      "kind": "G",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "airship",
+      "name": "Airship",
+      "kind": "AIR",
+      "price": 4000000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "alchemist-s-fire",
+      "name": "Alchemist's Fire",
+      "kind": "G",
+      "price": 5000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "alchemist-s-supplies",
+      "name": "Alchemist's Supplies",
+      "kind": "AT",
+      "price": 5000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 8
+    },
+    {
+      "id": "ale-mug",
+      "name": "Ale (mug)",
+      "kind": "FD",
+      "price": 4,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "amulet",
+      "name": "Amulet",
+      "kind": "SCF",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "antitoxin",
+      "name": "Antitoxin",
+      "kind": "G",
+      "price": 5000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "arcane-focus",
+      "name": "Arcane Focus",
+      "kind": "SCF",
+      "price": null,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "arrow",
+      "name": "Arrow",
+      "kind": "A",
+      "price": 5,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 0.05
+    },
+    {
+      "id": "arrows-20",
+      "name": "Arrows (20)",
+      "kind": "A",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "artisan-s-tools",
+      "name": "Artisan's Tools",
+      "kind": "AT",
+      "price": null,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "backpack",
+      "name": "Backpack",
+      "kind": "G",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "bagpipes",
+      "name": "Bagpipes",
+      "kind": "INS",
+      "price": 3000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 6
+    },
+    {
+      "id": "ball-bearings",
+      "name": "Ball Bearings",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "barrel",
+      "name": "Barrel",
+      "kind": "G",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 70
+    },
+    {
+      "id": "basic-poison",
+      "name": "Basic Poison",
+      "kind": "G",
+      "price": 10000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "basket",
+      "name": "Basket",
+      "kind": "G",
+      "price": 40,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "battleaxe",
+      "name": "Battleaxe",
+      "kind": "M",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d8",
+      "versatileDamage": "1d10",
+      "properties": [
+        "V"
+      ],
+      "mastery": [
+        "Topple"
+      ],
+      "weightPounds": 4
+    },
+    {
+      "id": "bedroll",
+      "name": "Bedroll",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 7
+    },
+    {
+      "id": "bell",
+      "name": "Bell",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "blanket",
+      "name": "Blanket",
+      "kind": "G",
+      "price": 50,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 3
+    },
+    {
+      "id": "block-and-tackle",
+      "name": "Block and Tackle",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "blowgun",
+      "name": "Blowgun",
+      "kind": "R",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1",
+      "versatileDamage": "",
+      "properties": [
+        "A",
+        "LD"
+      ],
+      "mastery": [
+        "Vex"
+      ],
+      "weightPounds": 1
+    },
+    {
+      "id": "bolt",
+      "name": "Bolt",
+      "kind": "A",
+      "price": 5,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 0.075
+    },
+    {
+      "id": "bolts-20",
+      "name": "Bolts (20)",
+      "kind": "A",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1.5
+    },
+    {
+      "id": "book",
+      "name": "Book",
+      "kind": "G",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "bread-loaf",
+      "name": "Bread (loaf)",
+      "kind": "FD",
+      "price": 2,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "breastplate",
+      "name": "Breastplate",
+      "kind": "MA",
+      "price": 40000,
+      "armorClass": 14,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 20
+    },
+    {
+      "id": "brewer-s-supplies",
+      "name": "Brewer's Supplies",
+      "kind": "AT",
+      "price": 2000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 9
+    },
+    {
+      "id": "bucket",
+      "name": "Bucket",
+      "kind": "G",
+      "price": 5,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "bullseye-lantern",
+      "name": "Bullseye Lantern",
+      "kind": "G",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "burglar-s-pack",
+      "name": "Burglar's Pack",
+      "kind": "G",
+      "price": 1600,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 47.5
+    },
+    {
+      "id": "calligrapher-s-supplies",
+      "name": "Calligrapher's Supplies",
+      "kind": "AT",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "caltrops",
+      "name": "Caltrops",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "camel",
+      "name": "Camel",
+      "kind": "MNT",
+      "price": 5000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "candle",
+      "name": "Candle",
+      "kind": "G",
+      "price": 1,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "carpenter-s-tools",
+      "name": "Carpenter's Tools",
+      "kind": "AT",
+      "price": 800,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 6
+    },
+    {
+      "id": "carriage",
+      "name": "Carriage",
+      "kind": "VEH",
+      "price": 10000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 600
+    },
+    {
+      "id": "cart",
+      "name": "Cart",
+      "kind": "VEH",
+      "price": 1500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 200
+    },
+    {
+      "id": "cartographer-s-tools",
+      "name": "Cartographer's Tools",
+      "kind": "AT",
+      "price": 1500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 6
+    },
+    {
+      "id": "chain",
+      "name": "Chain",
+      "kind": "G",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 10
+    },
+    {
+      "id": "chain-mail",
+      "name": "Chain Mail",
+      "kind": "HA",
+      "price": 7500,
+      "armorClass": 16,
+      "strength": "13",
+      "stealthDisadvantage": true,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 55
+    },
+    {
+      "id": "chain-shirt",
+      "name": "Chain Shirt",
+      "kind": "MA",
+      "price": 5000,
+      "armorClass": 13,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 20
+    },
+    {
+      "id": "chariot",
+      "name": "Chariot",
+      "kind": "VEH",
+      "price": 25000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 100
+    },
+    {
+      "id": "cheese-wedge",
+      "name": "Cheese (wedge)",
+      "kind": "FD",
+      "price": 10,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "chest",
+      "name": "Chest",
+      "kind": "G",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 25
+    },
+    {
+      "id": "climber-s-kit",
+      "name": "Climber's Kit",
+      "kind": "G",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 12
+    },
+    {
+      "id": "club",
+      "name": "Club",
+      "kind": "M",
+      "price": 10,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d4",
+      "versatileDamage": "",
+      "properties": [
+        "L"
+      ],
+      "mastery": [
+        "Slow"
+      ],
+      "weightPounds": 2
+    },
+    {
+      "id": "cobbler-s-tools",
+      "name": "Cobbler's Tools",
+      "kind": "AT",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "common-wine-bottle",
+      "name": "Common Wine (bottle)",
+      "kind": "FD",
+      "price": 20,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "component-pouch",
+      "name": "Component Pouch",
+      "kind": "G",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "cook-s-utensils",
+      "name": "Cook's Utensils",
+      "kind": "AT",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 8
+    },
+    {
+      "id": "costume",
+      "name": "Costume",
+      "kind": "G",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 4
+    },
+    {
+      "id": "crossbow-bolt-case",
+      "name": "Crossbow Bolt Case",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "crowbar",
+      "name": "Crowbar",
+      "kind": "G",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "crystal",
+      "name": "Crystal",
+      "kind": "SCF",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "dagger",
+      "name": "Dagger",
+      "kind": "M",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d4",
+      "versatileDamage": "",
+      "properties": [
+        "F",
+        "L",
+        "T"
+      ],
+      "mastery": [
+        "Nick"
+      ],
+      "weightPounds": 1
+    },
+    {
+      "id": "dart",
+      "name": "Dart",
+      "kind": "R",
+      "price": 5,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d4",
+      "versatileDamage": "",
+      "properties": [
+        "F",
+        "T"
+      ],
+      "mastery": [
+        "Vex"
+      ],
+      "weightPounds": 0.25
+    },
+    {
+      "id": "dice-set",
+      "name": "Dice Set",
+      "kind": "GS",
+      "price": 10,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "diplomat-s-pack",
+      "name": "Diplomat's Pack",
+      "kind": "G",
+      "price": 3900,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 39
+    },
+    {
+      "id": "disguise-kit",
+      "name": "Disguise Kit",
+      "kind": "T",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 3
+    },
+    {
+      "id": "draft-horse",
+      "name": "Draft Horse",
+      "kind": "MNT",
+      "price": 5000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "dragonchess-set",
+      "name": "Dragonchess Set",
+      "kind": "GS",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "druidic-focus",
+      "name": "Druidic Focus",
+      "kind": "SCF",
+      "price": null,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "drum",
+      "name": "Drum",
+      "kind": "INS",
+      "price": 600,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 3
+    },
+    {
+      "id": "dulcimer",
+      "name": "Dulcimer",
+      "kind": "INS",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 10
+    },
+    {
+      "id": "dungeoneer-s-pack",
+      "name": "Dungeoneer's Pack",
+      "kind": "G",
+      "price": 1200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 55
+    },
+    {
+      "id": "elephant",
+      "name": "Elephant",
+      "kind": "MNT",
+      "price": 20000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "emblem",
+      "name": "Emblem",
+      "kind": "SCF",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "entertainer-s-pack",
+      "name": "Entertainer's Pack",
+      "kind": "G",
+      "price": 4000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 58.5
+    },
+    {
+      "id": "exotic-saddle",
+      "name": "Exotic Saddle",
+      "kind": "TAH",
+      "price": 6000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 40
+    },
+    {
+      "id": "explorer-s-pack",
+      "name": "Explorer's Pack",
+      "kind": "G",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 55
+    },
+    {
+      "id": "feed-per-day",
+      "name": "Feed (per day)",
+      "kind": "TAH",
+      "price": 5,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 10
+    },
+    {
+      "id": "fine-clothes",
+      "name": "Fine Clothes",
+      "kind": "G",
+      "price": 1500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 6
+    },
+    {
+      "id": "fine-wine-bottle",
+      "name": "Fine Wine (bottle)",
+      "kind": "FD",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "firearm-bullet",
+      "name": "Firearm Bullet",
+      "kind": "A",
+      "price": 30,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 0.2
+    },
+    {
+      "id": "firearm-bullets-10",
+      "name": "Firearm Bullets (10)",
+      "kind": "A",
+      "price": 300,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "flail",
+      "name": "Flail",
+      "kind": "M",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d8",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [
+        "Sap"
+      ],
+      "weightPounds": 2
+    },
+    {
+      "id": "flask",
+      "name": "Flask",
+      "kind": "G",
+      "price": 2,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "flute",
+      "name": "Flute",
+      "kind": "INS",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "forgery-kit",
+      "name": "Forgery Kit",
+      "kind": "T",
+      "price": 1500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "galley",
+      "name": "Galley",
+      "kind": "SHP",
+      "price": 3000000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "gaming-set",
+      "name": "Gaming Set",
+      "kind": "GS",
+      "price": null,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "glaive",
+      "name": "Glaive",
+      "kind": "M",
+      "price": 2000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d10",
+      "versatileDamage": "",
+      "properties": [
+        "H",
+        "R",
+        "2H"
+      ],
+      "mastery": [
+        "Graze"
+      ],
+      "weightPounds": 6
+    },
+    {
+      "id": "glass-bottle",
+      "name": "Glass Bottle",
+      "kind": "G",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "glassblower-s-tools",
+      "name": "Glassblower's Tools",
+      "kind": "AT",
+      "price": 3000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "grappling-hook",
+      "name": "Grappling Hook",
+      "kind": "G",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 4
+    },
+    {
+      "id": "greataxe",
+      "name": "Greataxe",
+      "kind": "M",
+      "price": 3000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d12",
+      "versatileDamage": "",
+      "properties": [
+        "H",
+        "2H"
+      ],
+      "mastery": [
+        "Cleave"
+      ],
+      "weightPounds": 7
+    },
+    {
+      "id": "greatclub",
+      "name": "Greatclub",
+      "kind": "M",
+      "price": 20,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d8",
+      "versatileDamage": "",
+      "properties": [
+        "2H"
+      ],
+      "mastery": [
+        "Push"
+      ],
+      "weightPounds": 10
+    },
+    {
+      "id": "greatsword",
+      "name": "Greatsword",
+      "kind": "M",
+      "price": 5000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "2d6",
+      "versatileDamage": "",
+      "properties": [
+        "H",
+        "2H"
+      ],
+      "mastery": [
+        "Graze"
+      ],
+      "weightPounds": 6
+    },
+    {
+      "id": "halberd",
+      "name": "Halberd",
+      "kind": "M",
+      "price": 2000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d10",
+      "versatileDamage": "",
+      "properties": [
+        "H",
+        "R",
+        "2H"
+      ],
+      "mastery": [
+        "Cleave"
+      ],
+      "weightPounds": 6
+    },
+    {
+      "id": "half-plate-armor",
+      "name": "Half Plate Armor",
+      "kind": "MA",
+      "price": 75000,
+      "armorClass": 15,
+      "strength": 0,
+      "stealthDisadvantage": true,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 40
+    },
+    {
+      "id": "hand-crossbow",
+      "name": "Hand Crossbow",
+      "kind": "R",
+      "price": 7500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d6",
+      "versatileDamage": "",
+      "properties": [
+        "A",
+        "L",
+        "LD"
+      ],
+      "mastery": [
+        "Vex"
+      ],
+      "weightPounds": 3
+    },
+    {
+      "id": "handaxe",
+      "name": "Handaxe",
+      "kind": "M",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d6",
+      "versatileDamage": "",
+      "properties": [
+        "L",
+        "T"
+      ],
+      "mastery": [
+        "Vex"
+      ],
+      "weightPounds": 2
+    },
+    {
+      "id": "healer-s-kit",
+      "name": "Healer's Kit",
+      "kind": "G",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 3
+    },
+    {
+      "id": "heavy-crossbow",
+      "name": "Heavy Crossbow",
+      "kind": "R",
+      "price": 5000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d10",
+      "versatileDamage": "",
+      "properties": [
+        "A",
+        "H",
+        "LD",
+        "2H"
+      ],
+      "mastery": [
+        "Push"
+      ],
+      "weightPounds": 18
+    },
+    {
+      "id": "herbalism-kit",
+      "name": "Herbalism Kit",
+      "kind": "T",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 3
+    },
+    {
+      "id": "hide-armor",
+      "name": "Hide Armor",
+      "kind": "MA",
+      "price": 1000,
+      "armorClass": 12,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 12
+    },
+    {
+      "id": "holy-symbol",
+      "name": "Holy Symbol",
+      "kind": "SCF",
+      "price": null,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "holy-water",
+      "name": "Holy Water",
+      "kind": "G",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "hooded-lantern",
+      "name": "Hooded Lantern",
+      "kind": "G",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "horn",
+      "name": "Horn",
+      "kind": "INS",
+      "price": 300,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "hunting-trap",
+      "name": "Hunting Trap",
+      "kind": "G",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 25
+    },
+    {
+      "id": "ink",
+      "name": "Ink",
+      "kind": "G",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "ink-pen",
+      "name": "Ink Pen",
+      "kind": "G",
+      "price": 2,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "iron-pot",
+      "name": "Iron Pot",
+      "kind": "G",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 10
+    },
+    {
+      "id": "iron-spike",
+      "name": "Iron Spike",
+      "kind": "G",
+      "price": 10,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 0.5
+    },
+    {
+      "id": "iron-spikes",
+      "name": "Iron Spikes",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "javelin",
+      "name": "Javelin",
+      "kind": "M",
+      "price": 50,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d6",
+      "versatileDamage": "",
+      "properties": [
+        "T"
+      ],
+      "mastery": [
+        "Slow"
+      ],
+      "weightPounds": 2
+    },
+    {
+      "id": "jeweler-s-tools",
+      "name": "Jeweler's Tools",
+      "kind": "AT",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "jug",
+      "name": "Jug",
+      "kind": "G",
+      "price": 2,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 4
+    },
+    {
+      "id": "keelboat",
+      "name": "Keelboat",
+      "kind": "SHP",
+      "price": 300000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "ladder",
+      "name": "Ladder",
+      "kind": "G",
+      "price": 10,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 25
+    },
+    {
+      "id": "lamp",
+      "name": "Lamp",
+      "kind": "G",
+      "price": 50,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "lance",
+      "name": "Lance",
+      "kind": "M",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d10",
+      "versatileDamage": "",
+      "properties": [
+        "H",
+        "R",
+        "2H"
+      ],
+      "mastery": [
+        "Topple"
+      ],
+      "weightPounds": 6
+    },
+    {
+      "id": "leather-armor",
+      "name": "Leather Armor",
+      "kind": "LA",
+      "price": 1000,
+      "armorClass": 11,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 10
+    },
+    {
+      "id": "leatherworker-s-tools",
+      "name": "Leatherworker's Tools",
+      "kind": "AT",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "light-crossbow",
+      "name": "Light Crossbow",
+      "kind": "R",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d8",
+      "versatileDamage": "",
+      "properties": [
+        "A",
+        "LD",
+        "2H"
+      ],
+      "mastery": [
+        "Slow"
+      ],
+      "weightPounds": 5
+    },
+    {
+      "id": "light-hammer",
+      "name": "Light Hammer",
+      "kind": "M",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d4",
+      "versatileDamage": "",
+      "properties": [
+        "L",
+        "T"
+      ],
+      "mastery": [
+        "Nick"
+      ],
+      "weightPounds": 2
+    },
+    {
+      "id": "lock",
+      "name": "Lock",
+      "kind": "G",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "longbow",
+      "name": "Longbow",
+      "kind": "R",
+      "price": 5000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d8",
+      "versatileDamage": "",
+      "properties": [
+        "A",
+        "H",
+        "2H"
+      ],
+      "mastery": [
+        "Slow"
+      ],
+      "weightPounds": 2
+    },
+    {
+      "id": "longship",
+      "name": "Longship",
+      "kind": "SHP",
+      "price": 1000000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "longsword",
+      "name": "Longsword",
+      "kind": "M",
+      "price": 1500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d8",
+      "versatileDamage": "1d10",
+      "properties": [
+        "V"
+      ],
+      "mastery": [
+        "Sap"
+      ],
+      "weightPounds": 3
+    },
+    {
+      "id": "lute",
+      "name": "Lute",
+      "kind": "INS",
+      "price": 3500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "lyre",
+      "name": "Lyre",
+      "kind": "INS",
+      "price": 3000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "mace",
+      "name": "Mace",
+      "kind": "M",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d6",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [
+        "Sap"
+      ],
+      "weightPounds": 4
+    },
+    {
+      "id": "magnifying-glass",
+      "name": "Magnifying Glass",
+      "kind": "G",
+      "price": 10000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "manacles",
+      "name": "Manacles",
+      "kind": "G",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 6
+    },
+    {
+      "id": "map",
+      "name": "Map",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "map-or-scroll-case",
+      "name": "Map or Scroll Case",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "mason-s-tools",
+      "name": "Mason's Tools",
+      "kind": "AT",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 8
+    },
+    {
+      "id": "mastiff",
+      "name": "Mastiff",
+      "kind": "MNT",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "maul",
+      "name": "Maul",
+      "kind": "M",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "2d6",
+      "versatileDamage": "",
+      "properties": [
+        "H",
+        "2H"
+      ],
+      "mastery": [
+        "Topple"
+      ],
+      "weightPounds": 10
+    },
+    {
+      "id": "military-saddle",
+      "name": "Military Saddle",
+      "kind": "TAH",
+      "price": 2000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 30
+    },
+    {
+      "id": "mirror",
+      "name": "Mirror",
+      "kind": "G",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 0.5
+    },
+    {
+      "id": "morningstar",
+      "name": "Morningstar",
+      "kind": "M",
+      "price": 1500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d8",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [
+        "Sap"
+      ],
+      "weightPounds": 4
+    },
+    {
+      "id": "mule",
+      "name": "Mule",
+      "kind": "MNT",
+      "price": 800,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "musical-instrument",
+      "name": "Musical Instrument",
+      "kind": "INS",
+      "price": null,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "musket",
+      "name": "Musket",
+      "kind": "R",
+      "price": 50000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d12",
+      "versatileDamage": "",
+      "properties": [
+        "A",
+        "LD",
+        "2H"
+      ],
+      "mastery": [
+        "Slow"
+      ],
+      "weightPounds": 10
+    },
+    {
+      "id": "navigator-s-tools",
+      "name": "Navigator's Tools",
+      "kind": "T",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "needle",
+      "name": "Needle",
+      "kind": "A",
+      "price": 2,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 0.02
+    },
+    {
+      "id": "needles-50",
+      "name": "Needles (50)",
+      "kind": "A",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "net",
+      "name": "Net",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 3
+    },
+    {
+      "id": "oil",
+      "name": "Oil",
+      "kind": "G",
+      "price": 10,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "orb",
+      "name": "Orb",
+      "kind": "SCF",
+      "price": 2000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 3
+    },
+    {
+      "id": "padded-armor",
+      "name": "Padded Armor",
+      "kind": "LA",
+      "price": 500,
+      "armorClass": 11,
+      "strength": 0,
+      "stealthDisadvantage": true,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 8
+    },
+    {
+      "id": "painter-s-supplies",
+      "name": "Painter's Supplies",
+      "kind": "AT",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "pan-flute",
+      "name": "Pan Flute",
+      "kind": "INS",
+      "price": 1200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "paper",
+      "name": "Paper",
+      "kind": "G",
+      "price": 20,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "parchment",
+      "name": "Parchment",
+      "kind": "G",
+      "price": 10,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "perfume",
+      "name": "Perfume",
+      "kind": "G",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "pike",
+      "name": "Pike",
+      "kind": "M",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d10",
+      "versatileDamage": "",
+      "properties": [
+        "H",
+        "R",
+        "2H"
+      ],
+      "mastery": [
+        "Push"
+      ],
+      "weightPounds": 18
+    },
+    {
+      "id": "pistol",
+      "name": "Pistol",
+      "kind": "R",
+      "price": 25000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d10",
+      "versatileDamage": "",
+      "properties": [
+        "A",
+        "LD"
+      ],
+      "mastery": [
+        "Vex"
+      ],
+      "weightPounds": 3
+    },
+    {
+      "id": "plate-armor",
+      "name": "Plate Armor",
+      "kind": "HA",
+      "price": 150000,
+      "armorClass": 18,
+      "strength": "15",
+      "stealthDisadvantage": true,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 65
+    },
+    {
+      "id": "playing-cards",
+      "name": "Playing Cards",
+      "kind": "GS",
+      "price": 50,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "poisoner-s-kit",
+      "name": "Poisoner's Kit",
+      "kind": "T",
+      "price": 5000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "pole",
+      "name": "Pole",
+      "kind": "G",
+      "price": 5,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 7
+    },
+    {
+      "id": "pony",
+      "name": "Pony",
+      "kind": "MNT",
+      "price": 3000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "portable-ram",
+      "name": "Portable Ram",
+      "kind": "G",
+      "price": 400,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 35
+    },
+    {
+      "id": "potter-s-tools",
+      "name": "Potter's Tools",
+      "kind": "AT",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 3
+    },
+    {
+      "id": "pouch",
+      "name": "Pouch",
+      "kind": "G",
+      "price": 50,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "priest-s-pack",
+      "name": "Priest's Pack",
+      "kind": "G",
+      "price": 3300,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 29
+    },
+    {
+      "id": "psychic-blade",
+      "name": "Psychic Blade",
+      "kind": "M",
+      "price": null,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d6",
+      "versatileDamage": "",
+      "properties": [
+        "F",
+        "T"
+      ],
+      "mastery": [
+        "Vex"
+      ],
+      "weightPounds": null
+    },
+    {
+      "id": "quarterstaff",
+      "name": "Quarterstaff",
+      "kind": "M",
+      "price": 20,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d6",
+      "versatileDamage": "1d8",
+      "properties": [
+        "V"
+      ],
+      "mastery": [
+        "Topple"
+      ],
+      "weightPounds": 4
+    },
+    {
+      "id": "quiver",
+      "name": "Quiver",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "rapier",
+      "name": "Rapier",
+      "kind": "M",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d8",
+      "versatileDamage": "",
+      "properties": [
+        "F"
+      ],
+      "mastery": [
+        "Vex"
+      ],
+      "weightPounds": 2
+    },
+    {
+      "id": "rations",
+      "name": "Rations",
+      "kind": "G",
+      "price": 50,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "reliquary",
+      "name": "Reliquary",
+      "kind": "SCF",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "riding-horse",
+      "name": "Riding Horse",
+      "kind": "MNT",
+      "price": 7500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "riding-saddle",
+      "name": "Riding Saddle",
+      "kind": "TAH",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 25
+    },
+    {
+      "id": "ring-mail",
+      "name": "Ring Mail",
+      "kind": "HA",
+      "price": 3000,
+      "armorClass": 14,
+      "strength": 0,
+      "stealthDisadvantage": true,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 40
+    },
+    {
+      "id": "robe",
+      "name": "Robe",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 4
+    },
+    {
+      "id": "rod",
+      "name": "Rod",
+      "kind": "SCF",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 2
+    },
+    {
+      "id": "rope",
+      "name": "Rope",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "rowboat",
+      "name": "Rowboat",
+      "kind": "SHP",
+      "price": 5000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 100
+    },
+    {
+      "id": "sack",
+      "name": "Sack",
+      "kind": "G",
+      "price": 1,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 0.5
+    },
+    {
+      "id": "sailing-ship",
+      "name": "Sailing Ship",
+      "kind": "SHP",
+      "price": 1000000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "scale-mail",
+      "name": "Scale Mail",
+      "kind": "MA",
+      "price": 5000,
+      "armorClass": 14,
+      "strength": 0,
+      "stealthDisadvantage": true,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 45
+    },
+    {
+      "id": "scholar-s-pack",
+      "name": "Scholar's Pack",
+      "kind": "G",
+      "price": 4000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 22
+    },
+    {
+      "id": "scimitar",
+      "name": "Scimitar",
+      "kind": "M",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d6",
+      "versatileDamage": "",
+      "properties": [
+        "F",
+        "L"
+      ],
+      "mastery": [
+        "Nick"
+      ],
+      "weightPounds": 3
+    },
+    {
+      "id": "shawm",
+      "name": "Shawm",
+      "kind": "INS",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "shield",
+      "name": "Shield",
+      "kind": "S",
+      "price": 1000,
+      "armorClass": 2,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 6
+    },
+    {
+      "id": "shortbow",
+      "name": "Shortbow",
+      "kind": "R",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d6",
+      "versatileDamage": "",
+      "properties": [
+        "A",
+        "2H"
+      ],
+      "mastery": [
+        "Vex"
+      ],
+      "weightPounds": 2
+    },
+    {
+      "id": "shortsword",
+      "name": "Shortsword",
+      "kind": "M",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d6",
+      "versatileDamage": "",
+      "properties": [
+        "F",
+        "L"
+      ],
+      "mastery": [
+        "Vex"
+      ],
+      "weightPounds": 2
+    },
+    {
+      "id": "shovel",
+      "name": "Shovel",
+      "kind": "G",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "sickle",
+      "name": "Sickle",
+      "kind": "M",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d4",
+      "versatileDamage": "",
+      "properties": [
+        "L"
+      ],
+      "mastery": [
+        "Nick"
+      ],
+      "weightPounds": 2
+    },
+    {
+      "id": "signal-whistle",
+      "name": "Signal Whistle",
+      "kind": "G",
+      "price": 5,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "sled",
+      "name": "Sled",
+      "kind": "VEH",
+      "price": 2000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 300
+    },
+    {
+      "id": "sling",
+      "name": "Sling",
+      "kind": "R",
+      "price": 10,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d4",
+      "versatileDamage": "",
+      "properties": [
+        "A"
+      ],
+      "mastery": [
+        "Slow"
+      ],
+      "weightPounds": null
+    },
+    {
+      "id": "sling-bullet",
+      "name": "Sling Bullet",
+      "kind": "A",
+      "price": null,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 0.075
+    },
+    {
+      "id": "sling-bullets-20",
+      "name": "Sling Bullets (20)",
+      "kind": "A",
+      "price": 4,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1.5
+    },
+    {
+      "id": "smith-s-tools",
+      "name": "Smith's Tools",
+      "kind": "AT",
+      "price": 2000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 8
+    },
+    {
+      "id": "spear",
+      "name": "Spear",
+      "kind": "M",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d6",
+      "versatileDamage": "1d8",
+      "properties": [
+        "T",
+        "V"
+      ],
+      "mastery": [
+        "Sap"
+      ],
+      "weightPounds": 3
+    },
+    {
+      "id": "spellbook",
+      "name": "Spellbook",
+      "kind": "G",
+      "price": null,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "splint-armor",
+      "name": "Splint Armor",
+      "kind": "HA",
+      "price": 20000,
+      "armorClass": 17,
+      "strength": "15",
+      "stealthDisadvantage": true,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 60
+    },
+    {
+      "id": "sprig-of-mistletoe",
+      "name": "Sprig of Mistletoe",
+      "kind": "SCF",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "spyglass",
+      "name": "Spyglass",
+      "kind": "G",
+      "price": 100000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "stabling-per-day",
+      "name": "Stabling (per day)",
+      "kind": "TAH",
+      "price": 5,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "staff",
+      "name": "Staff",
+      "kind": "SCF",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d6",
+      "versatileDamage": "1d8",
+      "properties": [
+        "V"
+      ],
+      "mastery": [
+        "Topple"
+      ],
+      "weightPounds": 4
+    },
+    {
+      "id": "string",
+      "name": "String",
+      "kind": "G",
+      "price": 10,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "studded-leather-armor",
+      "name": "Studded Leather Armor",
+      "kind": "LA",
+      "price": 4500,
+      "armorClass": 12,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 13
+    },
+    {
+      "id": "tent",
+      "name": "Tent",
+      "kind": "G",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 20
+    },
+    {
+      "id": "thieves-tools",
+      "name": "Thieves' Tools",
+      "kind": "T",
+      "price": 2500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "three-dragon-ante-set",
+      "name": "Three-Dragon Ante Set",
+      "kind": "GS",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "tinderbox",
+      "name": "Tinderbox",
+      "kind": "G",
+      "price": 50,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "tinker-s-tools",
+      "name": "Tinker's Tools",
+      "kind": "AT",
+      "price": 5000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 10
+    },
+    {
+      "id": "torch",
+      "name": "Torch",
+      "kind": "G",
+      "price": 1,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "traveler-s-clothes",
+      "name": "Traveler's Clothes",
+      "kind": "G",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 4
+    },
+    {
+      "id": "trident",
+      "name": "Trident",
+      "kind": "M",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d8",
+      "versatileDamage": "1d10",
+      "properties": [
+        "T",
+        "V"
+      ],
+      "mastery": [
+        "Topple"
+      ],
+      "weightPounds": 4
+    },
+    {
+      "id": "trinket",
+      "name": "Trinket",
+      "kind": "G",
+      "price": null,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "vial",
+      "name": "Vial",
+      "kind": "G",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "viol",
+      "name": "Viol",
+      "kind": "INS",
+      "price": 3000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "wagon",
+      "name": "Wagon",
+      "kind": "VEH",
+      "price": 3500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 400
+    },
+    {
+      "id": "wand",
+      "name": "Wand",
+      "kind": "SCF",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    },
+    {
+      "id": "war-pick",
+      "name": "War Pick",
+      "kind": "M",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d8",
+      "versatileDamage": "1d10",
+      "properties": [
+        "V"
+      ],
+      "mastery": [
+        "Sap"
+      ],
+      "weightPounds": 2
+    },
+    {
+      "id": "warhammer",
+      "name": "Warhammer",
+      "kind": "M",
+      "price": 1500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d8",
+      "versatileDamage": "1d10",
+      "properties": [
+        "V"
+      ],
+      "mastery": [
+        "Push"
+      ],
+      "weightPounds": 5
+    },
+    {
+      "id": "warhorse",
+      "name": "Warhorse",
+      "kind": "MNT",
+      "price": 40000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "warship",
+      "name": "Warship",
+      "kind": "SHP",
+      "price": 2500000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": null
+    },
+    {
+      "id": "waterskin",
+      "name": "Waterskin",
+      "kind": "G",
+      "price": 20,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "weaver-s-tools",
+      "name": "Weaver's Tools",
+      "kind": "AT",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "whip",
+      "name": "Whip",
+      "kind": "M",
+      "price": 200,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "martial",
+      "damage": "1d4",
+      "versatileDamage": "",
+      "properties": [
+        "F",
+        "R"
+      ],
+      "mastery": [
+        "Slow"
+      ],
+      "weightPounds": 3
+    },
+    {
+      "id": "woodcarver-s-tools",
+      "name": "Woodcarver's Tools",
+      "kind": "AT",
+      "price": 100,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 5
+    },
+    {
+      "id": "wooden-staff",
+      "name": "Wooden Staff",
+      "kind": "SCF",
+      "price": 500,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "simple",
+      "damage": "1d6",
+      "versatileDamage": "1d8",
+      "properties": [
+        "V"
+      ],
+      "mastery": [
+        "Topple"
+      ],
+      "weightPounds": 4
+    },
+    {
+      "id": "yew-wand",
+      "name": "Yew Wand",
+      "kind": "SCF",
+      "price": 1000,
+      "armorClass": 0,
+      "strength": 0,
+      "stealthDisadvantage": false,
+      "weaponCategory": "",
+      "damage": "",
+      "versatileDamage": "",
+      "properties": [],
+      "mastery": [],
+      "weightPounds": 1
+    }
+  ],
+  "alignments": [
+    {
+      "id": "lawful-good",
+      "label": "守序善良",
+      "description": ""
+    },
+    {
+      "id": "neutral-good",
+      "label": "中立善良",
+      "description": ""
+    },
+    {
+      "id": "chaotic-good",
+      "label": "混乱善良",
+      "description": ""
+    },
+    {
+      "id": "lawful-neutral",
+      "label": "守序中立",
+      "description": ""
+    },
+    {
+      "id": "neutral",
+      "label": "绝对中立",
+      "description": ""
+    },
+    {
+      "id": "chaotic-neutral",
+      "label": "混乱中立",
+      "description": ""
+    },
+    {
+      "id": "lawful-evil",
+      "label": "守序邪恶",
+      "description": ""
+    },
+    {
+      "id": "neutral-evil",
+      "label": "中立邪恶",
+      "description": ""
+    },
+    {
+      "id": "chaotic-evil",
+      "label": "混乱邪恶",
+      "description": ""
+    }
+  ]
+}

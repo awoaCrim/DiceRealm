@@ -1,0 +1,42 @@
+# Reference material stays local and untouched.
+.reference/
+old.zip
+# User-maintained full rule sources/translations stay local; no redistribution grant.
+local-rules/
+NUL
+**/bin/
+**/obj/
+**/.venv/
+**/node_modules/
+**/__pycache__/
+**/cache/
+**/logs/
+.env
+.env.*
+!.env.example
+.local/
+artifacts/
+server/**/data/
+client-unity/[Ll]ibrary/
+client-unity/[Tt]emp/
+client-unity/[Oo]bj/
+client-unity/[Bb]uild*/
+client-unity/[Ll]ogs/
+client-unity/[Uu]ser[Ss]ettings/
+client-unity/MemoryCaptures/
+client-unity/Assets/Temp/
+client-unity/Assets/Temp.meta
+artifacts-rules.log
+client-unity/*.csproj
+client-unity/*.sln*
+.vs/
+.idea/
+.DS_Store
+
+# 美术图按需本地保留：BG3 素材仅限本机私用，生成图受供应商条款约束。
+# 界面布局/样式/prefab/着色器与 OFL 字体入库，否则版本库里的 Unity 工程不完整。
+client-unity/Assets/Resources/Art/
+client-unity/Assets/Resources/Art.meta
+client-unity/Assets/Resources/UI/Art/
+client-unity/Assets/Resources/UI/Art.meta
+client-unity/DesignPrototype/scene.png

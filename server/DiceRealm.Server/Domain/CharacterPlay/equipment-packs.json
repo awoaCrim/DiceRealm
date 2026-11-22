@@ -1,0 +1,428 @@
+[
+  {
+    "rulesId": "equipment:xphb:burglar-s-pack",
+    "name": "Burglar's Pack",
+    "contents": [
+      {
+        "id": "backpack",
+        "name": "Backpack",
+        "rulesId": "equipment:xphb:backpack",
+        "quantity": 1
+      },
+      {
+        "id": "ball-bearings",
+        "name": "Ball Bearings",
+        "rulesId": "equipment:xphb:ball-bearings",
+        "quantity": 1
+      },
+      {
+        "id": "bell",
+        "name": "Bell",
+        "rulesId": "equipment:xphb:bell",
+        "quantity": 1
+      },
+      {
+        "id": "candle",
+        "name": "Candle",
+        "rulesId": "equipment:xphb:candle",
+        "quantity": 10
+      },
+      {
+        "id": "crowbar",
+        "name": "Crowbar",
+        "rulesId": "equipment:xphb:crowbar",
+        "quantity": 1
+      },
+      {
+        "id": "hooded-lantern",
+        "name": "Hooded Lantern",
+        "rulesId": "equipment:xphb:hooded-lantern",
+        "quantity": 1
+      },
+      {
+        "id": "oil",
+        "name": "Oil",
+        "rulesId": "equipment:xphb:oil",
+        "quantity": 7
+      },
+      {
+        "id": "rations",
+        "name": "Rations",
+        "rulesId": "equipment:xphb:rations",
+        "quantity": 5
+      },
+      {
+        "id": "rope",
+        "name": "Rope",
+        "rulesId": "equipment:xphb:rope",
+        "quantity": 1
+      },
+      {
+        "id": "tinderbox",
+        "name": "Tinderbox",
+        "rulesId": "equipment:xphb:tinderbox",
+        "quantity": 1
+      },
+      {
+        "id": "waterskin",
+        "name": "Waterskin",
+        "rulesId": "equipment:xphb:waterskin",
+        "quantity": 1
+      }
+    ]
+  },
+  {
+    "rulesId": "equipment:xphb:diplomat-s-pack",
+    "name": "Diplomat's Pack",
+    "contents": [
+      {
+        "id": "chest",
+        "name": "Chest",
+        "rulesId": "equipment:xphb:chest",
+        "quantity": 1
+      },
+      {
+        "id": "fine-clothes",
+        "name": "Fine Clothes",
+        "rulesId": "equipment:xphb:fine-clothes",
+        "quantity": 1
+      },
+      {
+        "id": "ink",
+        "name": "Ink",
+        "rulesId": "equipment:xphb:ink",
+        "quantity": 1
+      },
+      {
+        "id": "ink-pen",
+        "name": "Ink Pen",
+        "rulesId": "equipment:xphb:ink-pen",
+        "quantity": 5
+      },
+      {
+        "id": "lamp",
+        "name": "Lamp",
+        "rulesId": "equipment:xphb:lamp",
+        "quantity": 1
+      },
+      {
+        "id": "map-or-scroll-case",
+        "name": "Map or Scroll Case",
+        "rulesId": "equipment:xphb:map-or-scroll-case",
+        "quantity": 2
+      },
+      {
+        "id": "oil",
+        "name": "Oil",
+        "rulesId": "equipment:xphb:oil",
+        "quantity": 4
+      },
+      {
+        "id": "paper",
+        "name": "Paper",
+        "rulesId": "equipment:xphb:paper",
+        "quantity": 5
+      },
+      {
+        "id": "parchment",
+        "name": "Parchment",
+        "rulesId": "equipment:xphb:parchment",
+        "quantity": 5
+      },
+      {
+        "id": "perfume",
+        "name": "Perfume",
+        "rulesId": "equipment:xphb:perfume",
+        "quantity": 1
+      },
+      {
+        "id": "tinderbox",
+        "name": "Tinderbox",
+        "rulesId": "equipment:xphb:tinderbox",
+        "quantity": 1
+      }
+    ]
+  },
+  {
+    "rulesId": "equipment:xphb:dungeoneer-s-pack",
+    "name": "Dungeoneer's Pack",
+    "contents": [
+      {
+        "id": "backpack",
+        "name": "Backpack",
+        "rulesId": "equipment:xphb:backpack",
+        "quantity": 1
+      },
+      {
+        "id": "caltrops",
+        "name": "Caltrops",
+        "rulesId": "equipment:xphb:caltrops",
+        "quantity": 1
+      },
+      {
+        "id": "crowbar",
+        "name": "Crowbar",
+        "rulesId": "equipment:xphb:crowbar",
+        "quantity": 1
+      },
+      {
+        "id": "oil",
+        "name": "Oil",
+        "rulesId": "equipment:xphb:oil",
+        "quantity": 2
+      },
+      {
+        "id": "rations",
+        "name": "Rations",
+        "rulesId": "equipment:xphb:rations",
+        "quantity": 10
+      },
+      {
+        "id": "rope",
+        "name": "Rope",
+        "rulesId": "equipment:xphb:rope",
+        "quantity": 1
+      },
+      {
+        "id": "tinderbox",
+        "name": "Tinderbox",
+        "rulesId": "equipment:xphb:tinderbox",
+        "quantity": 1
+      },
+      {
+        "id": "torch",
+        "name": "Torch",
+        "rulesId": "equipment:xphb:torch",
+        "quantity": 10
+      },
+      {
+        "id": "waterskin",
+        "name": "Waterskin",
+        "rulesId": "equipment:xphb:waterskin",
+        "quantity": 1
+      }
+    ]
+  },
+  {
+    "rulesId": "equipment:xphb:entertainer-s-pack",
+    "name": "Entertainer's Pack",
+    "contents": [
+      {
+        "id": "backpack",
+        "name": "Backpack",
+        "rulesId": "equipment:xphb:backpack",
+        "quantity": 1
+      },
+      {
+        "id": "bedroll",
+        "name": "Bedroll",
+        "rulesId": "equipment:xphb:bedroll",
+        "quantity": 1
+      },
+      {
+        "id": "bell",
+        "name": "Bell",
+        "rulesId": "equipment:xphb:bell",
+        "quantity": 1
+      },
+      {
+        "id": "bullseye-lantern",
+        "name": "Bullseye Lantern",
+        "rulesId": "equipment:xphb:bullseye-lantern",
+        "quantity": 1
+      },
+      {
+        "id": "costume",
+        "name": "Costume",
+        "rulesId": "equipment:xphb:costume",
+        "quantity": 3
+      },
+      {
+        "id": "mirror",
+        "name": "Mirror",
+        "rulesId": "equipment:xphb:mirror",
+        "quantity": 1
+      },
+      {
+        "id": "oil",
+        "name": "Oil",
+        "rulesId": "equipment:xphb:oil",
+        "quantity": 8
+      },
+      {
+        "id": "rations",
+        "name": "Rations",
+        "rulesId": "equipment:xphb:rations",
+        "quantity": 9
+      },
+      {
+        "id": "tinderbox",
+        "name": "Tinderbox",
+        "rulesId": "equipment:xphb:tinderbox",
+        "quantity": 1
+      },
+      {
+        "id": "waterskin",
+        "name": "Waterskin",
+        "rulesId": "equipment:xphb:waterskin",
+        "quantity": 1
+      }
+    ]
+  },
+  {
+    "rulesId": "equipment:xphb:explorer-s-pack",
+    "name": "Explorer's Pack",
+    "contents": [
+      {
+        "id": "backpack",
+        "name": "Backpack",
+        "rulesId": "equipment:xphb:backpack",
+        "quantity": 1
+      },
+      {
+        "id": "bedroll",
+        "name": "Bedroll",
+        "rulesId": "equipment:xphb:bedroll",
+        "quantity": 1
+      },
+      {
+        "id": "oil",
+        "name": "Oil",
+        "rulesId": "equipment:xphb:oil",
+        "quantity": 2
+      },
+      {
+        "id": "rations",
+        "name": "Rations",
+        "rulesId": "equipment:xphb:rations",
+        "quantity": 10
+      },
+      {
+        "id": "rope",
+        "name": "Rope",
+        "rulesId": "equipment:xphb:rope",
+        "quantity": 1
+      },
+      {
+        "id": "tinderbox",
+        "name": "Tinderbox",
+        "rulesId": "equipment:xphb:tinderbox",
+        "quantity": 1
+      },
+      {
+        "id": "torch",
+        "name": "Torch",
+        "rulesId": "equipment:xphb:torch",
+        "quantity": 10
+      },
+      {
+        "id": "waterskin",
+        "name": "Waterskin",
+        "rulesId": "equipment:xphb:waterskin",
+        "quantity": 1
+      }
+    ]
+  },
+  {
+    "rulesId": "equipment:xphb:priest-s-pack",
+    "name": "Priest's Pack",
+    "contents": [
+      {
+        "id": "backpack",
+        "name": "Backpack",
+        "rulesId": "equipment:xphb:backpack",
+        "quantity": 1
+      },
+      {
+        "id": "blanket",
+        "name": "Blanket",
+        "rulesId": "equipment:xphb:blanket",
+        "quantity": 1
+      },
+      {
+        "id": "holy-water",
+        "name": "Holy Water",
+        "rulesId": "equipment:xphb:holy-water",
+        "quantity": 1
+      },
+      {
+        "id": "lamp",
+        "name": "Lamp",
+        "rulesId": "equipment:xphb:lamp",
+        "quantity": 1
+      },
+      {
+        "id": "rations",
+        "name": "Rations",
+        "rulesId": "equipment:xphb:rations",
+        "quantity": 7
+      },
+      {
+        "id": "robe",
+        "name": "Robe",
+        "rulesId": "equipment:xphb:robe",
+        "quantity": 1
+      },
+      {
+        "id": "tinderbox",
+        "name": "Tinderbox",
+        "rulesId": "equipment:xphb:tinderbox",
+        "quantity": 1
+      }
+    ]
+  },
+  {
+    "rulesId": "equipment:xphb:scholar-s-pack",
+    "name": "Scholar's Pack",
+    "contents": [
+      {
+        "id": "backpack",
+        "name": "Backpack",
+        "rulesId": "equipment:xphb:backpack",
+        "quantity": 1
+      },
+      {
+        "id": "book",
+        "name": "Book",
+        "rulesId": "equipment:xphb:book",
+        "quantity": 1
+      },
+      {
+        "id": "ink",
+        "name": "Ink",
+        "rulesId": "equipment:xphb:ink",
+        "quantity": 1
+      },
+      {
+        "id": "ink-pen",
+        "name": "Ink Pen",
+        "rulesId": "equipment:xphb:ink-pen",
+        "quantity": 1
+      },
+      {
+        "id": "lamp",
+        "name": "Lamp",
+        "rulesId": "equipment:xphb:lamp",
+        "quantity": 1
+      },
+      {
+        "id": "oil",
+        "name": "Oil",
+        "rulesId": "equipment:xphb:oil",
+        "quantity": 10
+      },
+      {
+        "id": "parchment",
+        "name": "Parchment",
+        "rulesId": "equipment:xphb:parchment",
+        "quantity": 10
+      },
+      {
+        "id": "tinderbox",
+        "name": "Tinderbox",
+        "rulesId": "equipment:xphb:tinderbox",
+        "quantity": 1
+      }
+    ]
+  }
+]

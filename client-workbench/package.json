@@ -1,0 +1,10 @@
+{
+  "name": "dnd-client-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "独立浏览器 DM/队伍工作台（同源静态托管于父级 /workbench/，API /api/v1 为权威）",
+  "scripts": {
+    "test": "node --test"
+  }
+}

@@ -1,0 +1,443 @@
+{
+  "formatVersion": 1,
+  "id": "coast-regression",
+  "version": "1",
+  "name": "雾海沿岸",
+  "startSceneId": "harbor",
+  "styleProfile": "mist-coast-v1",
+  "visualConstraints": [
+    "2D painted environment, consistent blue-grey coastal fog and warm amber lights",
+    "No lettering, no UI, no visible dice, no identifiable player character"
+  ],
+  "level2Milestone": { "all": ["beacon-lit"] },
+  "items": [
+    { "id": "gold-piece", "name": "Gold Piece" },
+    { "id": "tide-ledger", "name": "封缄的潮汐航运账册（任务物品）" },
+    { "id": "coast-charter", "name": "通行凭证（剧情纪念物）" }
+  ],
+  "scenes": [
+    {
+      "id": "harbor",
+      "title": "雾港码头",
+      "summary": "夜雾吞没港口，旧灯塔已经熄灭。守港人等在残破的栈桥旁。",
+      "arrival": "海面只剩零星渔火。守港人递来一张湿透的航图：如果灯塔今晚不能重新亮起，返航船只就会驶入暗礁。你站在雾港码头，可以询问守港人，也可以检查岸边留下的痕迹。",
+      "imagePrompt": "A weathered harbor pier at dusk, distant unlit lighthouse, wet timber, coils of rope, one amber lantern, heavy sea fog",
+      "x": 0.12, "y": 0.75,
+      "safeRest": true,
+      "preGenerate": true,
+      "exits": [
+        { "target": "causeway", "when": { "all": ["safe-route"] } },
+        { "target": "guildhall", "when": { "all": ["ledger-delivered:guild"] } }
+      ],
+      "actions": [
+        {
+          "id": "harbor-talk-keeper", "kind": "talk", "target": "", "label": "询问守港人",
+          "repeatable": true,
+          "success": {
+            "text": "守港人说明了退潮时的安全路线和手动点灯方法。通向灯塔的堤道已可通行。",
+            "effects": [ { "op": "fact", "key": "safe-route" }, { "op": "fact", "key": "keeper-instructions" } ]
+          }
+        },
+        {
+          "id": "harbor-investigate", "kind": "investigate", "target": "", "label": "调查线索",
+          "always": [ { "op": "fact", "key": "investigated:harbor" } ],
+          "check": { "ability": "wisdom", "skill": "Perception", "dc": 12 },
+          "success": {
+            "text": "你从潮痕中认出了安全路线，可以沿堤道前往灯塔。",
+            "effects": [ { "op": "fact", "key": "safe-route" } ]
+          },
+          "failure": {
+            "text": "雾气掩住了潮痕，调查未找到路线。可以向守港人询问。",
+            "effects": []
+          }
+        },
+        {
+          "id": "harbor-story-talk-mara", "kind": "story.talk", "target": "mara", "label": "询问信使 Mara 的消息",
+          "when": { "all": ["beacon-lit"] },
+          "success": {
+            "text": "Mara 展开未完成的航运清单。补给船最后出现在堤道旁的旧岗哨，她愿意为找回原始账册支付 15 GP。你可以接受，也可以继续自由探索。",
+            "effects": [ { "op": "fact", "key": "met:mara" } ]
+          }
+        },
+        {
+          "id": "harbor-story-accept-ledger", "kind": "story.accept", "target": "tide-ledger", "label": "接受失踪航运账册的委托",
+          "when": { "all": ["beacon-lit", "met:mara"] },
+          "success": {
+            "text": "你接下失踪账册的委托。Mara 标出了从堤道通向旧岗哨的岔路；探索地图已更新。账册最终交给谁，将影响沿岸两方的关系。",
+            "effects": [ { "op": "fact", "key": "ledger-contract" } ]
+          }
+        },
+        {
+          "id": "harbor-story-deliver-guild", "kind": "story.deliver", "target": "guild", "label": "把账册交给港口公会（选择分支）",
+          "when": { "all": ["beacon-lit", "ledger-found"], "none": ["ledger-delivered:guild", "ledger-delivered:wardens"] },
+          "success": {
+            "text": "你把原始账册交给 Mara。公会支付约定的 15 GP，关系 +2；守望者关系 -1。公会会馆开放，芦苇圣所的合作分支关闭。这一选择已永久记录。",
+            "effects": [
+              { "op": "fact", "key": "ledger-delivered:guild" },
+              { "op": "chapter", "amount": 3 },
+              { "op": "item", "key": "tide-ledger", "amount": -1 },
+              { "op": "item", "key": "gold-piece", "amount": 15 }
+            ]
+          }
+        }
+      ],
+      "variants": [
+        {
+          "when": { "all": ["beacon-lit"] },
+          "title": "雾港码头",
+          "summary": "雾港码头的船只正循灯塔的光芒归航。守港人向你挥手。",
+          "imagePrompt": "A weathered harbor pier at dusk, distant brightly lit lighthouse, wet timber, coils of rope, one amber lantern, heavy sea fog, restored warm lighthouse beam across the fog"
+        }
+      ]
+    },
+    {
+      "id": "causeway",
+      "title": "潮汐堤道",
+      "summary": "退潮后的石道通向灯塔，铜制导光片散落在潮池边。",
+      "arrival": "你沿退潮露出的堤道向前。灯塔入口已在眼前，潮池里闪着微弱的铜光。",
+      "imagePrompt": "An ancient tidal stone causeway leading to a lighthouse, shallow tide pools, scattered copper reflectors, distant storm",
+      "x": 0.5, "y": 0.65,
+      "preGenerate": true,
+      "exits": [
+        { "target": "harbor", "when": {} },
+        { "target": "beacon", "when": {} },
+        { "target": "watchpost", "when": { "all": ["ledger-contract"] } }
+      ],
+      "actions": [
+        {
+          "id": "causeway-investigate", "kind": "investigate", "target": "", "label": "调查线索",
+          "always": [ { "op": "fact", "key": "investigated:causeway" } ],
+          "check": { "ability": "wisdom", "skill": "Survival", "dc": 10 },
+          "success": {
+            "text": "铜片上的卡槽揭示了灯室机构的故障原因。你记下了修复线索。",
+            "effects": [ { "op": "fact", "key": "reflector-clue" } ]
+          },
+          "failure": {
+            "text": "潮水抹去了细节，未发现新线索。灯塔入口仍可通行。",
+            "effects": []
+          }
+        }
+      ],
+      "encounter": {
+        "id": "causeway-patrol",
+        "title": "堤道巡守",
+        "startLabel": "挑战堤道巡守（可选）",
+        "when": { "none": ["guardian-attempted"] },
+        "nonlethal": true,
+        "enemies": [
+          { "id": "guardian", "name": "铜制巡守", "x": 5, "y": 2, "hitPoints": 18, "armorClass": 12, "speed": 20,
+            "initiativeModifier": 1, "attackBonus": 3, "damageDice": 1, "damageDie": 4, "damageBonus": 1 }
+        ],
+        "cells": [
+          { "x": 3, "y": 0, "terrain": "blocked" },
+          { "x": 3, "y": 4, "terrain": "blocked" },
+          { "x": 3, "y": 1, "terrain": "difficult" },
+          { "x": 3, "y": 2, "terrain": "difficult" },
+          { "x": 3, "y": 3, "terrain": "difficult" }
+        ],
+        "onStart": [ { "op": "fact", "key": "guardian-attempted" } ],
+        "victory": {
+          "text": "巡守停机，挑战成功。没有自动治疗或刷新资源；可以继续探索。",
+          "effects": [ { "op": "fact", "key": "guardian-disabled" } ]
+        }
+      },
+      "variants": [
+        {
+          "when": { "all": ["beacon-lit"] },
+          "title": "潮汐堤道",
+          "summary": "灯塔的光扫过潮汐堤道，铜片在潮池边映出温暖的光。",
+          "imagePrompt": "An ancient tidal stone causeway leading to a lighthouse, shallow tide pools, scattered copper reflectors, distant storm, restored warm lighthouse beam across the fog"
+        }
+      ]
+    },
+    {
+      "id": "beacon",
+      "title": "熄灭的灯室",
+      "summary": "灯室内的透镜布满盐霜，手动点灯机构仍然完好。",
+      "arrival": "狭窄石阶通向灯室。灯油尚未耗尽，光路却被偏转的铜片挡住。你可以检查机构，或按照守港人的说明重新点灯。",
+      "imagePrompt": "Interior of a coastal lighthouse lantern room, huge dark glass lens, brass hand crank, salt-frosted windows, amber oil lamp",
+      "x": 0.86, "y": 0.85,
+      "preGenerate": true,
+      "exits": [ { "target": "causeway", "when": {} } ],
+      "actions": [
+        {
+          "id": "beacon-investigate", "kind": "investigate", "target": "", "label": "检查点灯机构",
+          "when": { "none": ["beacon-lit"] },
+          "always": [ { "op": "fact", "key": "investigated:beacon" } ],
+          "check": { "ability": "intelligence", "skill": "Investigation", "dc": 12 },
+          "success": {
+            "text": "你找到了偏转的导光片，将其复位。灯塔恢复光芒，本章任务完成。",
+            "effects": [ { "op": "fact", "key": "beacon-lit" }, { "op": "chapter", "amount": 2 } ]
+          },
+          "failure": {
+            "text": "透镜机构比预期复杂，调查未能修复。可以按操作铭牌手动点灯。",
+            "effects": []
+          }
+        },
+        {
+          "id": "beacon-talk-light", "kind": "talk", "target": "", "label": "按说明点亮灯塔",
+          "when": { "none": ["beacon-lit"] },
+          "success": {
+            "text": "你按灯室内的操作铭牌转正铜片，扳动点灯机构。灯塔重新照亮海面，本章任务完成。",
+            "effects": [ { "op": "fact", "key": "beacon-lit" }, { "op": "chapter", "amount": 2 } ]
+          }
+        },
+        {
+          "id": "beacon-story-talk-iven", "kind": "story.talk", "target": "iven", "label": "与守灯人 Iven 交谈",
+          "when": { "all": ["beacon-lit"], "none": ["met:iven"] },
+          "success": {
+            "text": "Iven 感谢你重燃灯塔。他提到，一艘补给船的账册没有送回码头。信使 Mara 正在寻找能够沿旧岗哨调查的人。",
+            "effects": [ { "op": "fact", "key": "met:iven" } ]
+          }
+        }
+      ],
+      "variants": [
+        {
+          "when": { "all": ["beacon-lit"] },
+          "title": "重燃的灯室",
+          "summary": "导光片已复位，灯室的透镜将光芒投向海面。本章任务已完成。",
+          "imagePrompt": "Interior of a coastal lighthouse lantern room, huge glowing glass lens, brass hand crank, salt-frosted windows, amber oil lamp, restored warm lighthouse beam across the fog"
+        }
+      ]
+    },
+    {
+      "id": "watchpost",
+      "title": "旧岗哨",
+      "summary": "风雨剥蚀的岗哨俯瞰浅滩，破损的货箱横在墙下。",
+      "arrival": "你走进废弃岗哨。潮水已退，货箱上的封蜡还没有完全脱落。芦苇间有一条若隐若现的通道。",
+      "imagePrompt": "Abandoned coastal watchpost, broken supply chest beside a stone wall, reeds and tidal flats, blue grey fog",
+      "x": 0.65, "y": 0.38,
+      "exits": [
+        { "target": "causeway", "when": {} },
+        { "target": "saltmarsh", "when": { "all": ["marsh-route"] } }
+      ],
+      "actions": [
+        {
+          "id": "watchpost-story-search-cargo", "kind": "story.search", "target": "cargo-case", "label": "检查被海水冲坏的货箱",
+          "when": { "none": ["searched:watchpost"] },
+          "always": [ { "op": "fact", "key": "searched:watchpost" }, { "op": "fact", "key": "marsh-route" } ],
+          "check": { "ability": "intelligence", "skill": "Investigation", "dc": 12 },
+          "success": {
+            "text": "你从货箱夹层找到了保存完好的账册。附近足迹通向芦苇浅滩；可以返港交付，也可以先调查浅滩。",
+            "effects": [ { "op": "fact", "key": "ledger-found" }, { "op": "item", "key": "tide-ledger", "amount": 1 } ]
+          },
+          "failure": {
+            "text": "货箱表面的纸页已被潮水打湿，调查暂未找到完整账册。留在岸上的绳结指出了通向芦苇浅滩的路；当地巡守可能知道纸页漂到了哪里。",
+            "effects": []
+          }
+        }
+      ],
+      "variants": [
+        {
+          "when": { "all": ["searched:watchpost"] },
+          "title": "旧岗哨",
+          "summary": "货箱已经检查过。潮痕与绳结标出了通向芦苇浅滩的安全路径。",
+          "imagePrompt": "Abandoned coastal watchpost, broken supply chest beside a stone wall, reeds and tidal flats, blue grey fog"
+        }
+      ]
+    },
+    {
+      "id": "saltmarsh",
+      "title": "芦苇浅滩",
+      "summary": "平缓的浅滩穿过芦苇丛，巡守 Lian 与搁浅船员等待在安全高地。",
+      "arrival": "潮水在芦苇根部发出轻响。Lian 抬灯指向高地，那里还有一个等待返港的船员。",
+      "imagePrompt": "Coastal reed marsh at low tide, safe raised stone path, a lantern on a reed fence, distant grounded supply boat",
+      "x": 0.86, "y": 0.12,
+      "exits": [
+        { "target": "watchpost", "when": {} },
+        { "target": "reed-sanctum", "when": { "all": ["ledger-delivered:wardens"] } }
+      ],
+      "actions": [
+        {
+          "id": "saltmarsh-story-talk-lian", "kind": "story.talk", "target": "lian", "label": "与芦苇巡守 Lian 交谈",
+          "success": {
+            "text": "Lian 指出了安全浅滩，也说明账册记载着一条需要保护的潮汐通道。她希望你将记录交给守望者，而非只让公会掌握它。找回账册的路线不需要再次检定。",
+            "effects": [ { "op": "fact", "key": "met:lian" } ]
+          }
+        },
+        {
+          "id": "saltmarsh-story-recover-ledger", "kind": "story.recover", "target": "tide-ledger", "label": "沿指引取回漂到浅滩的账册",
+          "when": { "all": ["met:lian"], "none": ["ledger-found"] },
+          "success": {
+            "text": "你沿 Lian 指出的浅滩拾回密封匣，取出完整账册。这个已知安全路线上的例行取物无需检定。账册要交给谁，仍由你决定。",
+            "effects": [ { "op": "fact", "key": "ledger-found" }, { "op": "item", "key": "tide-ledger", "amount": 1 } ]
+          }
+        },
+        {
+          "id": "saltmarsh-story-rescue-toma", "kind": "story.rescue", "target": "toma", "label": "带搁浅船员 Toma 穿过浅滩",
+          "when": { "none": ["crew-rescued"] },
+          "success": {
+            "text": "你带着没有受伤的 Toma 沿安全浅滩返回通道入口，他自行继续返港。公会和守望者都认可这次援助，各增加 1 点关系。没有自动治疗、经验或额外货币奖励。",
+            "effects": [ { "op": "fact", "key": "met:toma" }, { "op": "fact", "key": "crew-rescued" } ]
+          }
+        },
+        {
+          "id": "saltmarsh-story-deliver-wardens", "kind": "story.deliver", "target": "wardens", "label": "把账册交给芦苇守望者（选择分支）",
+          "when": { "all": ["met:lian", "ledger-found"], "none": ["ledger-delivered:guild", "ledger-delivered:wardens"] },
+          "success": {
+            "text": "你把原始账册交给 Lian。守望者支付同额的 15 GP，关系 +2；公会关系 -1。芦苇圣所开放，公会会馆的合作分支关闭。这一选择已永久记录。",
+            "effects": [
+              { "op": "fact", "key": "ledger-delivered:wardens" },
+              { "op": "chapter", "amount": 3 },
+              { "op": "item", "key": "tide-ledger", "amount": -1 },
+              { "op": "item", "key": "gold-piece", "amount": 15 }
+            ]
+          }
+        }
+      ],
+      "variants": [
+        {
+          "when": { "all": ["crew-rescued"] },
+          "title": "芦苇浅滩",
+          "summary": "Lian 的灯留在安全高地。Toma 已沿通道返港，浅滩恢复平静。",
+          "imagePrompt": "Coastal reed marsh at low tide, safe raised stone path, a lantern on a reed fence, distant grounded supply boat"
+        }
+      ]
+    },
+    {
+      "id": "guildhall",
+      "title": "港口会馆",
+      "summary": "港口公会的长桌上摊着修复后的航图，议事者准备兑现合作。",
+      "arrival": "Mara 为你推开会馆的门。旧航图旁多了一枚代表新航路的铜钉。",
+      "imagePrompt": "Coastal harbor guild hall interior, long wooden table, blank nautical charts, copper compass, warm lamps, fog outside windows",
+      "x": 0.12, "y": 0.22,
+      "exits": [ { "target": "harbor", "when": {} } ],
+      "actions": [
+        {
+          "id": "guildhall-story-finish-pact", "kind": "story.finish", "target": "coast-pact", "label": "参加沿岸议事，完成本章",
+          "when": { "none": ["coast-chapter-complete"] },
+          "success": {
+            "text": "沿岸议事结束，你获得一份通行凭证。它记录这次合作，不提供未声明的战斗加值。本段冒险完成，已探索地点、人物关系、装备和资源继续保留。",
+            "effects": [
+              { "op": "fact", "key": "coast-chapter-complete" },
+              { "op": "chapter", "amount": 4 },
+              { "op": "item", "key": "coast-charter", "amount": 1 }
+            ]
+          }
+        }
+      ],
+      "variants": [
+        {
+          "when": { "all": ["coast-chapter-complete"] },
+          "title": "港口会馆",
+          "summary": "沿岸议事已经结束，新的航路约定留在这里。你随时可以返回已经探索的地点。",
+          "imagePrompt": "Coastal harbor guild hall interior, long wooden table, blank nautical charts, copper compass, warm lamps, fog outside windows"
+        }
+      ]
+    },
+    {
+      "id": "reed-sanctum",
+      "title": "芦苇圣所",
+      "summary": "守望者在潮池环绕的石台上记录新的航路约定。",
+      "arrival": "你沿高起的石路走进芦苇圣所。Lian 将账册放在石台上，示意沿岸之约可以开始。",
+      "imagePrompt": "Quiet sanctuary in coastal reeds, raised stone platform surrounded by tidal pools, warm lanterns, mist and silver water",
+      "x": 0.46, "y": 0.02,
+      "exits": [ { "target": "saltmarsh", "when": {} } ],
+      "actions": [
+        {
+          "id": "reed-sanctum-story-finish-pact", "kind": "story.finish", "target": "coast-pact", "label": "参加沿岸议事，完成本章",
+          "when": { "none": ["coast-chapter-complete"] },
+          "success": {
+            "text": "沿岸议事结束，你获得一份通行凭证。它记录这次合作，不提供未声明的战斗加值。本段冒险完成，已探索地点、人物关系、装备和资源继续保留。",
+            "effects": [
+              { "op": "fact", "key": "coast-chapter-complete" },
+              { "op": "chapter", "amount": 4 },
+              { "op": "item", "key": "coast-charter", "amount": 1 }
+            ]
+          }
+        }
+      ],
+      "variants": [
+        {
+          "when": { "all": ["coast-chapter-complete"] },
+          "title": "芦苇圣所",
+          "summary": "沿岸议事已经结束，新的航路约定留在这里。你随时可以返回已经探索的地点。",
+          "imagePrompt": "Quiet sanctuary in coastal reeds, raised stone platform surrounded by tidal pools, warm lanterns, mist and silver water"
+        }
+      ]
+    }
+  ],
+  "quests": [
+    {
+      "id": "restore-beacon", "title": "雾港余火", "summary": "让熄灭的灯塔重新引导航船。",
+      "reward": "航路恢复；沿岸的新委托开放",
+      "visible": {}, "active": {}, "complete": { "all": ["beacon-lit"] },
+      "objectives": [
+        { "text": "找到前往灯塔的安全路线", "complete": { "all": ["safe-route"] } },
+        { "text": "重新点亮灯塔", "complete": { "all": ["beacon-lit"] } }
+      ]
+    },
+    {
+      "id": "tide-ledger", "title": "失踪的航运账册", "summary": "调查旧岗哨，找回账册，决定把记录交给哪一方。选择将永久影响关系和可达地点。",
+      "reward": "15 GP（一次）；开启所选一方的议事地点",
+      "visible": { "any": ["met:mara", "ledger-contract"] },
+      "active": { "all": ["ledger-contract"] },
+      "complete": { "any": ["ledger-delivered:guild", "ledger-delivered:wardens"] },
+      "objectives": [
+        { "text": "接受委托", "complete": { "all": ["ledger-contract"] } },
+        { "text": "调查旧岗哨", "complete": { "all": ["searched:watchpost"] } },
+        { "text": "找到账册", "complete": { "all": ["ledger-found"] } },
+        { "text": "选择交付对象", "complete": { "any": ["ledger-delivered:guild", "ledger-delivered:wardens"] } }
+      ]
+    },
+    {
+      "id": "stranded-crew", "title": "浅滩的船员", "summary": "帮助 Toma 找到安全返港路线。",
+      "reward": "公会与守望者关系各 +1",
+      "visible": { "all": ["visited:saltmarsh"] },
+      "active": {}, "complete": { "all": ["crew-rescued"] },
+      "objectives": [ { "text": "带 Toma 穿过浅滩", "complete": { "all": ["crew-rescued"] } } ]
+    },
+    {
+      "id": "coast-pact", "title": "沿岸之约", "summary": "前往所选一方的议事地点，完成沿岸章节。",
+      "reward": "剧情通行凭证；不附加战斗属性",
+      "visible": { "any": ["ledger-delivered:guild", "ledger-delivered:wardens"] },
+      "active": {}, "complete": { "all": ["coast-chapter-complete"] },
+      "objectives": [ { "text": "参加沿岸议事", "complete": { "all": ["coast-chapter-complete"] } } ]
+    }
+  ],
+  "npcs": [
+    {
+      "id": "mara", "name": "Mara · 港口信使", "sceneId": "harbor", "factionId": "harbor-guild",
+      "summary": "在码头登记返航船队与失踪货物。",
+      "visible": { "all": ["beacon-lit"] }, "met": { "all": ["met:mara"] }, "locations": []
+    },
+    {
+      "id": "iven", "name": "Iven · 守灯人", "sceneId": "beacon", "factionId": "harbor-guild",
+      "summary": "修复灯室后，可以向他了解沿岸失踪的补给。",
+      "visible": { "any": ["met:iven", "visited:beacon"] }, "met": { "all": ["met:iven"] }, "locations": []
+    },
+    {
+      "id": "lian", "name": "Lian · 芦苇巡守", "sceneId": "saltmarsh", "factionId": "reed-wardens",
+      "summary": "维护潮汐通道，也在寻找被改写的航运记录。",
+      "visible": { "any": ["met:lian", "visited:saltmarsh"] }, "met": { "all": ["met:lian"] }, "locations": []
+    },
+    {
+      "id": "toma", "name": "Toma · 搁浅船员", "sceneId": "saltmarsh", "factionId": "harbor-guild",
+      "summary": "被退潮困住的船员，需要有人带他穿过浅滩。",
+      "visible": { "any": ["met:toma", "visited:saltmarsh"] }, "met": { "all": ["met:toma"] },
+      "locations": [ { "when": { "all": ["crew-rescued"] }, "sceneId": "harbor" } ]
+    }
+  ],
+  "factions": [
+    {
+      "id": "harbor-guild", "name": "港口公会", "visible": { "all": ["beacon-lit"] },
+      "adjustments": [
+        { "when": { "all": ["crew-rescued"] }, "amount": 1 },
+        { "when": { "all": ["ledger-delivered:guild"] }, "amount": 2 },
+        { "when": { "all": ["ledger-delivered:wardens"] }, "amount": -1 }
+      ]
+    },
+    {
+      "id": "reed-wardens", "name": "芦苇守望者", "visible": { "any": ["visited:saltmarsh", "met:lian"] },
+      "adjustments": [
+        { "when": { "all": ["crew-rescued"] }, "amount": 1 },
+        { "when": { "all": ["ledger-delivered:wardens"] }, "amount": 2 },
+        { "when": { "all": ["ledger-delivered:guild"] }, "amount": -1 }
+      ]
+    }
+  ],
+  "branches": [
+    { "id": "ledger-custody", "choice": "guild", "label": "账册归港口公会保管", "when": { "all": ["ledger-delivered:guild"] } },
+    { "id": "ledger-custody", "choice": "wardens", "label": "账册归芦苇守望者保管", "when": { "all": ["ledger-delivered:wardens"] } }
+  ]
+}

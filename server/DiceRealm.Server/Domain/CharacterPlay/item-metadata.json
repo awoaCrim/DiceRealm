@@ -1,0 +1,4115 @@
+[
+  {
+    "id": "equipment:xdmg:antimatter-rifle",
+    "weightPounds": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xdmg:automatic-rifle",
+    "weightPounds": 8,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xdmg:energy-cell",
+    "weightPounds": 0.5,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xdmg:hunting-rifle",
+    "weightPounds": 8,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xdmg:laser-pistol",
+    "weightPounds": 2,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xdmg:laser-rifle",
+    "weightPounds": 7,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xdmg:revolver",
+    "weightPounds": 3,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xdmg:semiautomatic-pistol",
+    "weightPounds": 3,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xdmg:shotgun",
+    "weightPounds": 7,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:acid",
+    "weightPounds": 1,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:airship",
+    "priceCp": 4000000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:alchemist-s-fire",
+    "weightPounds": 1,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:alchemist-s-supplies",
+    "weightPounds": 8,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:ale-mug",
+    "priceCp": 4,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:amulet",
+    "weightPounds": 1,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:antitoxin",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:arcane-focus",
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:arrow",
+    "weightPounds": 0.05,
+    "priceCp": 5,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:arrows-20",
+    "weightPounds": 1,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:artisan-s-tools",
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:backpack",
+    "weightPounds": 5,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:bagpipes",
+    "weightPounds": 6,
+    "priceCp": 3000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:ball-bearings",
+    "weightPounds": 2,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:barrel",
+    "weightPounds": 70,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:basic-poison",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:basket",
+    "weightPounds": 2,
+    "priceCp": 40,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:battleaxe",
+    "weightPounds": 4,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:bedroll",
+    "weightPounds": 7,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:bell",
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:blanket",
+    "weightPounds": 3,
+    "priceCp": 50,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:block-and-tackle",
+    "weightPounds": 5,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:blowgun",
+    "weightPounds": 1,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:bolt",
+    "weightPounds": 0.075,
+    "priceCp": 5,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:bolts-20",
+    "weightPounds": 1.5,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:book",
+    "weightPounds": 5,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:bread-loaf",
+    "priceCp": 2,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:breastplate",
+    "weightPounds": 20,
+    "priceCp": 40000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:brewer-s-supplies",
+    "weightPounds": 9,
+    "priceCp": 2000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:bucket",
+    "weightPounds": 2,
+    "priceCp": 5,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:bullseye-lantern",
+    "weightPounds": 2,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:burglar-s-pack",
+    "weightPounds": 47.5,
+    "priceCp": 1600,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:calligrapher-s-supplies",
+    "weightPounds": 5,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:caltrops",
+    "weightPounds": 2,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:camel",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:candle",
+    "priceCp": 1,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:carpenter-s-tools",
+    "weightPounds": 6,
+    "priceCp": 800,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:carriage",
+    "weightPounds": 600,
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:cart",
+    "weightPounds": 200,
+    "priceCp": 1500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:cartographer-s-tools",
+    "weightPounds": 6,
+    "priceCp": 1500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:chain",
+    "weightPounds": 10,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:chain-mail",
+    "weightPounds": 55,
+    "priceCp": 7500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:chain-shirt",
+    "weightPounds": 20,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:chariot",
+    "weightPounds": 100,
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:cheese-wedge",
+    "priceCp": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:chest",
+    "weightPounds": 25,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:climber-s-kit",
+    "weightPounds": 12,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:club",
+    "weightPounds": 2,
+    "priceCp": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:cobbler-s-tools",
+    "weightPounds": 5,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:common-wine-bottle",
+    "priceCp": 20,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:component-pouch",
+    "weightPounds": 2,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:cook-s-utensils",
+    "weightPounds": 8,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:costume",
+    "weightPounds": 4,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:crossbow-bolt-case",
+    "weightPounds": 1,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:crowbar",
+    "weightPounds": 5,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:crystal",
+    "weightPounds": 1,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:dagger",
+    "weightPounds": 1,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:dart",
+    "weightPounds": 0.25,
+    "priceCp": 5,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:dice-set",
+    "priceCp": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:diplomat-s-pack",
+    "weightPounds": 39,
+    "priceCp": 3900,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:disguise-kit",
+    "weightPounds": 3,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:draft-horse",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:dragonchess-set",
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:druidic-focus",
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:drum",
+    "weightPounds": 3,
+    "priceCp": 600,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:dulcimer",
+    "weightPounds": 10,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:dungeoneer-s-pack",
+    "weightPounds": 55,
+    "priceCp": 1200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:elephant",
+    "priceCp": 20000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:emblem",
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:entertainer-s-pack",
+    "weightPounds": 58.5,
+    "priceCp": 4000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:exotic-saddle",
+    "weightPounds": 40,
+    "priceCp": 6000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:explorer-s-pack",
+    "weightPounds": 55,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:feed-per-day",
+    "weightPounds": 10,
+    "priceCp": 5,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:fine-clothes",
+    "weightPounds": 6,
+    "priceCp": 1500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:fine-wine-bottle",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:firearm-bullet",
+    "weightPounds": 0.2,
+    "priceCp": 30,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:firearm-bullets-10",
+    "weightPounds": 2,
+    "priceCp": 300,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:flail",
+    "weightPounds": 2,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:flask",
+    "weightPounds": 1,
+    "priceCp": 2,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:flute",
+    "weightPounds": 1,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:forgery-kit",
+    "weightPounds": 5,
+    "priceCp": 1500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:galley",
+    "priceCp": 3000000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:gaming-set",
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:glaive",
+    "weightPounds": 6,
+    "priceCp": 2000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:glass-bottle",
+    "weightPounds": 2,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:glassblower-s-tools",
+    "weightPounds": 5,
+    "priceCp": 3000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:grappling-hook",
+    "weightPounds": 4,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:greataxe",
+    "weightPounds": 7,
+    "priceCp": 3000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:greatclub",
+    "weightPounds": 10,
+    "priceCp": 20,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:greatsword",
+    "weightPounds": 6,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:halberd",
+    "weightPounds": 6,
+    "priceCp": 2000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:half-plate-armor",
+    "weightPounds": 40,
+    "priceCp": 75000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:hand-crossbow",
+    "weightPounds": 3,
+    "priceCp": 7500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:handaxe",
+    "weightPounds": 2,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:healer-s-kit",
+    "weightPounds": 3,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:heavy-crossbow",
+    "weightPounds": 18,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:herbalism-kit",
+    "weightPounds": 3,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:hide-armor",
+    "weightPounds": 12,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:holy-symbol",
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:holy-water",
+    "weightPounds": 1,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:hooded-lantern",
+    "weightPounds": 2,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:horn",
+    "weightPounds": 2,
+    "priceCp": 300,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:hunting-trap",
+    "weightPounds": 25,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:ink",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:ink-pen",
+    "priceCp": 2,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:iron-pot",
+    "weightPounds": 10,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:iron-spike",
+    "weightPounds": 0.5,
+    "priceCp": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:iron-spikes",
+    "weightPounds": 5,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:javelin",
+    "weightPounds": 2,
+    "priceCp": 50,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:jeweler-s-tools",
+    "weightPounds": 2,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:jug",
+    "weightPounds": 4,
+    "priceCp": 2,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:keelboat",
+    "priceCp": 300000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:ladder",
+    "weightPounds": 25,
+    "priceCp": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:lamp",
+    "weightPounds": 1,
+    "priceCp": 50,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:lance",
+    "weightPounds": 6,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:leather-armor",
+    "weightPounds": 10,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:leatherworker-s-tools",
+    "weightPounds": 5,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:light-crossbow",
+    "weightPounds": 5,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:light-hammer",
+    "weightPounds": 2,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:lock",
+    "weightPounds": 1,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:longbow",
+    "weightPounds": 2,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:longship",
+    "priceCp": 1000000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:longsword",
+    "weightPounds": 3,
+    "priceCp": 1500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:lute",
+    "weightPounds": 2,
+    "priceCp": 3500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:lyre",
+    "weightPounds": 2,
+    "priceCp": 3000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:mace",
+    "weightPounds": 4,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:magnifying-glass",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:manacles",
+    "weightPounds": 6,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:map",
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:map-or-scroll-case",
+    "weightPounds": 1,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:mason-s-tools",
+    "weightPounds": 8,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:mastiff",
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:maul",
+    "weightPounds": 10,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:military-saddle",
+    "weightPounds": 30,
+    "priceCp": 2000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:mirror",
+    "weightPounds": 0.5,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:morningstar",
+    "weightPounds": 4,
+    "priceCp": 1500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:mule",
+    "priceCp": 800,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:musical-instrument",
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:musket",
+    "weightPounds": 10,
+    "priceCp": 50000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:navigator-s-tools",
+    "weightPounds": 2,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:needle",
+    "weightPounds": 0.02,
+    "priceCp": 2,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:needles-50",
+    "weightPounds": 1,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:net",
+    "weightPounds": 3,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:oil",
+    "weightPounds": 1,
+    "priceCp": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:orb",
+    "weightPounds": 3,
+    "priceCp": 2000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:padded-armor",
+    "weightPounds": 8,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:painter-s-supplies",
+    "weightPounds": 5,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:pan-flute",
+    "weightPounds": 2,
+    "priceCp": 1200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:paper",
+    "priceCp": 20,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:parchment",
+    "priceCp": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:perfume",
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:pike",
+    "weightPounds": 18,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:pistol",
+    "weightPounds": 3,
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:plate-armor",
+    "weightPounds": 65,
+    "priceCp": 150000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:playing-cards",
+    "priceCp": 50,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:poisoner-s-kit",
+    "weightPounds": 2,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:pole",
+    "weightPounds": 7,
+    "priceCp": 5,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:pony",
+    "priceCp": 3000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:portable-ram",
+    "weightPounds": 35,
+    "priceCp": 400,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:potter-s-tools",
+    "weightPounds": 3,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:pouch",
+    "weightPounds": 1,
+    "priceCp": 50,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:priest-s-pack",
+    "weightPounds": 29,
+    "priceCp": 3300,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:psychic-blade",
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:quarterstaff",
+    "weightPounds": 4,
+    "priceCp": 20,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:quiver",
+    "weightPounds": 1,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:rapier",
+    "weightPounds": 2,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:rations",
+    "weightPounds": 2,
+    "priceCp": 50,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:reliquary",
+    "weightPounds": 2,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:riding-horse",
+    "priceCp": 7500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:riding-saddle",
+    "weightPounds": 25,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:ring-mail",
+    "weightPounds": 40,
+    "priceCp": 3000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:robe",
+    "weightPounds": 4,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:rod",
+    "weightPounds": 2,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:rope",
+    "weightPounds": 5,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:rowboat",
+    "weightPounds": 100,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:sack",
+    "weightPounds": 0.5,
+    "priceCp": 1,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:sailing-ship",
+    "priceCp": 1000000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:scale-mail",
+    "weightPounds": 45,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:scholar-s-pack",
+    "weightPounds": 22,
+    "priceCp": 4000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:scimitar",
+    "weightPounds": 3,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:shawm",
+    "weightPounds": 1,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:shield",
+    "weightPounds": 6,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:shortbow",
+    "weightPounds": 2,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:shortsword",
+    "weightPounds": 2,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:shovel",
+    "weightPounds": 5,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:sickle",
+    "weightPounds": 2,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:signal-whistle",
+    "priceCp": 5,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:sled",
+    "weightPounds": 300,
+    "priceCp": 2000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:sling",
+    "priceCp": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:sling-bullet",
+    "weightPounds": 0.075,
+    "priceCp": 0.2,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:sling-bullets-20",
+    "weightPounds": 1.5,
+    "priceCp": 4,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:smith-s-tools",
+    "weightPounds": 8,
+    "priceCp": 2000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:spear",
+    "weightPounds": 3,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:splint-armor",
+    "weightPounds": 60,
+    "priceCp": 20000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:sprig-of-mistletoe",
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:spyglass",
+    "weightPounds": 1,
+    "priceCp": 100000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:stabling-per-day",
+    "priceCp": 5,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:staff",
+    "weightPounds": 4,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:string",
+    "priceCp": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:studded-leather-armor",
+    "weightPounds": 13,
+    "priceCp": 4500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:tent",
+    "weightPounds": 20,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:thieves-tools",
+    "weightPounds": 1,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:three-dragon-ante-set",
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:tinderbox",
+    "weightPounds": 1,
+    "priceCp": 50,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:tinker-s-tools",
+    "weightPounds": 10,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:torch",
+    "weightPounds": 1,
+    "priceCp": 1,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:traveler-s-clothes",
+    "weightPounds": 4,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:trident",
+    "weightPounds": 4,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:trinket",
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:vial",
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:viol",
+    "weightPounds": 1,
+    "priceCp": 3000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:wagon",
+    "weightPounds": 400,
+    "priceCp": 3500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:wand",
+    "weightPounds": 1,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:war-pick",
+    "weightPounds": 2,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:warhammer",
+    "weightPounds": 5,
+    "priceCp": 1500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:warhorse",
+    "priceCp": 40000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:warship",
+    "priceCp": 2500000,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:waterskin",
+    "weightPounds": 5,
+    "priceCp": 20,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:weaver-s-tools",
+    "weightPounds": 5,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:whip",
+    "weightPounds": 3,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:woodcarver-s-tools",
+    "weightPounds": 5,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:wooden-staff",
+    "weightPounds": 4,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "equipment:xphb:yew-wand",
+    "weightPounds": 1,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:1-rod-of-the-pact-keeper",
+    "weightPounds": 2,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:1-wand-of-the-war-mage",
+    "weightPounds": 1,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:1-wraps-of-unarmed-power",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:2-rod-of-the-pact-keeper",
+    "weightPounds": 2,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:2-wand-of-the-war-mage",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:2-wraps-of-unarmed-power",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:3-rod-of-the-pact-keeper",
+    "weightPounds": 2,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:3-wand-of-the-war-mage",
+    "weightPounds": 1,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:3-wraps-of-unarmed-power",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:alchemy-jug",
+    "weightPounds": 12,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:alexandrite",
+    "priceCp": 50000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:amber",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:amethyst",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:amulet-of-health",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:amulet-of-proof-against-detection-and-location",
+    "weightPounds": 1,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:amulet-of-the-planes",
+    "weightPounds": 1,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:animated-shield",
+    "weightPounds": 6,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:apparatus-of-kwalish",
+    "weightPounds": 500,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:aquamarine",
+    "priceCp": 50000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:armor-of-invulnerability",
+    "weightPounds": 65,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:arrow-catching-shield",
+    "weightPounds": 6,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:assassin-s-blood",
+    "priceCp": 15000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:axe-of-the-dwarvish-lords",
+    "weightPounds": 4,
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:azurite",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:baba-yaga-s-dancing-broom",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:bag-of-beans",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:bag-of-devouring",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:bag-of-holding",
+    "weightPounds": 5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:bag-of-tricks",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:bag-of-tricks-gray",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:bag-of-tricks-rust",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:bag-of-tricks-tan",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:banded-agate",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:bead-of-force",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:bead-of-nourishment",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:bead-of-refreshment",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:bejeweled-gold-bracelet",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:bejeweled-ivory-drinking-horn-with-gold-filigree",
+    "priceCp": 750000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:belt-of-cloud-giant-strength",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:belt-of-dwarvenkind",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:belt-of-fire-giant-strength",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:belt-of-frost-giant-strength",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:belt-of-giant-strength"
+  },
+  {
+    "id": "magic_item:xdmg:belt-of-hill-giant-strength",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:belt-of-stone-giant-strength",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:belt-of-storm-giant-strength",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:black-dragon-scale-mail",
+    "weightPounds": 45,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:black-opal",
+    "priceCp": 100000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:black-pearl",
+    "priceCp": 50000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:black-sapphire",
+    "priceCp": 500000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:black-velvet-mask-stitched-with-silver-thread",
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:blackrazor",
+    "weightPounds": 6,
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:bloodstone",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:blue-dragon-scale-mail",
+    "weightPounds": 45,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:blue-quartz",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:blue-sapphire",
+    "priceCp": 100000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:blue-spinel",
+    "priceCp": 50000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:bomb",
+    "weightPounds": 1,
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:book-of-exalted-deeds",
+    "weightPounds": 5,
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:book-of-vile-darkness",
+    "weightPounds": 5,
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:boots-of-elvenkind",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:boots-of-false-tracks",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:boots-of-levitation",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:boots-of-speed",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:boots-of-striding-and-springing",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:boots-of-the-winterlands",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:bottle-stopper-cork-embossed-with-gold-leaf-and-set-with-amethysts",
+    "priceCp": 75000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:bowl-of-commanding-water-elementals",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:box-of-turquoise-animal-figurines",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:bracers-of-archery",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:bracers-of-defense",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:brass-dragon-scale-mail",
+    "weightPounds": 45,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:brass-mug-with-jade-inlay",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:brazier-of-commanding-fire-elementals",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:bronze-crown",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:bronze-dragon-scale-mail",
+    "weightPounds": 45,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:brooch-of-shielding",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:broom-of-flying",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:bundle-of-sheet-music-representing-the-lost-dirges-of-a-famous-composer",
+    "priceCp": 75000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:burnt-othur-fumes",
+    "priceCp": 50000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:candle-of-invocation",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:candle-of-the-deep",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:canvas-1-sq-yd",
+    "priceCp": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:cap-of-water-breathing",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:cape-of-the-mountebank",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:carnelian",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:carpet-of-flying",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:carpet-of-flying-3-ft-5-ft",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:carpet-of-flying-4-ft-6-ft",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:carpet-of-flying-5-ft-7-ft",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:carpet-of-flying-6-ft-9-ft",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:carrion-crawler-mucus",
+    "priceCp": 20000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:carved-bone-statuette",
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:carved-ivory-statuette",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:carved-wooden-harp-with-ivory-inlay-and-zircon-gems",
+    "priceCp": 75000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:cauldron-of-rebirth",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:censer-of-controlling-air-elementals",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ceremonial-gold-armor-with-black-pearls",
+    "priceCp": 750000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:chalcedony",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:charlatan-s-die",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:chicken",
+    "priceCp": 2,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:chime-of-opening",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:chrysoberyl",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:chrysoprase",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:cinnamon",
+    "weightPounds": 1,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:circlet-of-blasting",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:citrine",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:cloak-of-arachnida",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:cloak-of-billowing",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:cloak-of-displacement",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:cloak-of-elvenkind",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:cloak-of-invisibility",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:cloak-of-many-fashions",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:cloak-of-protection",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:cloak-of-the-bat",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:cloak-of-the-manta-ray",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:clockwork-amulet",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:cloth-of-gold-vestments",
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:clothes-of-mending",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:cloves",
+    "weightPounds": 1,
+    "priceCp": 300,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:copper",
+    "weightPounds": 1,
+    "priceCp": 50,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:copper-chalice-with-silver-filigree",
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:copper-dragon-scale-mail",
+    "weightPounds": 45,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:coral",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:cotton-cloth-1-sq-yd",
+    "priceCp": 50,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:cow",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:crystal-ball",
+    "weightPounds": 3,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:crystal-ball-of-mind-reading",
+    "weightPounds": 3,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:crystal-ball-of-telepathy",
+    "weightPounds": 3,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:crystal-ball-of-true-seeing",
+    "weightPounds": 3,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:cube-of-force",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:cube-of-summoning",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:cubic-gate",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:daern-s-instant-fortress",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:dagger-of-venom",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:dark-shard-amulet",
+    "weightPounds": 1,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:decanter-of-endless-water",
+    "weightPounds": 2,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:deck-of-illusions",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:deck-of-many-things",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:demonomicon-of-iggwilv",
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:detailed-life-sized-dragonborn-skull-cast-in-electrum",
+    "priceCp": 75000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:diamond",
+    "priceCp": 500000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:dimensional-shackles",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:dragon-scale-mail",
+    "weightPounds": 45,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:dread-helm",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:driftglobe",
+    "weightPounds": 1,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:dust-of-disappearance",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:dust-of-dryness",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:dust-of-sneezing-and-choking",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:dwarven-thrower",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:dynamite-stick",
+    "weightPounds": 1,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:ear-horn-of-hearing",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:efreeti-bottle",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:elemental-gem",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:elemental-gem-blue-sapphire",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:elemental-gem-emerald",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:elemental-gem-red-corundum",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:elemental-gem-yellow-diamond",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:elixir-of-health",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:embroidered-glove-set-with-jewel-chips",
+    "priceCp": 250000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:embroidered-silk-and-velvet-mantle-set-with-numerous-moonstones",
+    "priceCp": 250000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:embroidered-silk-handkerchief",
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:emerald",
+    "priceCp": 100000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:enduring-spellbook",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:enspelled-staff",
+    "weightPounds": 4
+  },
+  {
+    "id": "magic_item:xdmg:enspelled-staff-cantrip",
+    "weightPounds": 4,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:enspelled-staff-level-1",
+    "weightPounds": 4,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:enspelled-staff-level-2",
+    "weightPounds": 4,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:enspelled-staff-level-3",
+    "weightPounds": 4,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:enspelled-staff-level-4",
+    "weightPounds": 4,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:enspelled-staff-level-5",
+    "weightPounds": 4,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:enspelled-staff-level-6",
+    "weightPounds": 4,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:enspelled-staff-level-7",
+    "weightPounds": 4,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:enspelled-staff-level-8",
+    "weightPounds": 4,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ersatz-eye",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:essence-of-ether",
+    "priceCp": 30000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:eversmoking-bottle",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:eye-agate",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:eye-and-hand-of-vecna",
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:eye-of-vecna",
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:eye-patch-decorated-with-tiny-blue-sapphires-and-moonstones",
+    "priceCp": 250000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:eyes-of-charming",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:eyes-of-minute-seeing",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:eyes-of-the-eagle",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:figurine-of-wondrous-power"
+  },
+  {
+    "id": "magic_item:xdmg:figurine-of-wondrous-power-bronze-griffon",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:figurine-of-wondrous-power-ebony-fly",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:figurine-of-wondrous-power-golden-lions",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:figurine-of-wondrous-power-ivory-goats",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:figurine-of-wondrous-power-marble-elephant",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:figurine-of-wondrous-power-obsidian-steed",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:figurine-of-wondrous-power-onyx-dog",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:figurine-of-wondrous-power-serpentine-owl",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:figurine-of-wondrous-power-silver-raven",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:fine-gold-chain-set-with-a-fire-opal",
+    "priceCp": 250000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:fire-opal",
+    "priceCp": 100000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:flour",
+    "weightPounds": 2,
+    "priceCp": 2,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:folding-boat",
+    "weightPounds": 4,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:fragmentation-grenade",
+    "weightPounds": 1,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:garnet",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gauntlets-of-ogre-power",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:gem-of-brightness",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:gem-of-seeing",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:gilded-royal-coach-or-funeral-barge",
+    "priceCp": 750000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:ginger",
+    "weightPounds": 1,
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:glamoured-studded-leather",
+    "weightPounds": 13,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:gloves-of-missile-snaring",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:gloves-of-swimming-and-climbing",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:gloves-of-thievery",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:goat",
+    "priceCp": 100,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:goggles-of-night",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:gold",
+    "weightPounds": 1,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-bar-5-pound",
+    "weightPounds": 5,
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-birdcage-with-electrum-filigree",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-bracelet",
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-circlet-set-with-four-aquamarines",
+    "priceCp": 250000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-comb-shaped-like-a-dragon-with-red-garnets-as-eyes",
+    "priceCp": 75000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-cup-set-with-emeralds",
+    "priceCp": 750000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-dragon-scale-mail",
+    "weightPounds": 45,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:gold-idol",
+    "priceCp": 75000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-jewelry-box-with-platinum-filigree",
+    "priceCp": 750000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-locket-with-a-painted-portrait-inside",
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-music-box",
+    "priceCp": 250000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-ring-set-with-bloodstones",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gold-statuette-set-with-rubies",
+    "priceCp": 750000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:green-dragon-scale-mail",
+    "weightPounds": 45,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:grenade-launcher",
+    "weightPounds": 7,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gunpowder-keg",
+    "weightPounds": 20,
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:gunpowder-powder-horn",
+    "weightPounds": 2,
+    "priceCp": 3500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:hag-eye",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:hand-of-vecna",
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:handheld-mirror-set-in-a-painted-wooden-frame",
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:hat-of-disguise",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:hat-of-many-spells",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:hat-of-vermin",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:hat-of-wizardry",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:headband-of-intellect",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:helm-of-brilliance",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:helm-of-comprehending-languages",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:helm-of-telepathy",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:helm-of-teleportation",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:hematite",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:heward-s-handy-haversack",
+    "weightPounds": 5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:heward-s-handy-spice-pouch",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:horn-of-blasting",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:horn-of-silent-alarm",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:horn-of-valhalla"
+  },
+  {
+    "id": "magic_item:xdmg:horn-of-valhalla-brass",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:horn-of-valhalla-bronze",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:horn-of-valhalla-iron",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:horn-of-valhalla-silver",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:horseshoes-of-a-zephyr",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:horseshoes-of-speed",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:immovable-rod",
+    "weightPounds": 2,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:instrument-of-illusions",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:instrument-of-scribing",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:instrument-of-the-bards"
+  },
+  {
+    "id": "magic_item:xdmg:instrument-of-the-bards-anstruth-harp",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:instrument-of-the-bards-canaith-mandolin",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:instrument-of-the-bards-cli-lyre",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:instrument-of-the-bards-doss-lute",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:instrument-of-the-bards-fochlucan-bandore",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:instrument-of-the-bards-mac-fuirmidh-cittern",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:instrument-of-the-bards-ollamh-harp",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-absorption",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-agility",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-awareness",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-fortitude",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-greater-absorption",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-insight",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-intellect",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-leadership",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-mastery",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-protection",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-regeneration",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-reserve",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-strength",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:ioun-stone-sustenance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:iron",
+    "weightPounds": 1,
+    "priceCp": 10,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:iron-bands-of-bilarro",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:iron-flask",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:jacinth",
+    "priceCp": 500000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:jade",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:jade-game-board-with-gold-playing-pieces",
+    "priceCp": 750000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:jasper",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:javelin-of-lightning",
+    "weightPounds": 2,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:jet",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:jeweled-anklet",
+    "priceCp": 250000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:jeweled-gold-crown",
+    "priceCp": 750000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:jeweled-platinum-ring",
+    "priceCp": 750000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:keoghtom-s-ointment",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:lantern-of-revealing",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:lapis-lazuli",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:linen-1-sq-yd",
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:lock-of-trickery",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:lolth-s-sting",
+    "priceCp": 20000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:lute-of-thunderous-thumping",
+    "weightPounds": 2,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:mace-of-disruption",
+    "weightPounds": 4,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:mace-of-smiting",
+    "weightPounds": 4,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:mace-of-terror",
+    "weightPounds": 4,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:malachite",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:malice",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:mantle-of-spell-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:manual-of-bodily-health",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:manual-of-clay-golems",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:manual-of-flesh-golems",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:manual-of-gainful-exercise",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:manual-of-golems",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:manual-of-iron-golems",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:manual-of-quickness-of-action",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:manual-of-stone-golems",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:medallion-of-thoughts",
+    "weightPounds": 1,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:midnight-tears",
+    "priceCp": 150000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:mirror-of-life-trapping",
+    "weightPounds": 50,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:moonstone",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:moss-agate",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:mystery-key",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:nature-s-mantle",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:necklace-of-adaptation",
+    "weightPounds": 1,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:necklace-of-fireballs",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:necklace-of-prayer-beads",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:necklace-string-of-small-pink-pearls",
+    "priceCp": 250000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:nolzur-s-marvelous-pigments",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:obsidian",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:obsidian-statuette-with-gold-fittings-and-inlay",
+    "priceCp": 75000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:oil-of-etherealness",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:oil-of-sharpness",
+    "weightPounds": 0.5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:oil-of-slipperiness",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:oil-of-taggit",
+    "priceCp": 40000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:old-masterpiece-painting",
+    "priceCp": 250000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:onyx",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:opal",
+    "priceCp": 100000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:orb-of-direction",
+    "weightPounds": 3,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:orb-of-dragonkind",
+    "weightPounds": 3,
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:orb-of-time",
+    "weightPounds": 3,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:ox",
+    "priceCp": 1500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:painted-gold-war-mask",
+    "priceCp": 75000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:pair-of-engraved-bone-dice",
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:pale-tincture",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:pearl",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:pearl-of-power",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:pepper",
+    "weightPounds": 1,
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:perfume-of-bewitching",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:periapt-of-health",
+    "weightPounds": 1,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:periapt-of-proof-against-poison",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:periapt-of-wound-closure",
+    "weightPounds": 1,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:peridot",
+    "priceCp": 50000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:philter-of-love",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:pig",
+    "priceCp": 300,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:pipe-of-smoke-monsters",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:pipes-of-haunting",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:pipes-of-the-sewers",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:platinum",
+    "weightPounds": 1,
+    "priceCp": 50000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:platinum-bracelet-set-with-an-emerald",
+    "priceCp": 250000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:pole-of-angling",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:pole-of-collapsing",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:portable-hole",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:pot-of-awakening",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-acid-resistance",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-animal-friendship",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-clairvoyance",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-climbing",
+    "weightPounds": 0.5,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-cloud-giant-strength",
+    "weightPounds": 0.5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-cold-resistance",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-comprehension",
+    "weightPounds": 0.5,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-diminution",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-fire-breath",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-fire-giant-strength",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-fire-resistance",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-flying",
+    "weightPounds": 0.5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-force-resistance",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-frost-giant-strength",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-gaseous-form",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-giant-strength",
+    "weightPounds": 0.5
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-greater-healing",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-greater-invisibility",
+    "weightPounds": 0.5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-growth",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-healing",
+    "weightPounds": 0.5,
+    "priceCp": 5000,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-heroism",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-hill-giant-strength",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-invisibility",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-invulnerability",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-lightning-resistance",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-longevity",
+    "weightPounds": 0.5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-mind-reading",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-necrotic-resistance",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-poison",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-poison-resistance",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-psychic-resistance",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-pugilism",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-radiant-resistance",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-resistance",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-speed",
+    "weightPounds": 0.5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-stone-giant-strength",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-storm-giant-strength",
+    "weightPounds": 0.5,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-superior-healing",
+    "weightPounds": 0.5,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-supreme-healing",
+    "weightPounds": 0.5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-thunder-resistance",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-vitality",
+    "weightPounds": 0.5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:potion-of-water-breathing",
+    "weightPounds": 0.5,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:potions-of-healing",
+    "weightPounds": 0.5
+  },
+  {
+    "id": "magic_item:xdmg:prosthetic-limb",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:purple-worm-poison",
+    "priceCp": 200000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:quaal-s-feather-token"
+  },
+  {
+    "id": "magic_item:xdmg:quaal-s-feather-token-anchor",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:quaal-s-feather-token-bird",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:quaal-s-feather-token-fan",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:quaal-s-feather-token-swan-boat",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:quaal-s-feather-token-tree",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:quaal-s-feather-token-whip",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:quarterstaff-of-the-acrobat",
+    "weightPounds": 4,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:quartz",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:quiver-of-ehlonna",
+    "weightPounds": 2,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:red-dragon-scale-mail",
+    "weightPounds": 45,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:rhodochrosite",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-acid-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-animal-influence",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-cold-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-djinni-summoning",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-elemental-command",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-elemental-command-air",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-elemental-command-earth",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-elemental-command-fire",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-elemental-command-water",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-evasion",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-feather-falling",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-fire-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-force-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-free-action",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-invisibility",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-jumping",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-lightning-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-mind-shielding",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-necrotic-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-poison-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-protection",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-psychic-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-radiant-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-regeneration",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-shooting-stars",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-spell-storing",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-spell-turning",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-swimming",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-telekinesis",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-the-ram",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-three-wishes",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-thunder-resistance",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-warmth",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-water-walking",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:ring-of-x-ray-vision",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:rival-coin",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:robe-of-eyes",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:robe-of-scintillating-colors",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:robe-of-stars",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:robe-of-the-archmagi",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:robe-of-useful-items",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:rod-of-absorption",
+    "weightPounds": 2,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:rod-of-alertness",
+    "weightPounds": 2,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:rod-of-lordly-might",
+    "weightPounds": 2,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:rod-of-resurrection",
+    "weightPounds": 2,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:rod-of-rulership",
+    "weightPounds": 2,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:rod-of-security",
+    "weightPounds": 2,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:rod-of-the-pact-keeper",
+    "weightPounds": 2
+  },
+  {
+    "id": "magic_item:xdmg:rope-of-climbing",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:rope-of-entanglement",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:rope-of-mending",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:ruby",
+    "priceCp": 500000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:ruby-of-the-war-mage",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:saddle-of-the-cavalier",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:saffron",
+    "weightPounds": 1,
+    "priceCp": 1500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:salt",
+    "weightPounds": 1,
+    "priceCp": 5,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:sardonyx",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:scarab-of-protection",
+    "weightPounds": 1,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:scimitar-of-speed",
+    "weightPounds": 3,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-aberrations",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-beasts",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-celestials",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-constructs",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-dragons",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-elementals",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-fey",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-fiends",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-giants",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-humanoids",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-monstrosities",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-oozes",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-plants",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-protection-undead",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-titan-summoning",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-titan-summoning-animal-lord",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-titan-summoning-blob-of-annihilation",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-titan-summoning-colossus",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-titan-summoning-elemental-cataclysm",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-titan-summoning-empyrean",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-titan-summoning-kraken",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:scroll-of-titan-summoning-tarrasque",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:sending-stones",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:sentinel-shield",
+    "weightPounds": 6,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:serpent-venom",
+    "priceCp": 20000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:set-of-gold-nesting-dolls",
+    "priceCp": 750000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:sheep",
+    "priceCp": 200,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:shield-of-expression",
+    "weightPounds": 6,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:shield-of-missile-attraction",
+    "weightPounds": 6,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:shield-of-the-cavalier",
+    "weightPounds": 6,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:silk",
+    "weightPounds": 1,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:silk-vestments-with-gold-embroidery",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:silver",
+    "weightPounds": 1,
+    "priceCp": 500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:silver-and-gold-brooch",
+    "priceCp": 75000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:silver-bar-2-pound",
+    "weightPounds": 2,
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:silver-bar-5-pound",
+    "weightPounds": 5,
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:silver-chalice-set-with-moonstones",
+    "priceCp": 75000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:silver-dragon-scale-mail",
+    "weightPounds": 45,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:silver-ewer",
+    "priceCp": 2500,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:silver-necklace-with-a-gemstone-pendant",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:slippers-of-spider-climbing",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:smoke-grenade",
+    "weightPounds": 2,
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:sovereign-glue",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:spell-scroll"
+  },
+  {
+    "id": "magic_item:xdmg:spell-scroll-cantrip",
+    "priceCp": 3000,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:spell-scroll-level-1",
+    "priceCp": 5000,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:spell-scroll-level-2",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:spell-scroll-level-3",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:spell-scroll-level-4",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:spell-scroll-level-5",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:spell-scroll-level-6",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:spell-scroll-level-7",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:spell-scroll-level-8",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:spell-scroll-level-9",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:spellguard-shield",
+    "weightPounds": 6,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:sphere-of-annihilation",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:spinel",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:spirit-board",
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-adornment",
+    "weightPounds": 4,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-birdcalls",
+    "weightPounds": 4,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-charming",
+    "weightPounds": 4,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-fire",
+    "weightPounds": 4,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-flowers",
+    "weightPounds": 4,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-frost",
+    "weightPounds": 4,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-healing",
+    "weightPounds": 4,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-power",
+    "weightPounds": 4,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-striking",
+    "weightPounds": 4,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-swarming-insects",
+    "weightPounds": 4,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-the-adder",
+    "weightPounds": 4,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-the-magi",
+    "weightPounds": 4,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-the-python",
+    "weightPounds": 4,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-the-woodlands",
+    "weightPounds": 4,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-thunder-and-lightning",
+    "weightPounds": 4,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:staff-of-withering",
+    "weightPounds": 4,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:star-rose-quartz",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:star-ruby",
+    "priceCp": 100000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:star-sapphire",
+    "priceCp": 100000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:stone-of-controlling-earth-elementals",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:stone-of-good-luck",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:sun-blade",
+    "weightPounds": 3,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:sword-of-answering",
+    "weightPounds": 3,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:sword-of-kas",
+    "weightPounds": 3,
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:talisman-of-pure-good",
+    "weightPounds": 1,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:talisman-of-the-sphere",
+    "weightPounds": 1,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:talisman-of-ultimate-evil",
+    "weightPounds": 1,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:talking-doll",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:tankard-of-sobriety",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:tentacle-rod",
+    "weightPounds": 2,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:thunderous-greatclub",
+    "weightPounds": 10,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:tiger-eye",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:tome-of-clear-thought",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:tome-of-leadership-and-influence",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:tome-of-the-stilled-tongue",
+    "weightPounds": 5,
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:tome-of-understanding",
+    "weightPounds": 5,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:topaz",
+    "priceCp": 50000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:torpor",
+    "priceCp": 60000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:tourmaline",
+    "priceCp": 10000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:trident-of-fish-command",
+    "weightPounds": 4,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:truth-serum",
+    "priceCp": 15000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:turquoise",
+    "priceCp": 1000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:universal-solvent",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:veteran-s-cane",
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-binding",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-conducting",
+    "weightPounds": 1,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-enemy-detection",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-fear",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-fireballs",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-lightning-bolts",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-magic-detection",
+    "weightPounds": 1,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-magic-missiles",
+    "weightPounds": 1,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-orcus",
+    "weightPounds": 4,
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-paralysis",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-polymorph",
+    "weightPounds": 1,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-pyrotechnics",
+    "weightPounds": 1,
+    "rarity": "common"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-secrets",
+    "weightPounds": 1,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-the-war-mage",
+    "weightPounds": 1
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-web",
+    "weightPounds": 1,
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:wand-of-wonder",
+    "weightPounds": 1,
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:wave",
+    "weightPounds": 4,
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:well-made-tapestry-that-is-10-feet-by-10-feet",
+    "priceCp": 25000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:well-of-many-worlds",
+    "rarity": "legendary"
+  },
+  {
+    "id": "magic_item:xdmg:wheat",
+    "weightPounds": 1,
+    "priceCp": 1,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:whelm",
+    "weightPounds": 5,
+    "rarity": "artifact"
+  },
+  {
+    "id": "magic_item:xdmg:white-dragon-scale-mail",
+    "weightPounds": 45,
+    "rarity": "very rare"
+  },
+  {
+    "id": "magic_item:xdmg:wind-fan",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:winged-boots",
+    "rarity": "uncommon"
+  },
+  {
+    "id": "magic_item:xdmg:wings-of-flying",
+    "rarity": "rare"
+  },
+  {
+    "id": "magic_item:xdmg:wraps-of-unarmed-power"
+  },
+  {
+    "id": "magic_item:xdmg:wyvern-poison",
+    "priceCp": 120000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:yellow-sapphire",
+    "priceCp": 100000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xdmg:zircon",
+    "priceCp": 5000,
+    "rarity": "none"
+  },
+  {
+    "id": "magic_item:xmm:command-amulet",
+    "weightPounds": 1
+  }
+]

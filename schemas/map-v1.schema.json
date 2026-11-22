@@ -1,0 +1,156 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "title": {
+      "type": "string",
+      "maxLength": 160,
+      "minLength": 1
+    },
+    "kind": {
+      "enum": [
+        "world",
+        "region",
+        "settlement",
+        "dungeon",
+        "battle"
+      ]
+    },
+    "purpose": {
+      "enum": ["region", "settlement", "tactical", "schematic", null],
+      "description": "Explicit use, independent of kind and physical scale. Omitted retains legacy unknown purpose; no reader may derive feet per cell from this classification."
+    },
+    "edition": {
+      "enum": [
+        "gm",
+        "player"
+      ]
+    },
+    "prompt": {
+      "type": "string",
+      "maxLength": 16000,
+      "minLength": 0
+    },
+    "width": { "type": "integer", "minimum": 1, "maximum": 8192 },
+    "height": { "type": "integer", "minimum": 1, "maximum": 8192 },
+    "importSource": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "sourceUrl": { "type": "string", "maxLength": 2048, "pattern": "^https?://" },
+        "visualStyle": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      },
+      "description": "Locally supplied original. URL is provenance only and is never fetched; appearance prose is public."
+    },
+    "styleReference": {
+      "type": "object", "readOnly": true, "additionalProperties": false,
+      "properties": {
+        "mapId": { "type": "string", "format": "uuid" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "visualStyle": { "type": "string", "minLength": 1, "maxLength": 2000 }
+      },
+      "required": ["mapId", "title", "visualStyle"],
+      "description": "Server-selected published-player-original appearance reference; not accepted by create."
+    },
+    "grid": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "none",
+            "square",
+            "hex"
+          ]
+        },
+        "cellPixels": {
+          "type": "number",
+          "minimum": 16,
+          "maximum": 2048
+        },
+        "offsetX": {
+          "type": "number",
+          "minimum": -8192,
+          "maximum": 8192
+        },
+        "offsetY": {
+          "type": "number",
+          "minimum": -8192,
+          "maximum": 8192
+        },
+        "distance": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000000
+        },
+        "units": {
+          "enum": [
+            "feet",
+            "miles",
+            "meters",
+            "kilometers"
+          ]
+        },
+        "scaleBasis": {
+          "type": ["object", "null"], "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["source", "dm", "unknown"] },
+            "detail": { "type": "string", "minLength": 1, "maxLength": 500 }
+          },
+          "required": ["kind", "detail"],
+          "description": "Public bounded explanation: source is a verified source annotation, dm is an adopted session scale, unknown disables precise measurement. Omitted means the old record did not retain provenance. Appearance/style references never provide scale."
+        },
+        "uncalibrated": {
+          "type": "boolean",
+          "default": false,
+          "description": "True means no verified distance scale; readers must disable measuring. Omitted/false preserves legacy calibrated maps."
+        }
+      },
+      "allOf": [{
+        "if": { "required": ["scaleBasis"], "properties": { "scaleBasis": { "type": "object", "required": ["kind"], "properties": { "kind": { "const": "unknown" } } } } },
+        "then": { "required": ["uncalibrated"], "properties": { "uncalibrated": { "const": true } } }
+      }],
+      "required": [
+        "type",
+        "cellPixels",
+        "offsetX",
+        "offsetY",
+        "distance",
+        "units"
+      ]
+    },
+    "referenceImages": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-f0-9]{64}$"
+      },
+      "maxItems": 4,
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "title",
+    "kind",
+    "edition",
+    "prompt",
+    "width",
+    "height",
+    "grid",
+    "referenceImages"
+  ],
+  "allOf": [{
+    "if": { "required": ["importSource"] },
+    "then": {
+      "properties": { "prompt": { "const": "" }, "referenceImages": { "maxItems": 0 } },
+      "not": { "required": ["styleReference"] }
+    },
+    "else": { "properties": {
+      "prompt": { "minLength": 1 },
+      "width": { "minimum": 256, "multipleOf": 64 },
+      "height": { "minimum": 256, "multipleOf": 64 }
+    } }
+  }],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DiceRealm map specification v1",
+  "description": "User-authored map description. Saving does not generate. Width*height must be <=33554432; the server validates this cross-field bound. Type/grid metadata is never appended to prompt."
+}

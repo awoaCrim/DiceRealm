@@ -1,0 +1,12 @@
+{
+  "formatVersion": 1,
+  "id": "rainbridge",
+  "name": "雨桥失信",
+  "version": "1.1.0",
+  "summary": "雨后山路上，一名信使没有按时归站。一次以交谈、踪迹调查和护送为主的温和短篇。",
+  "levels": "建议1级，1–4名角色",
+  "duration": "约1次短游戏",
+  "source": "DiceRealm 原创《雨桥失信》",
+  "license": "本项目原创作者资料；随本机程序提供。",
+  "maps": []
+}

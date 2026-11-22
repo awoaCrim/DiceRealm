@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../server/DiceRealm.Server/DiceRealm.Server.csproj" />
+  </ItemGroup>
+  <!-- Regression content is external data: copied next to the binary so TestContent can import
+       it exactly like a host import, never compiled into the test assembly as a default. -->
+  <ItemGroup>
+    <None Update="EquipmentLoadoutV19Golden.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="WearablesV20Golden.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../Fixtures/**/*.json" CopyToOutputDirectory="PreserveNewest" LinkBase="Fixtures" />
+  </ItemGroup>
+</Project>

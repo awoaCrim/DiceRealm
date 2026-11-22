@@ -1,0 +1,597 @@
+{
+  "formatVersion": 1,
+  "id": "rainbridge-messenger",
+  "version": "1.1.0",
+  "name": "雨桥失信",
+  "startSceneId": "waystation",
+  "opening": { "mainSceneId": "bridge", "entrySceneIds": ["waystation"] },
+  "sourceText": "原创短冒险。余禾回程在雨桥滑伤脚踝，陶叔让他在旧渡口候船屋休息。林澄只希望确认他平安。没有阴谋、强制战斗、硬期限或默认金钱奖励。玩家可以不接受委托，也可以先调查桥边与浅滩；发现余禾后可交谈、照料或搀扶返程。脚伤是叙事情境，不向玩家角色扣HP，不创建额外战斗角色。信袋归余禾保管，不是可领取物。完成护送后回驿站报平安即结局。",
+  "styleProfile": "低饱和水彩与细墨线，雨中山路与乡间驿站",
+  "visualConstraints": [
+    "俯视探索示意图，不暗示隐藏人物或秘密",
+    "无坐标依据不编造战斗网格或精确比例"
+  ],
+  "scenes": [
+    {
+      "id": "waystation",
+      "title": "雨桥驿站",
+      "summary": "山路旁的小驿站，站长林澄在门厅接待来客；通往雨桥的大路从门前经过。",
+      "arrival": "暮雨敲着屋檐。林澄从门厅抬起头，问来客是否见过一个穿灰斗篷、独自赶路的年轻信使。她还没有说明请托，也没有替来客作决定。",
+      "imagePrompt": "",
+      "x": 0.5,
+      "y": 0.5,
+      "unlocated": true,
+      "safeRest": true,
+      "preGenerate": false,
+      "exits": [
+        {
+          "target": "bridge",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "seconds": 300
+        }
+      ],
+      "actions": [
+        {
+          "id": "ask-lin",
+          "kind": "talk",
+          "target": "lin",
+          "label": "询问信使的事情",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "repeatable": false,
+          "check": null,
+          "success": {
+            "text": "林澄说，信使余禾昨天离站，原定今天回来。他沿雨桥方向送信，如今仍无消息。她希望有人沿路找找，首先确保人平安。她没有提供报酬承诺，也没有宣布期限。",
+            "effects": [
+              {
+                "op": "fact",
+                "key": "heard-request",
+                "amount": 0
+              }
+            ]
+          },
+          "failure": {
+            "text": "",
+            "effects": []
+          },
+          "always": []
+        },
+        {
+          "id": "accept-search",
+          "kind": "talk",
+          "target": "lin-accept",
+          "label": "明确答应寻找余禾",
+          "when": {
+            "all": [
+              "heard-request"
+            ],
+            "any": [],
+            "none": [
+              "accepted",
+              "reported"
+            ]
+          },
+          "repeatable": false,
+          "check": null,
+          "success": {
+            "text": "你明确答应沿路寻找余禾。林澄道谢，请你找到人后把消息带回。",
+            "effects": [
+              {
+                "op": "fact",
+                "key": "accepted",
+                "amount": 0
+              }
+            ]
+          },
+          "failure": {
+            "text": "",
+            "effects": []
+          },
+          "always": []
+        },
+        {
+          "id": "escort-home",
+          "kind": "script.action",
+          "target": "escort-home",
+          "label": "搀扶余禾走进驿站",
+          "when": {
+            "all": [
+              "escort-agreed"
+            ],
+            "any": [],
+            "none": [
+              "escorted"
+            ]
+          },
+          "repeatable": false,
+          "check": null,
+          "success": {
+            "text": "你搀扶余禾走进驿站，护送已经完成。他可以亲口向林澄说明经过。",
+            "effects": [
+              {
+                "op": "fact",
+                "key": "escorted",
+                "amount": 0
+              }
+            ]
+          },
+          "failure": {
+            "text": "",
+            "effects": []
+          },
+          "always": []
+        },
+        {
+          "id": "report-return",
+          "kind": "talk",
+          "target": "lin-report",
+          "label": "向林澄报平安",
+          "when": {
+            "all": [
+              "escorted"
+            ],
+            "any": [],
+            "none": [
+              "reported"
+            ]
+          },
+          "repeatable": false,
+          "check": null,
+          "success": {
+            "text": "余禾在驿站门前向林澄说明了经过。林澄把误记的渡路信息改正，这次寻人告一段落；没有未说明的金钱或物品奖励。",
+            "effects": [
+              {
+                "op": "fact",
+                "key": "reported",
+                "amount": 0
+              }
+            ]
+          },
+          "failure": {
+            "text": "",
+            "effects": []
+          },
+          "always": []
+        }
+      ],
+      "variants": [],
+      "encounter": null
+    },
+    {
+      "id": "bridge",
+      "title": "雨桥",
+      "summary": "石桥的一段护栏被洪水冲坏，桥东的大路仍能通行；桥西有一条通往河边旧渡口的小径。",
+      "arrival": "浑水在桥墩间打旋。护栏缺口旁的石面留下拖曳的泥痕，泥痕延伸向西侧小径。没有人在桥上。",
+      "imagePrompt": "",
+      "x": 0.5,
+      "y": 0.5,
+      "unlocated": true,
+      "safeRest": false,
+      "preGenerate": false,
+      "exits": [
+        {
+          "target": "waystation",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "seconds": 300
+        },
+        {
+          "target": "ferry",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "seconds": 300
+        }
+      ],
+      "actions": [
+        {
+          "id": "inspect-tracks",
+          "kind": "script.action",
+          "target": "inspect-tracks",
+          "label": "查看桥边泥痕",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "repeatable": true,
+          "check": {
+            "ability": "wisdom",
+            "skill": "Survival",
+            "dc": 10
+          },
+          "success": {
+            "text": "泥痕中能辨出一人扶着桥栏缓慢移动的足印，后来转向西侧。地上没有足以断定遭人袭击的痕迹。",
+            "effects": [
+              {
+                "op": "fact",
+                "key": "tracks-read",
+                "amount": 0
+              }
+            ]
+          },
+          "failure": {
+            "text": "雨水冲散了细节，暂时无法判断泥痕由谁留下；西侧小径依然可见，也仍能前往。",
+            "effects": []
+          },
+          "always": []
+        }
+      ],
+      "variants": [],
+      "encounter": null
+    },
+    {
+      "id": "ferry",
+      "title": "旧渡口",
+      "summary": "废弃渡口背风处有一间石砌候船屋，屋门半掩，窗内透出声音。河岸小路继续向下游的浅滩延伸。",
+      "arrival": "一个上了年纪的摆渡人从候船屋探出头来，自称陶叔。他说这里已经不接渡客，但可以让行路人暂避雨势。",
+      "imagePrompt": "",
+      "x": 0.5,
+      "y": 0.5,
+      "unlocated": true,
+      "safeRest": false,
+      "preGenerate": false,
+      "exits": [
+        {
+          "target": "bridge",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "seconds": 300
+        },
+        {
+          "target": "shelter",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "seconds": 300
+        },
+        {
+          "target": "ford",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "seconds": 300
+        }
+      ],
+      "actions": [
+        {
+          "id": "ask-ferryman",
+          "kind": "talk",
+          "target": "tao",
+          "label": "询问陶叔是否见过信使",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "repeatable": false,
+          "check": null,
+          "success": {
+            "text": "陶叔见过灰斗篷的年轻人：余禾在桥边滑伤脚踝，他把余禾扶进候船屋休息。陶叔没有扣留他，也不知道信件的内容。",
+            "effects": [
+              {
+                "op": "fact",
+                "key": "learned-shelter",
+                "amount": 0
+              }
+            ]
+          },
+          "failure": {
+            "text": "",
+            "effects": []
+          },
+          "always": []
+        }
+      ],
+      "variants": [],
+      "encounter": null
+    },
+    {
+      "id": "shelter",
+      "title": "候船屋",
+      "summary": "石屋内，余禾坐在门边，右脚踝肿起。他的灰斗篷已经晾开，封好的信袋仍由他自己看管。",
+      "arrival": "余禾听见脚步声，先问来人是不是林澄派来的。他意识清醒，只是站起来时必须扶住墙。",
+      "imagePrompt": "",
+      "x": 0.5,
+      "y": 0.5,
+      "unlocated": true,
+      "safeRest": false,
+      "preGenerate": false,
+      "exits": [
+        {
+          "target": "ferry",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "seconds": 300
+        }
+      ],
+      "actions": [
+        {
+          "id": "ask-yuhe",
+          "kind": "talk",
+          "target": "yuhe",
+          "label": "询问余禾的遭遇",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "repeatable": false,
+          "check": null,
+          "success": {
+            "text": "余禾说，他把第一封信送到了，却在回程过桥时滑倒。余下的信袋属于收信人，他不愿交给陌生人拆看。他想回驿站，愿意接受搀扶。",
+            "effects": [
+              {
+                "op": "fact",
+                "key": "yuhe-met",
+                "amount": 0
+              }
+            ]
+          },
+          "failure": {
+            "text": "",
+            "effects": []
+          },
+          "always": []
+        },
+        {
+          "id": "offer-escort",
+          "kind": "talk",
+          "target": "yuhe-escort",
+          "label": "明确提出搀扶余禾回驿站",
+          "when": {
+            "all": [
+              "yuhe-met"
+            ],
+            "any": [],
+            "none": [
+              "escort-agreed"
+            ]
+          },
+          "repeatable": false,
+          "check": null,
+          "success": {
+            "text": "余禾接受帮助，站起身来。按原路慢慢走即可回到驿站；此次同意陪行不创建可操控战斗队员，也不转移他的信袋。",
+            "effects": [
+              {
+                "op": "fact",
+                "key": "escort-agreed",
+                "amount": 0
+              }
+            ]
+          },
+          "failure": {
+            "text": "",
+            "effects": []
+          },
+          "always": []
+        }
+      ],
+      "variants": [],
+      "encounter": null
+    },
+    {
+      "id": "ford",
+      "title": "下游浅滩",
+      "summary": "下游河床较宽，水流依然湍急。这里能看见雨桥下方和通往旧渡口的小路。",
+      "arrival": "水面淹过原先露出的踏脚石。岸边没有等待渡河的人，也没有已设定的暗藏宝物。绕回渡口的路仍然畅通。",
+      "imagePrompt": "",
+      "x": 0.5,
+      "y": 0.5,
+      "unlocated": true,
+      "safeRest": false,
+      "preGenerate": false,
+      "exits": [
+        {
+          "target": "ferry",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "seconds": 300
+        }
+      ],
+      "actions": [
+        {
+          "id": "read-water",
+          "kind": "script.action",
+          "target": "read-water",
+          "label": "观察浅滩是否适宜徒涉",
+          "when": {
+            "all": [],
+            "any": [],
+            "none": []
+          },
+          "repeatable": false,
+          "check": null,
+          "success": {
+            "text": "此刻徒涉并不比沿桥返回更稳妥；你认出回驿站的已有安全路线，不因此替自己决定涉水。",
+            "effects": [
+              {
+                "op": "fact",
+                "key": "ford-surveyed",
+                "amount": 0
+              }
+            ]
+          },
+          "failure": {
+            "text": "",
+            "effects": []
+          },
+          "always": []
+        }
+      ],
+      "variants": [],
+      "encounter": null
+    }
+  ],
+  "items": [],
+  "factions": [],
+  "branches": [],
+  "quests": [
+    {
+      "id": "find-messenger",
+      "title": "寻找余禾",
+      "summary": "林澄希望确认信使余禾平安。",
+      "reward": "没有承诺金钱或物品报酬。",
+      "visible": {
+        "all": [
+          "heard-request"
+        ],
+        "any": [],
+        "none": []
+      },
+      "active": {
+        "all": [
+          "accepted"
+        ],
+        "any": [],
+        "none": [
+          "reported"
+        ]
+      },
+      "complete": {
+        "all": [
+          "reported"
+        ],
+        "any": [],
+        "none": []
+      },
+      "objectives": [
+        {
+          "text": "找到余禾",
+          "complete": {
+            "all": [
+              "yuhe-met"
+            ],
+            "any": [],
+            "none": []
+          }
+        },
+        {
+          "text": "把平安消息带回驿站",
+          "complete": {
+            "all": [
+              "reported"
+            ],
+            "any": [],
+            "none": []
+          }
+        }
+      ]
+    }
+  ],
+  "npcs": [
+    {
+      "id": "lin",
+      "name": "林澄",
+      "sceneId": "waystation",
+      "factionId": "",
+      "summary": "驿站站长，担心信使失联，交谈直接，不擅自承诺报酬。",
+      "visible": {
+        "all": [
+          "visited:waystation"
+        ],
+        "any": [],
+        "none": []
+      },
+      "met": {
+        "all": [
+          "heard-request"
+        ],
+        "any": [],
+        "none": []
+      },
+      "locations": []
+    },
+    {
+      "id": "tao",
+      "name": "陶叔",
+      "sceneId": "ferry",
+      "factionId": "",
+      "summary": "不再接渡客的老摆渡人，乐意让行路人避雨。",
+      "visible": {
+        "all": [
+          "visited:ferry"
+        ],
+        "any": [],
+        "none": []
+      },
+      "met": {
+        "all": [
+          "learned-shelter"
+        ],
+        "any": [],
+        "none": []
+      },
+      "locations": []
+    },
+    {
+      "id": "yuhe",
+      "name": "余禾",
+      "sceneId": "shelter",
+      "factionId": "",
+      "summary": "年轻信使，脚踝受伤，意识清醒，珍惜自己的送信职责。",
+      "visible": {
+        "all": [
+          "visited:shelter"
+        ],
+        "any": [],
+        "none": []
+      },
+      "met": {
+        "all": [
+          "yuhe-met"
+        ],
+        "any": [],
+        "none": []
+      },
+      "locations": [
+        {
+          "when": {
+            "all": [
+              "escorted"
+            ],
+            "any": [],
+            "none": []
+          },
+          "sceneId": "waystation"
+        }
+      ]
+    }
+  ],
+  "initialKnowledge": [
+    {
+      "id": "rainbridge-truth",
+      "kind": "clue",
+      "name": "主持：失联真相",
+      "summary": "余禾在雨桥滑伤脚踝，被陶叔扶到旧渡口候船屋休息。林澄并不知道这一真相。不是绑架，不制造幕后恶徒；可以保留调查空间，但不借悬疑文风捏造敌人、倒计时或赠物。",
+      "sceneId": "waystation",
+      "visibility": "host",
+      "revealSceneId": ""
+    }
+  ]
+}

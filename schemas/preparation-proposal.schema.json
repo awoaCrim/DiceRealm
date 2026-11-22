@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DiceRealm preparation proposal (no executable rules)",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "startSceneId": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/scene"
+      },
+      "minItems": 0,
+      "maxItems": 40
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/route"
+      },
+      "minItems": 0,
+      "maxItems": 80
+    },
+    "knowledge": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/knowledge"
+      },
+      "minItems": 0,
+      "maxItems": 64
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 1000
+      },
+      "minItems": 0,
+      "maxItems": 20
+    }
+  },
+  "required": [
+    "startSceneId",
+    "scenes",
+    "routes",
+    "knowledge",
+    "questions"
+  ],
+  "$defs": {
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "enum": [
+            "sourceText",
+            "intent"
+          ]
+        },
+        "start": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2000
+        },
+        "quote": {
+          "type": "string",
+          "maxLength": 2000
+        }
+      },
+      "required": [
+        "field",
+        "start",
+        "length",
+        "quote"
+      ]
+    },
+    "scene": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "arrival": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "summary",
+        "arrival",
+        "evidence"
+      ]
+    },
+    "route": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "evidence"
+      ]
+    },
+    "knowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "kind": {
+          "enum": [
+            "npc",
+            "quest",
+            "place",
+            "clue"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 800
+        },
+        "sceneId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "visibility": {
+          "enum": [
+            "host",
+            "public",
+            "arrival"
+          ]
+        },
+        "revealSceneId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "minItems": 1,
+          "maxItems": 8
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "summary",
+        "sceneId",
+        "visibility",
+        "revealSceneId",
+        "evidence"
+      ]
+    }
+  }
+}

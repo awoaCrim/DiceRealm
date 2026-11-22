@@ -1,0 +1,1412 @@
+{
+  "id": "e9394111-1ea0-4448-a851-54ab06358749",
+  "name": "Test adventurer",
+  "templateId": "custom-level-one-2024",
+  "species": "Dwarf",
+  "className": "Warlock",
+  "background": "Soldier",
+  "level": 11,
+  "hitPoints": 77,
+  "maxHitPoints": 80,
+  "armorClass": 13,
+  "proficiencyBonus": 4,
+  "abilities": [
+    {
+      "name": "strength",
+      "score": 20,
+      "modifier": 5
+    },
+    {
+      "name": "dexterity",
+      "score": 16,
+      "modifier": 3
+    },
+    {
+      "name": "constitution",
+      "score": 13,
+      "modifier": 1
+    },
+    {
+      "name": "intelligence",
+      "score": 12,
+      "modifier": 1
+    },
+    {
+      "name": "wisdom",
+      "score": 10,
+      "modifier": 0
+    },
+    {
+      "name": "charisma",
+      "score": 8,
+      "modifier": -1
+    }
+  ],
+  "skills": [
+    "Arcana",
+    "Athletics",
+    "Deception",
+    "Intimidation"
+  ],
+  "inventory": [
+    {
+      "id": "leather-armor",
+      "name": "Leather Armor",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "sickle",
+      "name": "Sickle",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "dagger",
+      "name": "Dagger",
+      "quantity": 2,
+      "equipped": false
+    },
+    {
+      "id": "orb",
+      "name": "Orb",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "book",
+      "name": "Book",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "scholars-pack",
+      "name": "Scholar\u0027s Pack",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "spear",
+      "name": "Spear",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "shortbow",
+      "name": "Shortbow",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "arrows-20",
+      "name": "Arrows (20)",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "healer-s-kit",
+      "name": "Healer\u0027s Kit",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "quiver",
+      "name": "Quiver",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "traveler-s-clothes",
+      "name": "Traveler\u0027s Clothes",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "dice-set",
+      "name": "Dice Set",
+      "quantity": 1,
+      "equipped": false
+    },
+    {
+      "id": "gold-piece",
+      "name": "Gold Piece",
+      "quantity": 29,
+      "equipped": false
+    }
+  ],
+  "conditions": [],
+  "features": [
+    "Darkvision",
+    "Dwarven Resilience",
+    "Dwarven Toughness",
+    "Stonecunning",
+    "Eldritch Invocations",
+    "Pact Magic",
+    "Eldritch Invocation Options",
+    "armor-of-shadows",
+    "Savage Attacker",
+    "Languages: common, common-sign-language, draconic",
+    "Size: M; speed: 30 ft",
+    "Saving throw proficiencies: wisdom, charisma",
+    "Magical Cunning",
+    "Warlock Subclass",
+    "Fiend Patron",
+    "Fiend Spells",
+    "Dark One\u0027s Blessing",
+    "Ability Score Improvement",
+    "ability-score-improvement",
+    "Subclass Feature",
+    "Dark One\u0027s Own Luck",
+    "Contact Patron",
+    "Fiendish Resilience",
+    "Mystic Arcanum"
+  ],
+  "resources": [
+    {
+      "name": "Hit Dice (d8)",
+      "current": 11,
+      "maximum": 11,
+      "recovery": "long",
+      "description": "",
+      "source": "XPHB"
+    },
+    {
+      "name": "Pact Slots (5th)",
+      "current": 3,
+      "maximum": 3,
+      "recovery": "short",
+      "description": "",
+      "source": "XPHB"
+    },
+    {
+      "name": "Magical Cunning",
+      "current": 1,
+      "maximum": 1,
+      "recovery": "long",
+      "description": "2024 \u804C\u4E1A\u7B49\u7EA7\u6D3E\u751F\uFF1B\u5347\u7EA7\u4FDD\u7559\u5DF2\u6D88\u8017\u91CF\u3002",
+      "source": "XPHB"
+    },
+    {
+      "name": "Free: water-breathing [optional:gift-of-the-depths]",
+      "current": 1,
+      "maximum": 1,
+      "recovery": "long",
+      "description": "2024 \u804C\u4E1A\u7B49\u7EA7\u6D3E\u751F\uFF1B\u5347\u7EA7\u4FDD\u7559\u5DF2\u6D88\u8017\u91CF\u3002",
+      "source": "XPHB"
+    },
+    {
+      "name": "Free: arcane-gate [class:warlock/arcanum:6]",
+      "current": 0,
+      "maximum": 1,
+      "recovery": "long",
+      "description": "2024 \u804C\u4E1A\u7B49\u7EA7\u6D3E\u751F\uFF1B\u5347\u7EA7\u4FDD\u7559\u5DF2\u6D88\u8017\u91CF\u3002",
+      "source": "XPHB"
+    }
+  ],
+  "source": "XPHB",
+  "spellcasting": {
+    "ability": "charisma",
+    "attackBonus": 3,
+    "saveDc": 11,
+    "spells": [
+      {
+        "id": "blade-ward",
+        "name": "Blade Ward",
+        "level": 0,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "chill-touch",
+        "name": "Chill Touch",
+        "level": 0,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "eldritch-blast",
+        "name": "Eldritch Blast",
+        "level": 0,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "friends",
+        "name": "Friends",
+        "level": 0,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "armor-of-agathys",
+        "name": "Armor of Agathys",
+        "level": 1,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "arms-of-hadar",
+        "name": "Arms of Hadar",
+        "level": 1,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "bane",
+        "name": "Bane",
+        "level": 1,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "charm-person",
+        "name": "Charm Person",
+        "level": 1,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "cloud-of-daggers",
+        "name": "Cloud of Daggers",
+        "level": 2,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "comprehend-languages",
+        "name": "Comprehend Languages",
+        "level": 1,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "counterspell",
+        "name": "Counterspell",
+        "level": 3,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "banishment",
+        "name": "Banishment",
+        "level": 4,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "blight",
+        "name": "Blight",
+        "level": 4,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "charm-monster",
+        "name": "Charm Monster",
+        "level": 4,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "crown-of-madness",
+        "name": "Crown of Madness",
+        "level": 2,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "burning-hands",
+        "name": "Burning Hands",
+        "level": 1,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "command",
+        "name": "Command",
+        "level": 1,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "scorching-ray",
+        "name": "Scorching Ray",
+        "level": 2,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "suggestion",
+        "name": "Suggestion",
+        "level": 2,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "fireball",
+        "name": "Fireball",
+        "level": 3,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "stinking-cloud",
+        "name": "Stinking Cloud",
+        "level": 3,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "levitate",
+        "name": "Levitate",
+        "level": 2,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "false-life",
+        "name": "False Life",
+        "level": 1,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "fire-shield",
+        "name": "Fire Shield",
+        "level": 4,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "wall-of-fire",
+        "name": "Wall of Fire",
+        "level": 4,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "contact-other-plane",
+        "name": "Contact Other Plane",
+        "level": 5,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "geas",
+        "name": "Geas",
+        "level": 5,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "insect-plague",
+        "name": "Insect Plague",
+        "level": 5,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "water-breathing",
+        "name": "Water Breathing",
+        "level": 3,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "arcane-gate",
+        "name": "Arcane Gate",
+        "level": 6,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      },
+      {
+        "id": "mage-armor",
+        "name": "Mage Armor",
+        "level": 1,
+        "prepared": true,
+        "automated": false,
+        "castingTime": "\u89C1\u6765\u6E90\u89C4\u5219",
+        "summary": "\u6309\u804C\u4E1A\u6765\u6E90\u53D6\u5F97\uFF1B\u4E3B\u52A8\u6548\u679C\u9700\u4F7F\u7528\u652F\u6301\u7684\u6267\u884C\u80FD\u529B\u6216\u4E3B\u6301\u88C1\u5B9A\u3002",
+        "source": "XPHB"
+      }
+    ]
+  },
+  "effects": [],
+  "nextLongRestAtSeconds": 0,
+  "expertise": [],
+  "shortRestDiceAvailable": false,
+  "creation": null,
+  "build": {
+    "ruleset": "dnd2024",
+    "revision": "e5f3e77b303a92df10487207857200245e71957c",
+    "classId": "warlock",
+    "speciesId": "dwarf",
+    "backgroundId": "soldier",
+    "abilityMethod": "standard",
+    "baseScores": [
+      15,
+      14,
+      13,
+      12,
+      10,
+      8
+    ],
+    "backgroundBonuses": [
+      2,
+      1,
+      0,
+      0,
+      0,
+      0
+    ],
+    "classSkills": [
+      "arcana",
+      "deception"
+    ],
+    "expertise": [],
+    "selections": [
+      {
+        "key": "languages",
+        "values": [
+          "common-sign-language",
+          "draconic"
+        ]
+      },
+      {
+        "key": "background:soldier/tools-0",
+        "values": [
+          "dice-set"
+        ]
+      },
+      {
+        "key": "class:warlock/invocation",
+        "values": [
+          "armor-of-shadows"
+        ]
+      },
+      {
+        "key": "equipment:background/A/0",
+        "values": [
+          "dice-set"
+        ]
+      }
+    ],
+    "cantrips": [
+      "blade-ward",
+      "chill-touch"
+    ],
+    "preparedSpells": [
+      "armor-of-agathys",
+      "arms-of-hadar"
+    ],
+    "spellbook": [],
+    "classEquipment": "A",
+    "backgroundEquipment": "A",
+    "purchases": [],
+    "equipped": [],
+    "identity": {
+      "name": "Test adventurer",
+      "pronouns": "",
+      "appearance": "",
+      "personality": "",
+      "backstory": "",
+      "alignment": "neutral"
+    }
+  },
+  "buildMechanics": {
+    "hitDie": 8,
+    "speed": 30,
+    "size": "M",
+    "saves": [
+      "charisma",
+      "wisdom"
+    ],
+    "armorTraining": [
+      "light"
+    ],
+    "weaponTraining": [
+      "simple"
+    ],
+    "tools": [
+      "dice-set"
+    ],
+    "languages": [
+      "common",
+      "common-sign-language",
+      "draconic"
+    ],
+    "feats": [
+      "savage-attacker",
+      "ability-score-improvement"
+    ],
+    "masteries": [],
+    "resistances": [
+      "poison"
+    ],
+    "spellGrants": [
+      {
+        "id": "mage-armor",
+        "ability": "cha",
+        "source": "class:warlock/invocation",
+        "mode": "at-will",
+        "freeUses": 0,
+        "attackBonus": 3,
+        "saveDc": 11
+      }
+    ],
+    "skills": [
+      {
+        "id": "acrobatics",
+        "name": "Acrobatics",
+        "ability": "dexterity",
+        "modifier": 3,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "animal-handling",
+        "name": "Animal Handling",
+        "ability": "wisdom",
+        "modifier": 0,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "arcana",
+        "name": "Arcana",
+        "ability": "intelligence",
+        "modifier": 5,
+        "proficient": true,
+        "expertise": false
+      },
+      {
+        "id": "athletics",
+        "name": "Athletics",
+        "ability": "strength",
+        "modifier": 9,
+        "proficient": true,
+        "expertise": false
+      },
+      {
+        "id": "deception",
+        "name": "Deception",
+        "ability": "charisma",
+        "modifier": 3,
+        "proficient": true,
+        "expertise": false
+      },
+      {
+        "id": "history",
+        "name": "History",
+        "ability": "intelligence",
+        "modifier": 1,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "insight",
+        "name": "Insight",
+        "ability": "wisdom",
+        "modifier": 0,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "intimidation",
+        "name": "Intimidation",
+        "ability": "charisma",
+        "modifier": 3,
+        "proficient": true,
+        "expertise": false
+      },
+      {
+        "id": "investigation",
+        "name": "Investigation",
+        "ability": "intelligence",
+        "modifier": 1,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "medicine",
+        "name": "Medicine",
+        "ability": "wisdom",
+        "modifier": 0,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "nature",
+        "name": "Nature",
+        "ability": "intelligence",
+        "modifier": 1,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "perception",
+        "name": "Perception",
+        "ability": "wisdom",
+        "modifier": 0,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "performance",
+        "name": "Performance",
+        "ability": "charisma",
+        "modifier": -1,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "persuasion",
+        "name": "Persuasion",
+        "ability": "charisma",
+        "modifier": -1,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "religion",
+        "name": "Religion",
+        "ability": "intelligence",
+        "modifier": 1,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "sleight-of-hand",
+        "name": "Sleight of Hand",
+        "ability": "dexterity",
+        "modifier": 3,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "stealth",
+        "name": "Stealth",
+        "ability": "dexterity",
+        "modifier": 3,
+        "proficient": false,
+        "expertise": false
+      },
+      {
+        "id": "survival",
+        "name": "Survival",
+        "ability": "wisdom",
+        "modifier": 0,
+        "proficient": false,
+        "expertise": false
+      }
+    ],
+    "initiativeBonus": 3,
+    "passivePerception": 10,
+    "currencyCp": 2900,
+    "automatedCombat": false,
+    "savingThrows": [
+      {
+        "ability": "strength",
+        "modifier": 5,
+        "proficient": false
+      },
+      {
+        "ability": "dexterity",
+        "modifier": 3,
+        "proficient": false
+      },
+      {
+        "ability": "constitution",
+        "modifier": 1,
+        "proficient": false
+      },
+      {
+        "ability": "intelligence",
+        "modifier": 1,
+        "proficient": false
+      },
+      {
+        "ability": "wisdom",
+        "modifier": 4,
+        "proficient": true
+      },
+      {
+        "ability": "charisma",
+        "modifier": 3,
+        "proficient": true
+      }
+    ]
+  },
+  "playState": {
+    "schemaVersion": 1,
+    "preparedSpells": [
+      "armor-of-agathys",
+      "arms-of-hadar",
+      "bane",
+      "charm-person",
+      "cloud-of-daggers",
+      "comprehend-languages",
+      "counterspell",
+      "banishment",
+      "blight",
+      "charm-monster",
+      "crown-of-madness"
+    ],
+    "preparationOpen": false
+  },
+  "temporaryHitPoints": 0,
+  "exhaustion": 0,
+  "advancement": {
+    "schemaVersion": 1,
+    "revision": "e5f3e77b303a92df10487207857200245e71957c",
+    "classes": [
+      {
+        "classId": "warlock",
+        "level": 11,
+        "subclassId": "warlock:fiend",
+        "cantrips": [
+          "blade-ward",
+          "chill-touch",
+          "eldritch-blast",
+          "friends"
+        ],
+        "preparedSpells": [
+          "armor-of-agathys",
+          "arms-of-hadar",
+          "bane",
+          "charm-person",
+          "cloud-of-daggers",
+          "comprehend-languages",
+          "counterspell",
+          "banishment",
+          "blight",
+          "charm-monster",
+          "crown-of-madness"
+        ],
+        "spellbook": [],
+        "optionalFeatures": [
+          "armor-of-shadows",
+          "devil-s-sight",
+          "eldritch-mind",
+          "ascendant-step",
+          "fiendish-vigor",
+          "gaze-of-two-minds",
+          "gift-of-the-depths"
+        ],
+        "masteries": [],
+        "bonusSpells": [
+          {
+            "id": "burning-hands",
+            "mode": "prepared",
+            "origin": "subclass:warlock:fiend",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "command",
+            "mode": "prepared",
+            "origin": "subclass:warlock:fiend",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "scorching-ray",
+            "mode": "prepared",
+            "origin": "subclass:warlock:fiend",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "suggestion",
+            "mode": "prepared",
+            "origin": "subclass:warlock:fiend",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "fireball",
+            "mode": "prepared",
+            "origin": "subclass:warlock:fiend",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "stinking-cloud",
+            "mode": "prepared",
+            "origin": "subclass:warlock:fiend",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "levitate",
+            "mode": "innate",
+            "origin": "optional:ascendant-step",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "false-life",
+            "mode": "innate",
+            "origin": "optional:fiendish-vigor",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "fire-shield",
+            "mode": "prepared",
+            "origin": "subclass:warlock:fiend",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "wall-of-fire",
+            "mode": "prepared",
+            "origin": "subclass:warlock:fiend",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "contact-other-plane",
+            "mode": "prepared",
+            "origin": "class:warlock",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "geas",
+            "mode": "prepared",
+            "origin": "subclass:warlock:fiend",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "insect-plague",
+            "mode": "prepared",
+            "origin": "subclass:warlock:fiend",
+            "ability": "cha",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          },
+          {
+            "id": "water-breathing",
+            "mode": "innate",
+            "origin": "optional:gift-of-the-depths",
+            "ability": "cha",
+            "uses": 1,
+            "recovery": "long",
+            "resource": "",
+            "condition": "1e"
+          },
+          {
+            "id": "arcane-gate",
+            "mode": "arcanum",
+            "origin": "class:warlock/arcanum:6",
+            "ability": "",
+            "uses": 0,
+            "recovery": "long",
+            "resource": "",
+            "condition": ""
+          }
+        ],
+        "choices": []
+      }
+    ],
+    "steps": [
+      {
+        "characterLevel": 2,
+        "classId": "warlock",
+        "classLevel": 2,
+        "subclassId": "",
+        "hitPointIncrease": 7,
+        "features": [
+          "magical cunning|warlock|xphb|2"
+        ],
+        "choices": {
+          "revision": "e5f3e77b303a92df10487207857200245e71957c",
+          "classId": "warlock",
+          "subclassId": "",
+          "selections": [
+            {
+              "key": "optional:EI",
+              "values": [
+                "armor-of-shadows",
+                "devil-s-sight",
+                "eldritch-mind"
+              ]
+            },
+            {
+              "key": "spells:prepared",
+              "values": [
+                "armor-of-agathys",
+                "arms-of-hadar",
+                "bane"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "characterLevel": 3,
+        "classId": "warlock",
+        "classLevel": 3,
+        "subclassId": "warlock:fiend",
+        "hitPointIncrease": 7,
+        "features": [
+          "warlock subclass|warlock|xphb|3",
+          "fiend patron|warlock|xphb|fiend|xphb|3",
+          "fiend spells|warlock|xphb|fiend|xphb|3",
+          "dark one\u0027s blessing|warlock|xphb|fiend|xphb|3"
+        ],
+        "choices": {
+          "revision": "e5f3e77b303a92df10487207857200245e71957c",
+          "classId": "warlock",
+          "subclassId": "warlock:fiend",
+          "selections": [
+            {
+              "key": "spells:prepared",
+              "values": [
+                "armor-of-agathys",
+                "arms-of-hadar",
+                "bane",
+                "charm-person"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "characterLevel": 4,
+        "classId": "warlock",
+        "classLevel": 4,
+        "subclassId": "warlock:fiend",
+        "hitPointIncrease": 7,
+        "features": [
+          "ability score improvement|warlock|xphb|4"
+        ],
+        "choices": {
+          "revision": "e5f3e77b303a92df10487207857200245e71957c",
+          "classId": "warlock",
+          "subclassId": "",
+          "selections": [
+            {
+              "key": "feat",
+              "values": [
+                "ability-score-improvement"
+              ]
+            },
+            {
+              "key": "feat:ability",
+              "values": [
+                "str\u002Bstr"
+              ]
+            },
+            {
+              "key": "spells:cantrips",
+              "values": [
+                "blade-ward",
+                "chill-touch",
+                "eldritch-blast"
+              ]
+            },
+            {
+              "key": "spells:prepared",
+              "values": [
+                "armor-of-agathys",
+                "arms-of-hadar",
+                "bane",
+                "charm-person",
+                "cloud-of-daggers"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "characterLevel": 5,
+        "classId": "warlock",
+        "classLevel": 5,
+        "subclassId": "warlock:fiend",
+        "hitPointIncrease": 7,
+        "features": [],
+        "choices": {
+          "revision": "e5f3e77b303a92df10487207857200245e71957c",
+          "classId": "warlock",
+          "subclassId": "",
+          "selections": [
+            {
+              "key": "optional:EI",
+              "values": [
+                "armor-of-shadows",
+                "devil-s-sight",
+                "eldritch-mind",
+                "ascendant-step",
+                "fiendish-vigor"
+              ]
+            },
+            {
+              "key": "spells:prepared",
+              "values": [
+                "armor-of-agathys",
+                "arms-of-hadar",
+                "bane",
+                "charm-person",
+                "cloud-of-daggers",
+                "comprehend-languages"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "characterLevel": 6,
+        "classId": "warlock",
+        "classLevel": 6,
+        "subclassId": "warlock:fiend",
+        "hitPointIncrease": 7,
+        "features": [
+          "subclass feature|warlock|xphb|6",
+          "dark one\u0027s own luck|warlock|xphb|fiend|xphb|6"
+        ],
+        "choices": {
+          "revision": "e5f3e77b303a92df10487207857200245e71957c",
+          "classId": "warlock",
+          "subclassId": "",
+          "selections": [
+            {
+              "key": "spells:prepared",
+              "values": [
+                "armor-of-agathys",
+                "arms-of-hadar",
+                "bane",
+                "charm-person",
+                "cloud-of-daggers",
+                "comprehend-languages",
+                "counterspell"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "characterLevel": 7,
+        "classId": "warlock",
+        "classLevel": 7,
+        "subclassId": "warlock:fiend",
+        "hitPointIncrease": 7,
+        "features": [],
+        "choices": {
+          "revision": "e5f3e77b303a92df10487207857200245e71957c",
+          "classId": "warlock",
+          "subclassId": "",
+          "selections": [
+            {
+              "key": "optional:EI",
+              "values": [
+                "armor-of-shadows",
+                "devil-s-sight",
+                "eldritch-mind",
+                "ascendant-step",
+                "fiendish-vigor",
+                "gaze-of-two-minds"
+              ]
+            },
+            {
+              "key": "spells:prepared",
+              "values": [
+                "armor-of-agathys",
+                "arms-of-hadar",
+                "bane",
+                "charm-person",
+                "cloud-of-daggers",
+                "comprehend-languages",
+                "counterspell",
+                "banishment"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "characterLevel": 8,
+        "classId": "warlock",
+        "classLevel": 8,
+        "subclassId": "warlock:fiend",
+        "hitPointIncrease": 7,
+        "features": [
+          "ability score improvement|warlock|xphb|8"
+        ],
+        "choices": {
+          "revision": "e5f3e77b303a92df10487207857200245e71957c",
+          "classId": "warlock",
+          "subclassId": "",
+          "selections": [
+            {
+              "key": "feat",
+              "values": [
+                "ability-score-improvement"
+              ]
+            },
+            {
+              "key": "feat:ability",
+              "values": [
+                "str\u002Bdex"
+              ]
+            },
+            {
+              "key": "spells:prepared",
+              "values": [
+                "armor-of-agathys",
+                "arms-of-hadar",
+                "bane",
+                "charm-person",
+                "cloud-of-daggers",
+                "comprehend-languages",
+                "counterspell",
+                "banishment",
+                "blight"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "characterLevel": 9,
+        "classId": "warlock",
+        "classLevel": 9,
+        "subclassId": "warlock:fiend",
+        "hitPointIncrease": 7,
+        "features": [
+          "contact patron|warlock|xphb|9"
+        ],
+        "choices": {
+          "revision": "e5f3e77b303a92df10487207857200245e71957c",
+          "classId": "warlock",
+          "subclassId": "",
+          "selections": [
+            {
+              "key": "optional:EI",
+              "values": [
+                "armor-of-shadows",
+                "devil-s-sight",
+                "eldritch-mind",
+                "ascendant-step",
+                "fiendish-vigor",
+                "gaze-of-two-minds",
+                "gift-of-the-depths"
+              ]
+            },
+            {
+              "key": "spells:prepared",
+              "values": [
+                "armor-of-agathys",
+                "arms-of-hadar",
+                "bane",
+                "charm-person",
+                "cloud-of-daggers",
+                "comprehend-languages",
+                "counterspell",
+                "banishment",
+                "blight",
+                "charm-monster"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "characterLevel": 10,
+        "classId": "warlock",
+        "classLevel": 10,
+        "subclassId": "warlock:fiend",
+        "hitPointIncrease": 7,
+        "features": [
+          "subclass feature|warlock|xphb|10",
+          "fiendish resilience|warlock|xphb|fiend|xphb|10"
+        ],
+        "choices": {
+          "revision": "e5f3e77b303a92df10487207857200245e71957c",
+          "classId": "warlock",
+          "subclassId": "",
+          "selections": [
+            {
+              "key": "spells:cantrips",
+              "values": [
+                "blade-ward",
+                "chill-touch",
+                "eldritch-blast",
+                "friends"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "characterLevel": 11,
+        "classId": "warlock",
+        "classLevel": 11,
+        "subclassId": "warlock:fiend",
+        "hitPointIncrease": 7,
+        "features": [
+          "mystic arcanum|warlock|xphb|11"
+        ],
+        "choices": {
+          "revision": "e5f3e77b303a92df10487207857200245e71957c",
+          "classId": "warlock",
+          "subclassId": "",
+          "selections": [
+            {
+              "key": "spells:prepared",
+              "values": [
+                "armor-of-agathys",
+                "arms-of-hadar",
+                "bane",
+                "charm-person",
+                "cloud-of-daggers",
+                "comprehend-languages",
+                "counterspell",
+                "banishment",
+                "blight",
+                "charm-monster",
+                "crown-of-madness"
+              ]
+            },
+            {
+              "key": "mystic-arcanum",
+              "values": [
+                "arcane-gate"
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

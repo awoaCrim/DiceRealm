@@ -1,0 +1,1043 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "formatVersion": {
+      "const": 1
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+    },
+    "version": {
+      "type": "string",
+      "maxLength": 80
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 120
+    },
+    "startSceneId": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+    },
+    "opening": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mainSceneId", "entrySceneIds"],
+      "properties": {
+        "mainSceneId": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$" },
+        "entrySceneIds": {
+          "type": "array", "minItems": 1, "maxItems": 32, "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$" }
+        }
+      }
+    },
+    "sourceText": {
+      "type": "string",
+      "maxLength": 200000
+    },
+    "styleProfile": {
+      "type": "string",
+      "maxLength": 120,
+      "deprecated": true,
+      "description": "Compatibility only. Preserved on import/export; scene image generation has been removed. Use an independent map specification."
+    },
+    "visualConstraints": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 240
+      },
+      "maxItems": 8,
+      "deprecated": true,
+      "description": "Compatibility only. Preserved on import/export; scene image generation has been removed. Use an independent map specification."
+    },
+    "level2Milestone": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/condition"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "scenes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/scene"
+      },
+      "maxItems": 200,
+      "minItems": 1
+    },
+    "items": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/item"
+      },
+      "maxItems": 200
+    },
+    "quests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/quest"
+      },
+      "maxItems": 200
+    },
+    "npcs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/npc"
+      },
+      "maxItems": 200
+    },
+    "factions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/faction"
+      },
+      "maxItems": 200
+    },
+    "branches": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/branch"
+      },
+      "maxItems": 200
+    },
+    "initialKnowledge": {
+      "anyOf": [
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/initialKnowledge"
+          },
+          "maxItems": 64
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "version",
+    "name",
+    "startSceneId",
+    "scenes"
+  ],
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DiceRealm adventure import v1",
+  "$defs": {
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "all": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "maxItems": 100
+        },
+        "any": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "maxItems": 100
+        },
+        "none": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "maxItems": 100
+        }
+      },
+      "required": []
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "op": {
+          "enum": [
+            "fact",
+            "removeFact",
+            "item",
+            "chapter"
+          ]
+        },
+        "key": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "amount": {
+          "type": "integer",
+          "minimum": -10000,
+          "maximum": 10000
+        }
+      },
+      "required": [
+        "op"
+      ]
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/effect"
+          },
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "text",
+        "effects"
+      ]
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ability": {
+          "enum": [
+            "strength",
+            "dexterity",
+            "constitution",
+            "intelligence",
+            "wisdom",
+            "charisma"
+          ]
+        },
+        "skill": {
+          "enum": [
+            "",
+            "Acrobatics",
+            "Animal Handling",
+            "Arcana",
+            "Athletics",
+            "Deception",
+            "History",
+            "Insight",
+            "Intimidation",
+            "Investigation",
+            "Medicine",
+            "Nature",
+            "Perception",
+            "Performance",
+            "Persuasion",
+            "Religion",
+            "Sleight of Hand",
+            "Stealth",
+            "Survival"
+          ]
+        },
+        "dc": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 40
+        }
+      },
+      "required": [
+        "ability",
+        "skill",
+        "dc"
+      ]
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "kind": {
+          "type": "string",
+          "pattern": "^(talk|investigate|(story|script)\\.[a-z][a-z0-9_]{0,39})$"
+        },
+        "target": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        },
+        "repeatable": {
+          "type": "boolean"
+        },
+        "check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/check"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "success": {
+          "$ref": "#/$defs/outcome"
+        },
+        "failure": {
+          "$ref": "#/$defs/outcome"
+        },
+        "always": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/effect"
+          },
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "id",
+        "label"
+      ]
+    },
+    "exit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        },
+        "seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        }
+      },
+      "required": [
+        "target",
+        "when"
+      ]
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "when": {
+          "$ref": "#/$defs/condition"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "imagePrompt": {
+          "type": "string",
+          "maxLength": 16000,
+          "deprecated": true,
+          "description": "Compatibility only. Preserved on import/export; scene image generation has been removed. Use an independent map specification."
+        }
+      },
+      "required": [
+        "when",
+        "title",
+        "summary",
+        "imagePrompt"
+      ]
+    },
+    "enemy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "hitPoints": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "armorClass": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "speed": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 60,
+          "multipleOf": 5
+        },
+        "initiativeModifier": {
+          "type": "integer",
+          "minimum": -5,
+          "maximum": 20
+        },
+        "attackBonus": {
+          "type": "integer",
+          "minimum": -5,
+          "maximum": 20
+        },
+        "damageDice": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "damageDie": {
+          "enum": [
+            4,
+            6,
+            8,
+            10,
+            12
+          ]
+        },
+        "damageBonus": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "tactic": {
+          "enum": [
+            null,
+            "engage",
+            "withdraw"
+          ]
+        },
+        "rulesId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "xmm:zombie",
+            "xmm:skeleton"
+          ]
+        },
+        "savingThrows": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "required": [
+            "strength",
+            "dexterity",
+            "constitution",
+            "intelligence",
+            "wisdom",
+            "charisma"
+          ],
+          "properties": {
+            "strength": {
+              "type": "integer",
+              "minimum": -5,
+              "maximum": 20
+            },
+            "dexterity": {
+              "type": "integer",
+              "minimum": -5,
+              "maximum": 20
+            },
+            "constitution": {
+              "type": "integer",
+              "minimum": -5,
+              "maximum": 20
+            },
+            "intelligence": {
+              "type": "integer",
+              "minimum": -5,
+              "maximum": 20
+            },
+            "wisdom": {
+              "type": "integer",
+              "minimum": -5,
+              "maximum": 20
+            },
+            "charisma": {
+              "type": "integer",
+              "minimum": -5,
+              "maximum": 20
+            }
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "x",
+        "y",
+        "hitPoints",
+        "armorClass",
+        "speed"
+      ]
+    },
+    "cell": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "terrain": {
+          "enum": [
+            "blocked",
+            "difficult",
+            "half-cover",
+            "three-quarters-cover"
+          ]
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "terrain"
+      ]
+    },
+    "encounter": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "startLabel": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        },
+        "repeatable": {
+          "type": "boolean"
+        },
+        "nonlethal": {
+          "type": "boolean"
+        },
+        "enemies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/enemy"
+          },
+          "maxItems": 3,
+          "minItems": 1
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cell"
+          },
+          "maxItems": 35
+        },
+        "onStart": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/effect"
+          },
+          "maxItems": 64
+        },
+        "victory": {
+          "$ref": "#/$defs/outcome"
+        },
+        "mode": {
+          "enum": [
+            null,
+            "standard-2024"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "startLabel",
+        "enemies"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "const": "standard-2024"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "nonlethal"
+            ],
+            "properties": {
+              "nonlethal": {
+                "const": false
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "nonlethal": {
+                "const": true
+              },
+              "enemies": {
+                "items": {
+                  "properties": {
+                    "tactic": {
+                      "type": "null"
+                    },
+                    "rulesId": {
+                      "type": "null"
+                    },
+                    "savingThrows": {
+                      "type": "null"
+                    }
+                  }
+                }
+              },
+              "cells": {
+                "items": {
+                  "properties": {
+                    "terrain": {
+                      "enum": [
+                        "blocked",
+                        "difficult"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "scene": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "arrival": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "imagePrompt": {
+          "type": "string",
+          "maxLength": 16000,
+          "deprecated": true,
+          "description": "Compatibility only. Preserved on import/export; scene image generation has been removed. Use an independent map specification."
+        },
+        "x": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "y": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "safeRest": {
+          "type": "boolean"
+        },
+        "preGenerate": {
+          "type": "boolean",
+          "deprecated": true,
+          "description": "Compatibility only. Preserved on import/export; scene image generation has been removed. Use an independent map specification."
+        },
+        "exits": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/exit"
+          },
+          "maxItems": 32
+        },
+        "actions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/action"
+          },
+          "maxItems": 80
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/variant"
+          },
+          "maxItems": 200
+        },
+        "encounter": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/encounter"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "unlocated": {
+          "type": "boolean",
+          "description": "True means x/y are not known geographical positions. Clients must show a non-spatial place list."
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ]
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "rulesId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            null,
+            "xdmg:potion-of-healing"
+          ],
+          "description": "Explicit complete 2024 mechanical identity. Omit for narrative-only items."
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ]
+    },
+    "objective": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "complete": {
+          "$ref": "#/$defs/condition"
+        },
+        "visible": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/condition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional reveal condition, independent of completion. Omitted or null keeps the objective public whenever its quest is visible."
+        }
+      },
+      "required": [
+        "text",
+        "complete"
+      ]
+    },
+    "quest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "reward": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "visible": {
+          "$ref": "#/$defs/condition"
+        },
+        "active": {
+          "$ref": "#/$defs/condition"
+        },
+        "complete": {
+          "$ref": "#/$defs/condition"
+        },
+        "objectives": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/objective"
+          },
+          "maxItems": 200
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "summary",
+        "reward",
+        "visible",
+        "active",
+        "complete",
+        "objectives"
+      ]
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "when": {
+          "$ref": "#/$defs/condition"
+        },
+        "sceneId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        }
+      },
+      "required": [
+        "when",
+        "sceneId"
+      ]
+    },
+    "npc": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "sceneId": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "factionId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 8000
+        },
+        "visible": {
+          "$ref": "#/$defs/condition"
+        },
+        "met": {
+          "$ref": "#/$defs/condition"
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/location"
+          },
+          "maxItems": 200
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "sceneId",
+        "factionId",
+        "summary",
+        "visible",
+        "met",
+        "locations"
+      ]
+    },
+    "adjustment": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "when": {
+          "$ref": "#/$defs/condition"
+        },
+        "amount": {
+          "type": "integer",
+          "minimum": -10000,
+          "maximum": 10000
+        }
+      },
+      "required": [
+        "when",
+        "amount"
+      ]
+    },
+    "faction": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "visible": {
+          "$ref": "#/$defs/condition"
+        },
+        "adjustments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/adjustment"
+          },
+          "maxItems": 200
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "visible",
+        "adjustments"
+      ]
+    },
+    "branch": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "choice": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "when": {
+          "$ref": "#/$defs/condition"
+        }
+      },
+      "required": [
+        "id",
+        "choice",
+        "label",
+        "when"
+      ]
+    },
+    "initialKnowledge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$"
+        },
+        "kind": {
+          "enum": [
+            "npc",
+            "quest",
+            "place",
+            "clue"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "summary": {
+          "type": "string",
+          "maxLength": 800
+        },
+        "sceneId": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "visibility": {
+          "enum": [
+            "host",
+            "public",
+            "arrival"
+          ]
+        },
+        "revealSceneId": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "summary",
+        "sceneId",
+        "visibility",
+        "revealSceneId"
+      ]
+    }
+  }
+}

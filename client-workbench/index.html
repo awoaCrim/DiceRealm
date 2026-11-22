@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DiceRealm · 主持工作台</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="./styles/app.css">
+</head>
+<body>
+<div id="app" class="shell">
+  <header class="topbar" id="topbar" hidden>
+    <div class="top-left">
+      <span class="seal" aria-hidden="true"><i id="campaign-seal">卷</i></span>
+      <span class="camp" id="campaign-name">主持工作台</span>
+      <span class="room" id="room-info" hidden>房间 <b id="room-number"></b><button type="button" class="linkish" id="btn-copy-room">复制</button></span>
+      <span class="live">
+        <span id="net-indicator" class="net" data-state="idle" role="status">等待登录</span>
+        <span id="campaign-status"></span>
+        <button type="button" class="linkish" id="btn-refresh" hidden>刷新</button>
+      </span>
+    </div>
+    <div class="top-right">
+      <details class="reading-help" id="reading-controls">
+        <summary>阅读设置</summary>
+        <div class="topbar-panel">
+          <label class="f"><span>文字大小</span><select id="text-size" aria-label="文字大小"><option value="100">100%</option><option value="125">125%</option><option value="150">150%</option></select></label>
+          <label class="check"><input type="checkbox" id="reduce-motion">减少动画</label>
+          <p class="small">Tab 移动焦点，Esc 退出当前弹层。也可使用浏览器缩放；设置仅存本机。</p>
+        </div>
+      </details>
+      <button type="button" class="top-link" id="btn-campaigns">我的战役</button>
+      <details class="reading-help account-controls" id="account-controls" hidden>
+        <summary aria-label="账户菜单"><span class="account-badge" id="account-initial" aria-hidden="true"></span><span id="account-name"></span><span class="account-role" id="account-role"></span><span class="caret" aria-hidden="true"></span></summary>
+        <div class="topbar-panel account-menu">
+          <button type="button" class="btn btn-ghost" id="btn-users" hidden>用户管理</button>
+          <button type="button" class="btn btn-ghost" id="btn-account">修改密码</button>
+          <button type="button" class="btn btn-ghost" id="btn-logout">退出登录</button>
+        </div>
+      </details>
+    </div>
+  </header>
+  <nav class="sidenav" id="sidenav" aria-label="主要导航" hidden>
+    <div id="primary-navigation" class="nav-groups"></div>
+  </nav>
+  <div class="workspace">
+    <div class="page-alerts">
+      <div id="notice" class="global-notice" aria-live="polite"></div>
+      <div class="pending-banner" id="pending-banner" hidden></div>
+    </div>
+    <main id="main" class="main"></main>
+  </div>
+</div>
+<noscript>本工作台需要启用 JavaScript。页面与游戏服务端同源，不会自动调用 AI。</noscript>
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
